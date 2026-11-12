@@ -31,7 +31,7 @@ Rule: no dashboard request touches a source system. Every number is read from th
 
 ## Data model (warehouse, Django-managed)
 - Dimensions: `Region`, `State`, `Pincode`(→state, ASM), `Asm`, `Distributor`, `Retailer` (KYC status, pincode, warm/cold match flag, tier), `Product` (style, category L1–L3, pack size), `ProductVariant` (sku, size, mrp).
-- Facts: `Order` (gross value, status, payment status, distributor, split group, timestamps for placed/confirmed/shipped/delivered/cancelled), `OrderLine`, `Payment`, `Refund`, `InventorySnapshot` (daily per distributor×sku, from CK), `CrmTicket`, `AppEventDaily` (CleverTap).
+- Facts: `Order` (gross value, status, payment status, payment mode, platform, distributor, split group, timestamps for placed/confirmed/shipped/delivered/cancelled), `OrderLine`, `LoyaltyEvent` (signed points per retailer event), `Payment`, `Refund`, `InventorySnapshot` (daily per distributor×sku, from CK), `CrmTicket`, `AppEventDaily` (CleverTap).
 - Derived: `RetailerMonth` (status per retailer per month: new / retained / reactivated / lost; sales, orders), `Target` (month × scope), `DataQualityIssue`, `SyncRun`, `AlertRule`, `AlertEvent`, `AuditLog`.
 
 ## Metric definitions (defaults — editable in Metric Dictionary page)
@@ -42,7 +42,7 @@ Rule: no dashboard request touches a source system. Every number is read from th
 - Financial year April–March, timezone IST, currency formatting lakh/crore.
 
 ## Pages
-1. Executive Overview · 2. Retailer Funnel · 3. Distributor & Territory · 4. Orders & Payments · 5. Product & Inventory · 6. Retention & Growth · 7. Data Health · 8. Admin (Users & Roles, Targets, Mappings, Alerts, Metric dictionary, Audit log).
+1. Executive Overview · 2. Retailer Funnel · 3. Distributor & Territory · 4. Orders & Payments · 5. Product & Inventory · 6. Retention & Growth · 7. Loyalty Points · 8. Data Health · 9. Admin (Users & Roles, Targets, Mappings, Alerts, Metric dictionary, Audit log).
 
 ## Phases (current build scope — confirmed 11 Nov 2026)
 - P0: users/roles/scope, Medusa sync, warehouse, Overview, Funnel, Distributor & Territory, targets admin, Data Health.
@@ -51,6 +51,20 @@ Rule: no dashboard request touches a source system. Every number is read from th
 - PayU (sales/order data only): transactions every 5 min → payment status/mode per order, live "today" strip, payment success/failure and mode mix, paid-but-no-order and order-without-PayU checks.
 - **Deferred (not built now):** PayU settlement, payouts and refunds, settlement sheet, alerts + daily MIS (email/WhatsApp), CleverTap funnel, forecasting.
   Sales basis: gross value of non-cancelled orders with captured payment (PayU-verified, Medusa fallback), before returns.
+
+## Data loading: CSV exports (13 Nov 2026)
+All synthetic demo data (backend seeder and frontend mock mode) has been removed. Until the live connections are in place,
+the warehouse is loaded from the data team's exports with `manage.py import_csv_data` (files in `Backend/data/import/`,
+upsert, re-runnable). Column interpretation is documented at the top of `Backend/ingestion/csv_import.py`. Derived from the data:
+- Product file `price` = MRP per box; every sales line is billed at exactly 60% of MRP, stored as `ProductVariant.price`.
+- Customer `distributor_name` = "P1, P2" serviceable distributors; P1 is the retailer's mapped distributor.
+- Inventory uses short distributor names ("Heera"); matched to the full names and kept in `Distributor.aliases`.
+- No pincode → state table in the exports: the state comes from the PIN prefix (`warehouse/geo.py`) until the Medusa `pincode` table is connected.
+- Regions default to South 1 / South 2 / South 3 / East / West / North by state; editable in Admin → Mappings.
+
+When the Medusa replica is connected: before its first backfill, delete the orders loaded from CSV (`source_id`
+starting `csv:`) so they are not counted twice. Retailers, products and variants carry the Medusa ids and update in place;
+distributors loaded from CSV are adopted by name/alias on the first Medusa distributor sync.
 
 ## Open items needing business input
 - Exact Medusa table/field names (edit `Backend/ingestion/connectors/medusa_queries.py`).

@@ -17,24 +17,11 @@ copy .env.example .env      # then edit VITE_API_BASE_URL if needed
 npm run dev                 # http://localhost:5173, talks to the Django API
 ```
 
-### Demo mode (no backend)
-
-```powershell
-npm run dev:mock            # uses .env.mock → VITE_USE_MOCKS=true
-```
-
-Sign in with any email/password. `admin@technosport.in` is a master admin;
-`asm@technosport.in` gets the restricted **ASM** role, so you can see permission-based navigation.
-Sample data is deterministic and contract-shaped (≈ ₹2.95 Cr peak month, AOV ≈ ₹41k,
-Heera Exports ≈ 37 % share). It lives in `src/mocks/` and is loaded lazily only when
-`VITE_USE_MOCKS=true`.
-
 ## Environment variables
 
 | Variable | Default | Meaning |
 |---|---|---|
 | `VITE_API_BASE_URL` | `http://localhost:8000/api` | Django REST base URL (no trailing slash) |
-| `VITE_USE_MOCKS` | `false` | `true` serves sample data from `src/mocks` instead of the API |
 
 Vite inlines these at **build** time — rebuild for each environment.
 
@@ -43,7 +30,6 @@ Vite inlines these at **build** time — rebuild for each environment.
 | Command | What it does |
 |---|---|
 | `npm run dev` | Dev server against the real API |
-| `npm run dev:mock` | Dev server with mock data |
 | `npm run typecheck` | TypeScript only |
 | `npm run build` | Type-check (`tsc -b`) + production build to `dist/` |
 | `npm run preview` | Serve `dist/` locally |
@@ -73,9 +59,8 @@ src/
   charts/       ECharts registration, palette, option builders
   components/   Layout, FilterBar, DataTable, KpiTile, ChartCard, TargetBullet, UI primitives
   lib/          axios client + refresh interceptor, filters (URL state), formatting, refresh scheduler
-  mocks/        contract-shaped sample data + axios mock adapter
   pages/        Overview, Funnel, Retailers(+detail), Distributors(+detail), Territory, Orders,
-                Products, Inventory, Retention, DataHealth, Login
+                Products, Inventory, Retention, Loyalty, DataHealth, Login
   pages/admin/  Users, Roles, Targets, Mappings, Metrics, AuditLog
 public/
   technosport-logo.svg   placeholder — replace with the real logo (same file name)
@@ -86,7 +71,6 @@ public/
 1. **Build** with production values:
    ```powershell
    $env:VITE_API_BASE_URL = "https://api.dashboard.example.com/api"
-   $env:VITE_USE_MOCKS = "false"
    npm ci
    npm run build
    ```

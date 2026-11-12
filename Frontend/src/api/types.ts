@@ -392,6 +392,42 @@ export interface Retention {
   orders_per_active_retailer: { month: string; value: number }[];
 }
 
+// ---------------------------------------------------------------- loyalty
+export interface LoyaltyTotals {
+  points_issued: number;
+  points_redeemed: number;
+  net_points: number;
+  redemption_rate: number | null;
+  events: number;
+  members: number;
+  earning_retailers: number;
+  redeeming_retailers: number;
+  new_members: number;
+}
+export interface LoyaltyMember {
+  retailer_id: number;
+  retailer: string;
+  owner: string;
+  state: string | null;
+  distributor: string | null;
+  earned: number;
+  redeemed: number;
+  balance: number;
+  orders: number;
+  events: number;
+  last_event: string | null;
+}
+export interface Loyalty {
+  period: LoyaltyTotals;
+  previous: LoyaltyTotals | null;
+  lifetime: LoyaltyTotals;
+  data_range: { first: string | null; last: string | null };
+  monthly: { month: string; issued: number; redeemed: number; earners: number; new_members: number }[];
+  by_event: { event: string; events: number; points: number }[];
+  by_state: { state: string; members: number; issued: number; redeemed: number }[];
+  top_members: LoyaltyMember[];
+}
+
 // ---------------------------------------------------------------- data health
 export interface DataHealth {
   sources: { source: string; status: FreshnessStatus | string; last_success_at: string | null; last_error: string | null; rows_last_run: number | null; next_run_at: string | null }[];

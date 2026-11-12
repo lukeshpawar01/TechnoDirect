@@ -185,9 +185,31 @@ class MedusaConnector(BaseConnector):
                 "is_active": bool(r.get("is_active", True)), "onboarded_on": r.get("onboarded_on"),
                 # ck_code is admin-maintained: deliberately not written here
             })
+        self._adopt_csv_distributors(out)
         n = upsert(Distributor, out)
         self._advance("distributors", rows)
         return n
+
+    @staticmethod
+    def _adopt_csv_distributors(rows):
+        """Distributors first loaded from the CSV exports have no Medusa id (source_id 'name:...').
+        Give them their Medusa id when the name matches, so the upsert updates them instead of duplicating."""
+        from ingestion.csv_import import norm
+
+        known = set(Distributor.objects.values_list("source_id", flat=True))
+        by_name = {}
+        for d in Distributor.objects.filter(source_id__startswith="name:"):
+            for alias in [d.name, *(d.aliases or [])]:
+                by_name.setdefault(norm(alias), d)
+        for r in rows:
+            if r["source_id"] in known:
+                continue
+            d = by_name.get(norm(r["name"]))
+            if d and d.source_id.startswith("name:"):
+                d.source_id = r["source_id"]
+                d.save(update_fields=["source_id", "updated_at"])
+                known.add(r["source_id"])
+                r["code"] = d.code  # keep the existing code; avoids a unique clash
 
     def sync_serviceability(self):
         """Full refresh of P1/P2 distributor per pincode from ts_distributor_serviceability."""

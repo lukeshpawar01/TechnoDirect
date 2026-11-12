@@ -64,6 +64,8 @@ class Distributor(TimeStamped):
     city = models.CharField(max_length=100, blank=True)
     gstin = models.CharField(max_length=20, blank=True)
     ck_code = models.CharField(max_length=64, blank=True, help_text="Identifier in Channel Konnect")
+    aliases = models.JSONField(default=list, blank=True,
+                               help_text="Other spellings of this distributor in source files (e.g. 'Heera')")
     is_active = models.BooleanField(default=True)
     onboarded_on = models.DateField(null=True, blank=True)
 
@@ -111,7 +113,8 @@ class Category(TimeStamped):
 
 class Product(TimeStamped):
     source_id = models.CharField(max_length=64, unique=True, null=True, blank=True)
-    style = models.CharField(max_length=32, unique=True, help_text="Article / style code, e.g. OR99")
+    style = models.CharField(max_length=32, db_index=True,
+                             help_text="Article / style code, e.g. OR99 (re-launches reuse the code)")
     name = models.CharField(max_length=200)
     category = models.ForeignKey(Category, null=True, blank=True, on_delete=models.SET_NULL, related_name="products")
     category_l1 = models.CharField(max_length=100, blank=True, db_index=True,
@@ -155,6 +158,8 @@ class Retailer(TimeStamped):
     phone = models.CharField(max_length=20, blank=True, db_index=True)
     email = models.EmailField(blank=True)
     gstin = models.CharField(max_length=20, blank=True, db_index=True)
+    udyam_number = models.CharField(max_length=32, blank=True)
+    has_account = models.BooleanField(default=False, help_text="Completed app account (vs. phone-only lead)")
     pincode = models.CharField(max_length=10, blank=True, db_index=True)
     city = models.CharField(max_length=100, blank=True)
     region = models.ForeignKey(Region, null=True, blank=True, on_delete=models.SET_NULL, related_name="retailers")
@@ -208,6 +213,7 @@ class Order(TimeStamped):
     )
     payu_txn_id = models.CharField(max_length=64, blank=True, help_text="mihpayid of the latest PayU txn")
     payment_mode = models.CharField(max_length=16, blank=True, help_text="UPI / CC / DC / NB / BNPL / ...")
+    platform = models.CharField(max_length=16, blank=True, db_index=True, help_text="android / ios / web")
     payment_status_source = models.CharField(
         max_length=8, default="medusa", help_text="'payu' when status comes from a PayU txn, else 'medusa'"
     )
@@ -378,6 +384,33 @@ class PendingOrderJob(TimeStamped):
     refund_initiated_at = models.DateTimeField(null=True, blank=True)
     job_created_at = models.DateTimeField(db_index=True)
     job_updated_at = models.DateTimeField(null=True, blank=True)
+
+
+class LoyaltyEvent(TimeStamped):
+    """Retailer loyalty-points ledger: one row per event (welcome bonus, points earned, points redeemed).
+
+    `points` is signed: earned events are positive, redemptions negative.
+    """
+
+    EVENT_TYPES = [("new_customer", "New customer bonus"), ("earned", "Points earned"),
+                   ("redeemed", "Points redeemed"), ("other", "Other")]
+    source_id = models.CharField(max_length=64, unique=True, help_text="Stable hash of the source row")
+    customer_source_id = models.CharField(max_length=64, db_index=True)
+    retailer = models.ForeignKey(Retailer, null=True, blank=True, on_delete=models.SET_NULL,
+                                 related_name="loyalty_events")
+    order = models.ForeignKey(Order, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    order_display_id = models.CharField(max_length=32, blank=True)
+    event_type = models.CharField(max_length=16, choices=EVENT_TYPES, db_index=True)
+    event_label = models.CharField(max_length=64, blank=True, help_text="Raw event name from the source")
+    points = models.IntegerField(default=0)
+    event_date = models.DateField(db_index=True)
+    region = models.ForeignKey(Region, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    state = models.ForeignKey(State, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    asm = models.ForeignKey(Asm, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    distributor = models.ForeignKey(Distributor, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+
+    class Meta:
+        indexes = [models.Index(fields=["event_date", "event_type"]), models.Index(fields=["retailer", "event_date"])]
 
 
 # ----------------------------------------------------------------------------- derived

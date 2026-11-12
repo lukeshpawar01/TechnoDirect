@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { get, post, setOnAuthLost, tokens } from '@/lib/api';
 import type { Me } from '@/api/types';
@@ -12,6 +12,7 @@ export const ALL_PERMISSIONS = [
   'view_products',
   'view_inventory',
   'view_retention',
+  'view_loyalty',
   'view_data_health',
   'export_data',
   'view_pii',
@@ -37,7 +38,8 @@ const Ctx = createContext<AuthCtx | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const qc = useQueryClient();
-  const hasToken = !!tokens.access || !!tokens.refresh;
+  // React state (not a direct localStorage read) so that signing in re-renders the app.
+  const [hasToken, setHasToken] = useState(() => !!tokens.access || !!tokens.refresh);
 
   const me = useQuery({
     queryKey: ['auth', 'me'],
@@ -50,6 +52,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(() => {
     tokens.clear();
+    setHasToken(false);
     qc.clear();
     if (!window.location.pathname.startsWith('/login')) {
       const next = encodeURIComponent(window.location.pathname + window.location.search);
@@ -63,7 +66,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     async (email: string, password: string) => {
       const res = await post<{ access: string; refresh: string }>('/auth/token/', { email, password });
       tokens.set(res.access, res.refresh);
-      await qc.fetchQuery({ queryKey: ['auth', 'me'], queryFn: () => get<Me>('/auth/me/') });
+      const profile = await get<Me>('/auth/me/');
+      qc.setQueryData(['auth', 'me'], profile);
+      setHasToken(true);
     },
     [qc],
   );

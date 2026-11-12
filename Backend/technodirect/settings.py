@@ -168,6 +168,8 @@ SIMPLE_JWT = {
 
 # --- CORS --------------------------------------------------------------------
 CORS_ALLOWED_ORIGINS = env_list("CORS_ALLOWED_ORIGINS", ["http://localhost:5173"])
+# Local development: Vite moves to 5174, 5175... when 5173 is busy, so allow any localhost port.
+CORS_ALLOWED_ORIGIN_REGEXES = [r"^http://(localhost|127\.0\.0\.1):\d+$"] if DEBUG else []
 CSRF_TRUSTED_ORIGINS = env_list("CSRF_TRUSTED_ORIGINS", [])
 CORS_EXPOSE_HEADERS = ["Content-Disposition"]
 

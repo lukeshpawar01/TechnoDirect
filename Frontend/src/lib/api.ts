@@ -3,7 +3,6 @@ import type { Envelope, Meta, Paginated } from '@/api/types';
 import { freshnessStore } from './freshnessStore';
 
 export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? 'http://localhost:8000/api';
-export const USE_MOCKS = String(import.meta.env.VITE_USE_MOCKS ?? '').toLowerCase() === 'true';
 
 // ----------------------------------------------------------- token storage
 const ACCESS = 'td.access';
@@ -55,12 +54,6 @@ export const api = axios.create({
   // DRF expects repeated keys as comma-separated strings (contract) — we pre-join.
   paramsSerializer: { indexes: null },
 });
-
-if (USE_MOCKS) {
-  // Lazy-loaded so the mock data never ships unless enabled.
-  const adapterPromise = import('@/mocks/adapter').then((m) => m.mockAdapter);
-  api.defaults.adapter = async (config) => (await adapterPromise)(config);
-}
 
 api.interceptors.request.use((config) => {
   const t = tokens.access;

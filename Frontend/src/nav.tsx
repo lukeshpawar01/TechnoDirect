@@ -4,6 +4,7 @@ import {
   IconBox,
   IconCart,
   IconFunnel,
+  IconGift,
   IconHome,
   IconLayers,
   IconLink,
@@ -36,6 +37,7 @@ export const MAIN_NAV: NavItem[] = [
   { to: '/products', label: 'Products', icon: <IconLayers />, perms: ['view_products'] },
   { to: '/inventory', label: 'Inventory', icon: <IconBox />, perms: ['view_inventory'] },
   { to: '/retention', label: 'Retention & Growth', icon: <IconRepeat />, perms: ['view_retention'] },
+  { to: '/loyalty', label: 'Loyalty Points', icon: <IconGift />, perms: ['view_loyalty'] },
   { to: '/data-health', label: 'Data Health', icon: <IconPulse />, perms: ['view_data_health'] },
 ];
 

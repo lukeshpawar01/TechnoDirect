@@ -2,6 +2,7 @@ from django.urls import path
 
 from .views.distributors import DistributorDetailView, DistributorsView, TerritoryView
 from .views.funnel import FunnelView, RetailerDetailView, RetailerListView
+from .views.loyalty import LoyaltyView
 from .views.health import DataHealthView, FilterOptionsView, SyncTriggerView
 from .views.orders import OrderDetailView, OrderListView, OrdersSummaryView
 from .views.overview import OverviewView
@@ -25,6 +26,7 @@ urlpatterns = [
     path("inventory/", InventoryView.as_view()),
     path("inventory/items/", InventoryItemsView.as_view()),
     path("retention/", RetentionView.as_view()),
+    path("loyalty/", LoyaltyView.as_view()),
     path("data-health/", DataHealthView.as_view()),
     path("data-health/sync/", SyncTriggerView.as_view()),
 ]

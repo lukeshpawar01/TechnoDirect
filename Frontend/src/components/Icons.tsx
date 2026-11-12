@@ -24,6 +24,7 @@ export const IconUsers = (p: P) => <Svg {...p}><circle cx="9" cy="8" r="3.5" /><
 export const IconShield = (p: P) => <Svg {...p}><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z" /></Svg>;
 export const IconTarget = (p: P) => <Svg {...p}><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="5" /><circle cx="12" cy="12" r="1.5" /></Svg>;
 export const IconLink = (p: P) => <Svg {...p}><path d="M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1" /><path d="M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1" /></Svg>;
+export const IconGift = (p: P) => <Svg {...p}><rect x="3" y="8" width="18" height="4" rx="1" /><path d="M5 12v8h14v-8M12 8v12" /><path d="M12 8H8.5a2.5 2.5 0 010-5C11 3 12 8 12 8zM12 8h3.5a2.5 2.5 0 000-5C13 3 12 8 12 8z" /></Svg>;
 export const IconBell = (p: P) => <Svg {...p}><path d="M6 16V11a6 6 0 0112 0v5l2 2H4z" /><path d="M10 20a2 2 0 004 0" /></Svg>;
 export const IconBook = (p: P) => <Svg {...p}><path d="M4 4h10a4 4 0 014 4v12H8a4 4 0 01-4-4z" /><path d="M4 16a4 4 0 014-4h10" /></Svg>;
 export const IconList = (p: P) => <Svg {...p}><path d="M8 6h13M8 12h13M8 18h13" /><circle cx="4" cy="6" r="1" /><circle cx="4" cy="12" r="1" /><circle cx="4" cy="18" r="1" /></Svg>;

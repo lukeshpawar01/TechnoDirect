@@ -11,13 +11,14 @@ technodirect/   settings (django-environ), urls, celery app + beat schedule, DB 
 accounts/       email-login User (is_master_admin, Role, data scope), HasPerm('code'), scope helper, AuditLog,
                 create_master_admin command, /auth/* and /admin/* endpoints
 warehouse/      dimensions, facts and derived tables (Region, State, Asm, Distributor, Pincode, Category, Product,
-                ProductVariant, Retailer, Order, OrderLine, Payment, InventorySnapshot, CrmTicket, RetailerMonth,
-                Target, DataQualityIssue)
+                ProductVariant, Retailer, Order, OrderLine, Payment, InventorySnapshot, CrmTicket, LoyaltyEvent,
+                RetailerMonth, Target, DataQualityIssue); geo.py = pincode -> state reference + default regions
 ingestion/      connectors/ (medusa.py + medusa_queries.py, payu.py, google_sheets.py, channel_konnect.py),
-                SyncRun / SyncWatermark, payments_link.py (PayU <-> order matching), tasks.refresh_all, run_sync command
+                SyncRun / SyncWatermark, payments_link.py (PayU <-> order matching), tasks.refresh_all, run_sync command,
+                csv_import.py + import_csv_data command (loads the TD_*.csv exports)
 analytics/      filters.py (presets, FY/QTD in IST, compare period, scope intersection), envelope + freshness,
                 cache (Redis/locmem, invalidated by refresh), export (csv/xlsx), derivations (RetailerMonth, DQ checks),
-                every page endpoint, seed_demo_data command
+                every page endpoint
 masters/        targets / ASMs / pincodes / regions / states / reconciliation CRUD, xlsx template + upload, metric dictionary
 ```
 
@@ -29,7 +30,7 @@ py -3.12 -m venv .venv            # or: python -m venv .venv
 Copy-Item .env.example .env       # then set MASTER_ADMIN_EMAIL / MASTER_ADMIN_PASSWORD
 .\.venv\Scripts\python.exe manage.py migrate
 .\.venv\Scripts\python.exe manage.py create_master_admin
-.\.venv\Scripts\python.exe manage.py seed_demo_data      # synthetic, demo-ready data (about 30 s)
+.\.venv\Scripts\python.exe manage.py import_csv_data     # loads data/import/TD_*.csv (about 1 min)
 .\.venv\Scripts\python.exe manage.py runserver 8000
 .\.venv\Scripts\python.exe manage.py test
 ```
@@ -38,11 +39,29 @@ With placeholder values (`REPLACE_ME`), the backend falls back to these local de
 * `REDIS_URL` → in-process cache, with Celery tasks running inline (eager)
 * each connector → its `SyncRun` is recorded with status `not_configured`
 
-Demo users from `seed_demo_data` all use the password `Demo@12345`:
-* `head@technodirect.local` (all scope)
-* `rm.south2@technodirect.local` (scope: region South 2)
-* `asm.ka@technodirect.local` (scope: ASM01)
-* `heera@technodirect.local` (scope: distributor Heera Exports)
+There is no demo or synthetic data. Users are created by the master admin on Admin > Users.
+
+## Loading the CSV exports (until the live connections are in place)
+Put the data team's exports in `data/import/` (git-ignored, they contain retailer PII). The importer picks the
+largest file whose name contains `customer`, `product`, `inventory`, `sales` or `loyal`:
+
+| Export | Loaded into |
+|---|---|
+| `TD_Customer_Data.csv` | Retailer (KYC, GST, Udyam, pincode, P1 distributor), Pincode (P1 / P2), Distributor |
+| `TD_product data.csv` | Product (style, category I / II / III, launch date), ProductVariant (MRP), Category |
+| `TD_Inventory _Data.csv` | InventorySnapshot (stock per distributor x SKU), pieces per box, SKU codes |
+| `TD_Sales_Data*.csv` | Order + OrderLine (status from dispatch / delivered dates, payment mode, platform) |
+| `TD_Loyality_Point*.csv` | LoyaltyEvent (welcome bonus, points earned, points redeemed) |
+
+```powershell
+.\.venv\Scripts\python.exe manage.py import_csv_data                  # upsert; safe to re-run with newer files
+.\.venv\Scripts\python.exe manage.py import_csv_data --dir C:\exports  # another folder
+.\.venv\Scripts\python.exe manage.py import_csv_data --wipe-all       # delete ALL warehouse rows first
+```
+Re-imports keep what admins maintain: regions, a state's region, ASMs, ASM per pincode, a distributor's ASM / state /
+region once set, and targets. Distributor spellings that differ between exports ("Heera" vs "HEERA EXPORTS INC")
+are matched automatically and stored in `Distributor.aliases`. How each source column is interpreted is listed at
+the top of `ingestion/csv_import.py`.
 
 Useful commands:
 * `manage.py run_sync all|medusa|payu|google_sheets|channel_konnect` runs a sync inline.

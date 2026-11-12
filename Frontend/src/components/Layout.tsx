@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { NavLink, Outlet, useLocation, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/auth/AuthContext';
 import { useTheme, type ThemePref } from '@/lib/theme';
-import { post, USE_MOCKS } from '@/lib/api';
+import { post } from '@/lib/api';
 import { fyLabel, linkWithFilters } from '@/lib/filters';
 import { useRefreshScheduler } from '@/lib/refresh';
 import { ADMIN_NAV, MAIN_NAV, allowed, type NavItem } from '@/nav';
@@ -213,7 +213,6 @@ export function Layout() {
       </nav>
       <div className={cx('border-t border-line py-2 text-2xs text-muted', isCollapsed ? 'text-center' : 'px-4')}>
         {isCollapsed ? fyLabel().replace('FY ', '') : `${fyLabel()} · Apr–Mar · IST`}
-        {USE_MOCKS && !isCollapsed && <div className="mt-0.5 font-semibold text-warn">Demo data (mocks)</div>}
       </div>
     </div>
   );

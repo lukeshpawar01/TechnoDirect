@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/auth/AuthContext';
-import { errorMessage, tokens, USE_MOCKS } from '@/lib/api';
+import { errorMessage, tokens } from '@/lib/api';
 import { Logo } from '@/components/Logo';
 import { Spinner } from '@/components/ui';
 
@@ -9,8 +9,8 @@ export default function LoginPage() {
   const { login, user } = useAuth();
   const nav = useNavigate();
   const [sp] = useSearchParams();
-  const [email, setEmail] = useState(USE_MOCKS ? 'admin@technosport.in' : '');
-  const [password, setPassword] = useState(USE_MOCKS ? 'demo1234' : '');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const next = sp.get('next') || '/';
@@ -55,11 +55,6 @@ export default function LoginPage() {
           <button type="submit" className="btn-primary w-full py-2" disabled={busy}>
             {busy && <Spinner size={14} />} Sign in
           </button>
-          {USE_MOCKS && (
-            <p className="text-center text-2xs text-muted">
-              Demo mode: any password works. Use <b>asm@technosport.in</b> to see a restricted ASM role.
-            </p>
-          )}
         </form>
         <p className="mt-4 text-center text-2xs text-muted">Accounts are created by your master admin.</p>
       </div>

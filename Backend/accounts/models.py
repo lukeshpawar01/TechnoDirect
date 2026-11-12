@@ -13,6 +13,7 @@ PERMISSIONS = [
     ("view_products", "View product performance", "Dashboards"),
     ("view_inventory", "View inventory", "Dashboards"),
     ("view_retention", "View retention & growth", "Dashboards"),
+    ("view_loyalty", "View loyalty points", "Dashboards"),
     ("view_data_health", "View data health", "Dashboards"),
     ("export_data", "Export data (CSV / Excel)", "Data"),
     ("view_pii", "View retailer phone numbers / PII", "Data"),

@@ -41,7 +41,7 @@ The server additionally intersects with the user's data scope.
 - `GET /admin/permissions/` → `[{code,label,group}]`
 - `GET /admin/audit-log/` paginated `{id,at,user_email,action,object_type,object_id,before,after,reason}`
 
-Permission codes: `view_overview, view_funnel, view_distributors, view_territory, view_orders, view_products, view_inventory, view_retention, view_data_health, export_data, view_pii, manage_targets, manage_mappings, manage_users, manage_alerts, manage_metrics, trigger_sync`.
+Permission codes: `view_overview, view_funnel, view_distributors, view_territory, view_orders, view_products, view_inventory, view_retention, view_loyalty, view_data_health, export_data, view_pii, manage_targets, manage_mappings, manage_users, manage_alerts, manage_metrics, trigger_sync`.
 Master admin (`is_master_admin`) implicitly has all permissions and full scope.
 
 ## Filter options
@@ -88,6 +88,9 @@ Master admin (`is_master_admin`) implicitly has all permissions and full scope.
 - `GET /retention/` → `{"movement":[{month,active,retained,reactivated,new,lost,net,mom_retention}],"quarterly_retention":[{quarter,rate}],
   "cohorts":[{cohort:"2025-01",size,values:[pct...]}],"contribution":[{month,new_sales,repeat_sales,reactivated_sales}],
   "order_bands":[{band:"1|2|3-5|6-10|11-20|21+",retailers,sales}],"pareto":[{top_n,share}],"avg_days_between_orders":n,"orders_per_active_retailer":[{month,value}]}`
+- `GET /loyalty/` (perm `view_loyalty`) → `{"period":{points_issued,points_redeemed,net_points,redemption_rate,events,members,earning_retailers,redeeming_retailers,new_members},"previous":{same}|null,"lifetime":{same},
+  "data_range":{first,last},"monthly":[{month,issued,redeemed,earners,new_members}],"by_event":[{event,events,points}],"by_state":[{state,members,issued,redeemed}],
+  "top_members":[{retailer_id,retailer,owner,state,distributor,earned,redeemed,balance,orders,events,last_event}]}`. Points are positive numbers; `redemption_rate` is 0–100. Export: `?export=csv` (top_members).
 - `GET /data-health/` → `{"sources":[{source,status,last_success_at,last_error,rows_last_run,next_run_at}],"issues":[{code,label,count,severity}],"reconciliation":[{metric,period,dashboard_value,mis_value,diff_pct}]}`
 - `POST /data-health/sync/` {source} → triggers sync (perm `trigger_sync`).
 

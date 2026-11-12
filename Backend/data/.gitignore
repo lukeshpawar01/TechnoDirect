@@ -1,0 +1,3 @@
+# Source exports contain retailer PII - never commit
+*
+!.gitignore
