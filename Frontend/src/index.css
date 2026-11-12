@@ -1,0 +1,111 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Design tokens. Values are "R G B" triplets so Tailwind can apply alpha.
+ * Dark mode is a *selected* set of steps (not an automatic inversion),
+ * validated against the dark surface (#141a2e).
+ */
+:root {
+  color-scheme: light;
+  --page: 246 247 249;
+  --surface: 255 255 255;
+  --sunken: 241 242 245;
+  --line: 227 229 234;
+  --ink: 15 20 36;
+  --ink2: 74 80 99;
+  --muted: 112 118 135;
+  --brand: 30 42 94;          /* Technosport deep navy #1E2A5E */
+  --brand-ink: 255 255 255;
+  --accent: 176 58 72;        /* crimson #B03A48 */
+  --good: 0 99 0;             /* success text #006300 */
+  --warn: 138 90 0;
+  --bad: 192 47 47;
+  --good-bg: 230 244 230;
+  --warn-bg: 255 244 220;
+  --bad-bg: 251 233 233;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --page: 11 16 32;
+  --surface: 20 26 46;
+  --sunken: 27 34 56;
+  --line: 42 51 80;
+  --ink: 238 240 245;
+  --ink2: 185 191 207;
+  --muted: 140 147 166;
+  --brand: 58 86 176;
+  --brand-ink: 255 255 255;
+  --accent: 224 106 120;
+  --good: 12 163 12;
+  --warn: 250 178 25;
+  --bad: 230 103 103;
+  --good-bg: 18 48 30;
+  --warn-bg: 58 44 14;
+  --bad-bg: 60 24 30;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-page text-ink font-sans antialiased;
+  font-size: 14px;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+@layer components {
+  .card {
+    @apply rounded-lg border border-line bg-surface;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink
+      hover:bg-sunken disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/50;
+  }
+  .btn-primary {
+    @apply btn border-transparent bg-brand text-brand-ink hover:bg-brand/90;
+  }
+  .btn-danger {
+    @apply btn border-transparent bg-bad text-white hover:bg-bad/90;
+  }
+  .btn-sm {
+    @apply px-2 py-1 text-xs;
+  }
+  .input {
+    @apply w-full rounded-md border border-line bg-surface px-2.5 py-1.5 text-sm text-ink placeholder:text-muted
+      focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/25;
+  }
+  .label {
+    @apply mb-1 block text-xs font-medium text-ink2;
+  }
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium;
+  }
+  .th {
+    @apply whitespace-nowrap px-3 py-2 text-left text-xs font-semibold text-ink2;
+  }
+  .td {
+    @apply whitespace-nowrap px-3 py-2 text-sm;
+  }
+}
+
+/* Thin, quiet scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--line)) transparent;
+}
+
+@media print {
+  aside,
+  header {
+    display: none !important;
+  }
+}
