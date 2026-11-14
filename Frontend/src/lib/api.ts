@@ -88,7 +88,7 @@ async function refreshAccess(): Promise<string> {
 api.interceptors.response.use(undefined, async (error: AxiosError) => {
   const cfg = error.config as (InternalAxiosRequestConfig & { _retried?: boolean; _skipAuthRetry?: boolean }) | undefined;
   const status = error.response?.status;
-  if (!cfg || status !== 401 || cfg._retried || cfg._skipAuthRetry || cfg.url?.includes('/auth/token/')) {
+  if (!cfg || status !== 401 || cfg._retried || cfg._skipAuthRetry || cfg.url?.includes('/auth/token/') || cfg.url?.includes('/auth/otp/')) {
     return Promise.reject(error);
   }
   cfg._retried = true;

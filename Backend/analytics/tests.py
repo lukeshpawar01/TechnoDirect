@@ -1,4 +1,5 @@
 import datetime as dt
+from accounts.testing import jwt_login
 from decimal import Decimal
 
 from django.core.cache import cache
@@ -116,8 +117,7 @@ class EndpointShapeTests(TestCase):
         self.w = make_world()
         self.admin = User.objects.create_superuser(email="admin@test.local", password="x-Strong-pass1")
         self.c = APIClient()
-        tok = self.c.post("/api/auth/token/", {"email": "admin@test.local", "password": "x-Strong-pass1"},
-                          format="json").json()["access"]
+        tok = jwt_login(self.c, "admin@test.local", "x-Strong-pass1")["access"]
         self.c.credentials(HTTP_AUTHORIZATION=f"Bearer {tok}")
 
     def test_overview_shape(self):

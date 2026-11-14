@@ -31,6 +31,9 @@ Any list endpoint accepts `?export=csv|xlsx` (requires permission `export_data`)
 The server additionally intersects with the user's data scope.
 
 ## Auth & users
+- `POST /auth/token/` {email, password} → step 1. With OTP on (default): `{otp_required:true, challenge_id, email (masked), expires_in, resend_in, resends_left}` and a 6-digit code is emailed; wrong password → 401. With `LOGIN_OTP_ENABLED=False`: `{access, refresh}`.
+- `POST /auth/otp/verify/` {challenge_id, code} → `{access, refresh}`; errors 400 `{detail, code: invalid|expired|restart, attempts_left?}` (`restart` = go back to step 1).
+- `POST /auth/otp/resend/` {challenge_id} → same shape as step 1; 429 `{code:"too_soon", resend_in}` during the 30 s cooldown.
 - `POST /auth/token/` {email,password} → {access, refresh}
 - `POST /auth/token/refresh/` {refresh} → {access}
 - `GET /auth/me/` → `{id,email,full_name,is_master_admin,role:{id,name},permissions:[code],scope:{all:bool,regions:[id],states:[id],asms:[id],distributors:[id]}}`

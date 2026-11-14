@@ -6,6 +6,7 @@ All configuration comes from environment / `.env` (django-environ). Values conta
 from datetime import timedelta
 from pathlib import Path
 
+import sys
 import environ
 from celery.schedules import crontab
 
@@ -18,6 +19,7 @@ if (BASE_DIR / ".env").exists():
     environ.Env.read_env(str(BASE_DIR / ".env"))
 
 DEBUG = env_bool("DEBUG", False)
+TESTING = len(sys.argv) > 1 and sys.argv[1] == "test"
 SECRET_KEY = env_str("DJANGO_SECRET_KEY")
 if not SECRET_KEY:
     if DEBUG:
@@ -158,6 +160,10 @@ REST_FRAMEWORK = {
         "rest_framework.parsers.FormParser",
     ],
     "COERCE_DECIMAL_TO_STRING": False,
+    # Only views that set throttle_scope are rate-limited (login + OTP endpoints).
+    "DEFAULT_THROTTLE_CLASSES": ["rest_framework.throttling.ScopedRateThrottle"],
+    "DEFAULT_THROTTLE_RATES": {"login": "10000/min", "otp": "10000/min"} if TESTING else {
+        "login": env_str("LOGIN_RATE_LIMIT", "20/min"), "otp": env_str("OTP_RATE_LIMIT", "30/min")},
 }
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=env_int("JWT_ACCESS_MINUTES", 60)),
@@ -216,6 +222,31 @@ CK_API_KEY = env_str("CK_API_KEY")
 
 MASTER_ADMIN_EMAIL = env_str("MASTER_ADMIN_EMAIL")
 MASTER_ADMIN_PASSWORD = env_str("MASTER_ADMIN_PASSWORD")
+
+# --- Login OTP (6-digit code emailed after the password step) -----------------
+LOGIN_OTP_ENABLED = env_bool("LOGIN_OTP_ENABLED", True)
+LOGIN_OTP_TTL_MINUTES = env_int("LOGIN_OTP_TTL_MINUTES", 5)
+LOGIN_OTP_MAX_ATTEMPTS = env_int("LOGIN_OTP_MAX_ATTEMPTS", 5)
+LOGIN_OTP_MAX_SENDS = env_int("LOGIN_OTP_MAX_SENDS", 5)
+LOGIN_OTP_RESEND_SECONDS = env_int("LOGIN_OTP_RESEND_SECONDS", 30)
+
+# --- Email (Gmail SMTP: smtp.gmail.com:587 + TLS, EMAIL_HOST_PASSWORD = Google App Password) ---
+EMAIL_HOST = env_str("EMAIL_HOST", "smtp.gmail.com")
+EMAIL_PORT = env_int("EMAIL_PORT", 587)
+EMAIL_USE_TLS = env_bool("EMAIL_USE_TLS", True)
+EMAIL_USE_SSL = env_bool("EMAIL_USE_SSL", False)
+EMAIL_HOST_USER = env_str("EMAIL_HOST_USER")
+EMAIL_HOST_PASSWORD = env_str("EMAIL_HOST_PASSWORD").replace(" ", "")  # app passwords are shown with spaces
+EMAIL_TIMEOUT = env_int("EMAIL_TIMEOUT", 20)
+DEFAULT_FROM_EMAIL = env_str("DEFAULT_FROM_EMAIL") or (
+    f"TechnoDirect Dashboard <{EMAIL_HOST_USER}>" if EMAIL_HOST_USER else "TechnoDirect Dashboard <noreply@localhost>")
+if EMAIL_HOST_USER and EMAIL_HOST_PASSWORD:
+    EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+elif DEBUG:
+    # Local development without SMTP credentials: the email (with the code) is printed in the runserver console.
+    EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+else:
+    EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"  # fails loudly until EMAIL_* are set
 
 # --- Security (prod) ------------------------------------------------------------
 if not DEBUG:

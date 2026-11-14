@@ -41,6 +41,22 @@ With placeholder values (`REPLACE_ME`), the backend falls back to these local de
 
 There is no demo or synthetic data. Users are created by the master admin on Admin > Users.
 
+## Login with emailed OTP
+Signing in takes two steps: email + password, then a 6-digit code emailed to the user (valid 5 minutes,
+5 wrong tries, resend after 30 s, at most 5 emails per sign-in; only an HMAC of the code is stored).
+Mail goes through Django's SMTP backend; set these in `.env` and restart the backend:
+
+| Variable | Gmail / Google Workspace value |
+|---|---|
+| `EMAIL_HOST` / `EMAIL_PORT` / `EMAIL_USE_TLS` | `smtp.gmail.com` / `587` / `True` |
+| `EMAIL_HOST_USER` | the sending address, e.g. `dashboard@technosport.in` |
+| `EMAIL_HOST_PASSWORD` | a Google **App Password** for that account (Google Account > Security > 2-Step Verification > App passwords) |
+| `DEFAULT_FROM_EMAIL` | `TechnoDirect Dashboard <dashboard@technosport.in>` (must be that account or one of its aliases) |
+| `LOGIN_OTP_ENABLED` | `True`; `False` turns the second step off |
+
+While `EMAIL_HOST_USER` / `EMAIL_HOST_PASSWORD` are `REPLACE_ME` and `DEBUG=True`, the email (with the code) is printed
+in the `runserver` console instead of being sent.
+
 ## Loading the CSV exports (until the live connections are in place)
 Put the data team's exports in `data/import/` (git-ignored, they contain retailer PII). The importer picks the
 largest file whose name contains `customer`, `product`, `inventory`, `sales` or `loyal`:

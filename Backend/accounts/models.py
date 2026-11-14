@@ -116,3 +116,25 @@ class AuditLog(models.Model):
 
     class Meta:
         ordering = ["-at"]
+
+
+class LoginOtp(models.Model):
+    """A one-time code emailed after a correct password; the JWT is issued only once it is verified.
+
+    Only an HMAC of the code is stored. A challenge expires after LOGIN_OTP_TTL_MINUTES, allows
+    LOGIN_OTP_MAX_ATTEMPTS wrong guesses and LOGIN_OTP_MAX_SENDS emails (first send + resends).
+    """
+
+    challenge_id = models.CharField(max_length=64, unique=True)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="login_otps")
+    code_hash = models.CharField(max_length=64)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    last_sent_at = models.DateTimeField()
+    sends = models.PositiveSmallIntegerField(default=1)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    used_at = models.DateTimeField(null=True, blank=True)
+    ip = models.GenericIPAddressField(null=True, blank=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["user", "created_at"])]

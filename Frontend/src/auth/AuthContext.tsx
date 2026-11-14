@@ -24,12 +24,27 @@ export const ALL_PERMISSIONS = [
 ] as const;
 export type PermissionCode = (typeof ALL_PERMISSIONS)[number];
 
+/** Returned by step 1 (password) when an emailed one-time code is required. */
+export interface OtpChallenge {
+  otp_required: true;
+  challenge_id: string;
+  email: string;
+  expires_in: number;
+  resend_in: number;
+  resends_left: number;
+}
+type TokenPair = { access: string; refresh: string };
+
 interface AuthCtx {
   user: Me | null;
   loading: boolean;
   error: unknown;
   retry: () => void;
-  login: (email: string, password: string) => Promise<void>;
+  /** Step 1. Resolves with a challenge when an OTP is required, or null when signed in directly. */
+  login: (email: string, password: string) => Promise<OtpChallenge | null>;
+  /** Step 2. Signs in when the emailed code is correct. */
+  verifyOtp: (challengeId: string, code: string) => Promise<void>;
+  resendOtp: (challengeId: string) => Promise<OtpChallenge>;
   logout: () => void;
   can: (perm: PermissionCode | string) => boolean;
 }
@@ -62,9 +77,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => setOnAuthLost(logout), [logout]);
 
-  const login = useCallback(
-    async (email: string, password: string) => {
-      const res = await post<{ access: string; refresh: string }>('/auth/token/', { email, password });
+  const finish = useCallback(
+    async (res: TokenPair) => {
       tokens.set(res.access, res.refresh);
       const profile = await get<Me>('/auth/me/');
       qc.setQueryData(['auth', 'me'], profile);
@@ -72,6 +86,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
     [qc],
   );
+
+  const login = useCallback(
+    async (email: string, password: string) => {
+      const res = await post<TokenPair | OtpChallenge>('/auth/token/', { email, password });
+      if ('otp_required' in res && res.otp_required) return res;
+      await finish(res as TokenPair);
+      return null;
+    },
+    [finish],
+  );
+
+  const verifyOtp = useCallback(
+    async (challengeId: string, code: string) => {
+      await finish(await post<TokenPair>('/auth/otp/verify/', { challenge_id: challengeId, code }));
+    },
+    [finish],
+  );
+
+  const resendOtp = useCallback((challengeId: string) => post<OtpChallenge>('/auth/otp/resend/', { challenge_id: challengeId }), []);
 
   const user = hasToken ? (me.data ?? null) : null;
 
@@ -81,8 +114,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo<AuthCtx>(
-    () => ({ user, loading: hasToken && me.isLoading, error: me.error, retry: () => void me.refetch(), login, logout, can }),
-    [user, hasToken, me, login, logout, can],
+    () => ({ user, loading: hasToken && me.isLoading, error: me.error, retry: () => void me.refetch(), login, verifyOtp, resendOtp, logout, can }),
+    [user, hasToken, me, login, verifyOtp, resendOtp, logout, can],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
