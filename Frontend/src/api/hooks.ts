@@ -57,6 +57,8 @@ export function useFilterOptions() {
   return useQuery({
     queryKey: ['meta', 'filters'],
     queryFn: () => get<FilterOptions>('/meta/filters/'),
-    staleTime: Infinity,
+    // option lists change when masters / imports change: re-check at most every 5 min and on returning to the tab
+    staleTime: 5 * 60_000,
+    refetchOnWindowFocus: true,
   });
 }

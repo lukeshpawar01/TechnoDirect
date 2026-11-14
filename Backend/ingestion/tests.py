@@ -157,3 +157,29 @@ class AdoptCsvDistributorTests(TestCase):
         MedusaConnector._adopt_csv_distributors(rows)
         d.refresh_from_db()
         self.assertEqual((d.source_id, rows[0]["code"], rows[1]["code"]), ("tcd_1", "HEERAEXPOR", "TCD2"))
+
+
+class MergeDistributorTests(TestCase):
+    def test_merge_moves_references_targets_and_aliases(self):
+        import datetime as dt
+        from decimal import Decimal
+
+        from django.utils import timezone
+
+        from masters.management.commands.merge_distributors import merge
+        from warehouse.models import Distributor, Order, Target
+
+        keep = Distributor.objects.create(code="HEERA", name="Heera Exports Inc", aliases=["Heera"])
+        dup = Distributor.objects.create(code="HEERAMAIN", name="Heera Main")
+        now = timezone.now()
+        Order.objects.create(source_id="o1", display_id="1", split_group="c1", distributor=dup, placed_at=now,
+                             placed_date=now.date())
+        m = dt.date(2026, 11, 1)
+        Target.objects.create(month=m, scope_type="distributor", scope_id=keep.id, value=100, effective_from=m)
+        Target.objects.create(month=m, scope_type="distributor", scope_id=dup.id, value=50, effective_from=m)
+        merge(keep, dup)
+        self.assertFalse(Distributor.objects.filter(id=dup.id).exists())
+        self.assertEqual(Order.objects.get(source_id="o1").distributor_id, keep.id)
+        self.assertEqual(Target.objects.get(scope_type="distributor").value, Decimal("150"))
+        keep.refresh_from_db()
+        self.assertIn("Heera Main", keep.aliases)

@@ -78,10 +78,22 @@ interface Props {
   height?: number;
   ariaLabel?: string;
   onClick?: (params: { name: string; dataIndex: number; seriesName?: string; value?: unknown; data?: unknown }) => void;
+  /** Charts sharing a group get one linked crosshair / tooltip (small multiples on a common x-axis). */
+  group?: string;
 }
 
-export function EChart({ option, height = 280, ariaLabel, onClick }: Props) {
+export function EChart({ option, height = 280, ariaLabel, onClick, group }: Props) {
   const events = useMemo(() => (onClick ? { click: onClick } : undefined), [onClick]);
+  const onReady = useMemo(
+    () =>
+      group
+        ? (inst: echarts.ECharts) => {
+            inst.group = group;
+            echarts.connect(group);
+          }
+        : undefined,
+    [group],
+  );
   return (
     <div role="img" aria-label={ariaLabel} style={{ height }} className={onClick ? 'cursor-pointer' : undefined}>
       <ReactEChartsCore
@@ -91,6 +103,7 @@ export function EChart({ option, height = 280, ariaLabel, onClick }: Props) {
         lazyUpdate
         style={{ height: '100%', width: '100%' }}
         onEvents={events}
+        onChartReady={onReady}
         opts={{ renderer: 'canvas' }}
       />
     </div>

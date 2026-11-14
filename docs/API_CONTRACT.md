@@ -25,9 +25,17 @@ Paginated lists: `{"count": n, "next": url|null, "previous": url|null, "results"
 Any list endpoint accepts `?export=csv|xlsx` (requires permission `export_data`) and returns a file download.
 
 ## Common filter query params (every analytics + list endpoint)
-`preset` = today|yesterday|wtd|mtd|prev_month|qtd|fytd|last_12m|custom (default mtd) · `date_from`, `date_to` (when custom) ·
-`region`, `state`, `asm`, `distributor`, `retailer`, `category`, `article` (comma-separated ids/codes) ·
-`segment` = new|retained|reactivated|inactive|one_time|repeat · `order_status` · `payment_status`.
+`preset` = today|yesterday|wtd|last_week|mtd|prev_month|q1|q2|q3|q4|qtd|fytd|last_7d|last_30d|last_90d|last_12m|all_time|custom
+(default mtd; q1–q4 = FY quarters Apr–Jun / Jul–Sep / Oct–Dec / Jan–Mar of the current FY, or last FY if not started yet;
+a running quarter compares the same days of the previous quarter; all_time = first order date → today, no comparison) ·
+`date_from`, `date_to` (when custom) · `region`, `state`, `asm`, `distributor`, `retailer`, `category`, `article`
+(comma-separated ids/codes) · `segment` = new|retained|reactivated|inactive|one_time|repeat · `order_status` · `payment_status`.
+
+Module filters (sent only by the page that shows them; ignored where not applicable): `platform` (android,web) ·
+`payment_mode` (UPI,CC,DC,NB) · `is_split=true` · `cat_l1`, `cat_l2`, `cat_l3` (category I/II/III; order lines,
+products and stock) · `size` (stock) · `has_account=true|false` (retailers / funnel; API only, not offered in the UI) · `kyc_status` (retailer list) ·
+`event_type` = new_customer|earned|redeemed (loyalty) · `stock_sync` = fresh|stale|never (distributor scorecard).
+`/meta/filters/` also returns `payment_modes`, `platforms`, `category_tree` [{l1,l2,l3}] and `sizes` for these.
 The server additionally intersects with the user's data scope.
 
 ## Auth & users
@@ -91,6 +99,7 @@ Master admin (`is_master_admin`) implicitly has all permissions and full scope.
 - `GET /retention/` → `{"movement":[{month,active,retained,reactivated,new,lost,net,mom_retention}],"quarterly_retention":[{quarter,rate}],
   "cohorts":[{cohort:"2025-01",size,values:[pct...]}],"contribution":[{month,new_sales,repeat_sales,reactivated_sales}],
   "order_bands":[{band:"1|2|3-5|6-10|11-20|21+",retailers,sales}],"pareto":[{top_n,share}],"avg_days_between_orders":n,"orders_per_active_retailer":[{month,value}]}`
+- `GET /trends/mom/?months=6|12|24` (perm `view_overview`) → `{months:[{month,is_partial,days,basis:full_month|same_days,sales,orders,pieces,boxes,avg_price_per_piece,prev_sales,prev_pieces,prev_boxes,sales_mom_pct,pieces_mom_pct,boxes_mom_pct,avg_price_mom_pct}],range,as_of,first_data_month}`. Months end at the period end; the running month's MoM compares days 1..N with days 1..N of the previous month. Honors all global filters (category/article → line-level value and quantity).
 - `GET /loyalty/` (perm `view_loyalty`) → `{"period":{points_issued,points_redeemed,net_points,redemption_rate,events,members,earning_retailers,redeeming_retailers,new_members},"previous":{same}|null,"lifetime":{same},
   "data_range":{first,last},"monthly":[{month,issued,redeemed,earners,new_members}],"by_event":[{event,events,points}],"by_state":[{state,members,issued,redeemed}],
   "top_members":[{retailer_id,retailer,owner,state,distributor,earned,redeemed,balance,orders,events,last_event}]}`. Points are positive numbers; `redemption_rate` is 0–100. Export: `?export=csv` (top_members).

@@ -27,6 +27,9 @@ def remap_retailers_for_pincodes(pincodes):
             touched += len(ids)
     if touched:
         from analytics.cache import bump_cache_version
+        from analytics.derivations import attribute_orders_to_distributor_asm
+
+        attribute_orders_to_distributor_asm()
 
         bump_cache_version()
     return touched

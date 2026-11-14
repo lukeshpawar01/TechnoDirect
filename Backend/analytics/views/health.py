@@ -16,9 +16,11 @@ from warehouse.models import (
     ORDER_STATUSES,
     PAYMENT_STATUSES,
     Asm,
-    Category,
     DataQualityIssue,
     Distributor,
+    Order,
+    Product,
+    ProductVariant,
     Region,
     State,
 )
@@ -154,9 +156,21 @@ class FilterOptionsView(APIView):
             "states": list(states.order_by("name").values("id", "name", "code", "region_id")),
             "asms": list(asms.order_by("name").values("id", "name", "code", "region_id")),
             "distributors": list(dists.order_by("name").values("id", "name", "code", "state_id")),
-            "categories": list(Category.objects.filter(level=1).order_by("name").values("code", "name")),
+            # top-bar Category = Category I of the product catalogue
+            "categories": [{"code": c, "name": c.replace("-", " ").title()} for c in Product.objects.exclude(
+                category_l1="").values_list("category_l1", flat=True).distinct().order_by("category_l1")],
             "order_statuses": ORDER_STATUSES,
             "payment_statuses": PAYMENT_STATUSES,
+            # module filters
+            "payment_modes": sorted(m for m in Order.objects.exclude(payment_mode="").values_list(
+                "payment_mode", flat=True).distinct()),
+            "platforms": sorted(p for p in Order.objects.exclude(platform="").values_list(
+                "platform", flat=True).distinct()),
+            "category_tree": [
+                {"l1": a, "l2": b, "l3": c} for a, b, c in Product.objects.exclude(category_l1="").values_list(
+                    "category_l1", "category_l2", "category_l3").distinct().order_by(
+                    "category_l1", "category_l2", "category_l3")],
+            "sizes": sorted({s for s in ProductVariant.objects.exclude(size="").values_list("size", flat=True)}),
         })
 
 

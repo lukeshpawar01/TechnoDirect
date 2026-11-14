@@ -3,16 +3,26 @@ import { useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import type { Params } from './api';
 
+/** Date presets, in dropdown order. `group` renders as an <optgroup>; `hidden` presets stay valid in old links but are not offered. */
 export const PRESETS = [
-  { value: 'today', label: 'Today' },
-  { value: 'yesterday', label: 'Yesterday' },
-  { value: 'wtd', label: 'This week' },
-  { value: 'mtd', label: 'MTD' },
-  { value: 'prev_month', label: 'Previous month' },
-  { value: 'qtd', label: 'QTD' },
-  { value: 'fytd', label: 'FYTD' },
-  { value: 'last_12m', label: 'Last 12 months' },
-  { value: 'custom', label: 'Custom range' },
+  { value: 'today', label: 'Daily', group: 'Day' },
+  { value: 'yesterday', label: 'Previous day', group: 'Day' },
+  { value: 'wtd', label: 'This week', group: 'Week' },
+  { value: 'last_week', label: 'Last week', group: 'Week' },
+  { value: 'mtd', label: 'Monthly · MTD', group: 'Month' },
+  { value: 'prev_month', label: 'Last month', group: 'Month' },
+  { value: 'q1', label: 'Q1 · Apr–Jun', group: 'Quarter (FY)' },
+  { value: 'q2', label: 'Q2 · Jul–Sep', group: 'Quarter (FY)' },
+  { value: 'q3', label: 'Q3 · Oct–Dec', group: 'Quarter (FY)' },
+  { value: 'q4', label: 'Q4 · Jan–Mar', group: 'Quarter (FY)' },
+  { value: 'qtd', label: 'Quarter to date', group: 'Quarter (FY)', hidden: true },
+  { value: 'fytd', label: 'Yearly · YTD', group: 'Year' },
+  { value: 'last_7d', label: 'Last 7d', group: 'Rolling' },
+  { value: 'last_30d', label: 'Last 30d', group: 'Rolling' },
+  { value: 'last_90d', label: 'Last 90d', group: 'Rolling' },
+  { value: 'last_12m', label: 'Last 12 months', group: 'Rolling' },
+  { value: 'all_time', label: 'All time', group: 'Other' },
+  { value: 'custom', label: 'Custom range', group: 'Other' },
 ] as const;
 
 export type Preset = (typeof PRESETS)[number]['value'];
@@ -26,8 +36,17 @@ export const SEGMENTS = [
   { value: 'repeat', label: 'Repeat' },
 ];
 
-/** Keys that make up the global filter bar — kept in the URL so links are shareable. */
-export const GLOBAL_KEYS = ['preset', 'date_from', 'date_to', 'region', 'state', 'asm', 'distributor', 'category', 'segment', 'payment_status'] as const;
+/** Keys of the global filter bar — kept in the URL and carried to every page (and drill-down link). */
+export const GLOBAL_KEYS = ['preset', 'date_from', 'date_to', 'region', 'state', 'asm', 'distributor', 'category'] as const;
+/**
+ * Module filters — URL params owned by one page's filter row. They are sent to the API with every request
+ * from that page but are NOT carried when navigating, so another page never inherits them.
+ */
+export const MODULE_KEYS = [
+  'segment', 'payment_status', 'platform', 'payment_mode', 'is_split', 'cat_l1', 'cat_l2', 'cat_l3', 'size',
+  'kyc_status', 'event_type', 'stock_sync',
+] as const;
+export type ModuleKey = (typeof MODULE_KEYS)[number];
 export type GlobalKey = (typeof GLOBAL_KEYS)[number];
 export const MULTI_KEYS = ['region', 'state', 'asm', 'distributor', 'category'] as const;
 export type MultiKey = (typeof MULTI_KEYS)[number];
@@ -63,23 +82,28 @@ export function parseFilters(sp: URLSearchParams): GlobalFilters {
   };
 }
 
-/** Query params sent to the API (contract: comma-separated ids). */
-export function toApiParams(f: GlobalFilters, opts: { includeSegment?: boolean } = {}): Params {
+/** Query params sent to the API (contract: comma-separated ids): global filters + this page's module filters. */
+export function toApiParams(f: GlobalFilters, sp?: URLSearchParams, opts: { includeSegment?: boolean } = {}): Params {
   const out: Params = { preset: f.preset };
   if (f.preset === 'custom') {
     out.date_from = f.date_from;
     out.date_to = f.date_to;
   }
   for (const k of MULTI_KEYS) if (f[k].length) out[k] = f[k].join(',');
-  if (opts.includeSegment !== false && f.segment) out.segment = f.segment;
-  if (f.payment_status) out.payment_status = f.payment_status;
+  if (sp) {
+    for (const k of MODULE_KEYS) {
+      const v = sp.get(k);
+      if (v) out[k] = v;
+    }
+  }
+  if (opts.includeSegment === false) delete out.segment;
   return out;
 }
 
 export function useFilters() {
   const [sp, setSp] = useSearchParams();
   const filters = useMemo(() => parseFilters(sp), [sp]);
-  const apiParams = useMemo(() => toApiParams(filters), [filters]);
+  const apiParams = useMemo(() => toApiParams(filters, sp), [filters, sp]);
 
   const update = useCallback(
     (patch: Partial<Record<GlobalKey | string, string | string[] | undefined | null>>) => {
@@ -101,17 +125,21 @@ export function useFilters() {
     [setSp],
   );
 
-  const reset = useCallback(() => {
-    setSp(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        GLOBAL_KEYS.forEach((k) => next.delete(k));
-        next.delete('page');
-        return next;
-      },
-      { replace: true },
-    );
-  }, [setSp]);
+  /** Clear the given keys (default: everything the filter bars own) and list paging. */
+  const reset = useCallback(
+    (keys: readonly string[] = [...GLOBAL_KEYS, ...MODULE_KEYS]) => {
+      setSp(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          keys.forEach((k) => next.delete(k));
+          next.delete('page');
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSp],
+  );
 
   return { filters, apiParams, update, reset, searchParams: sp };
 }

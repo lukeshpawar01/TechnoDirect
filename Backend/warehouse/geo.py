@@ -4,23 +4,23 @@ The India Post PIN system is hierarchical: the first 3 digits (sorting district)
 state for almost every pincode. This is the fallback until the Medusa `pincode` table
 (pincode -> district, state) is connected; a state reported by a source row always wins.
 
-Regions are the business zones from the strategic review. They are defaults only:
+Regions are the four business zones used in the ASM performance tracker (South / East / West / North). They are defaults only:
 admins edit them on Admin > Mappings, and re-imports never overwrite an existing state's region.
 """
 
 # code -> (state name, default region code)
 STATES = {
-    "KA": ("Karnataka", "SOUTH1"),
-    "TS": ("Telangana", "SOUTH2"),
-    "AP": ("Andhra Pradesh", "SOUTH2"),
-    "TN": ("Tamil Nadu", "SOUTH3"),
-    "KL": ("Kerala", "SOUTH3"),
-    "PY": ("Puducherry", "SOUTH3"),
+    "KA": ("Karnataka", "SOUTH"),
+    "TS": ("Telangana", "SOUTH"),
+    "AP": ("Andhra Pradesh", "SOUTH"),
+    "TN": ("Tamil Nadu", "SOUTH"),
+    "KL": ("Kerala", "SOUTH"),
+    "PY": ("Puducherry", "SOUTH"),
     "OD": ("Odisha", "EAST"),
     "WB": ("West Bengal", "EAST"),
     "BR": ("Bihar", "EAST"),
     "JH": ("Jharkhand", "EAST"),
-    "CG": ("Chhattisgarh", "EAST"),
+    "CG": ("Chhattisgarh", "WEST"),
     "AS": ("Assam", "EAST"),
     "AR": ("Arunachal Pradesh", "EAST"),
     "ML": ("Meghalaya", "EAST"),
@@ -47,9 +47,7 @@ STATES = {
 }
 
 REGIONS = {
-    "SOUTH1": "South 1 (Karnataka)",
-    "SOUTH2": "South 2 (Telugu States)",
-    "SOUTH3": "South 3 (TN & Kerala)",
+    "SOUTH": "South",
     "EAST": "East",
     "WEST": "West",
     "NORTH": "North",

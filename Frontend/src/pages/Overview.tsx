@@ -6,6 +6,7 @@ import { cartesian } from '@/charts/builders';
 import { useChartTokens } from '@/charts/EChart';
 import { STATUS } from '@/charts/palette';
 import { ChartCard } from '@/components/ChartCard';
+import { MomTrend } from '@/components/MomTrend';
 import { KpiTile } from '@/components/KpiTile';
 import { PageHeader } from '@/components/PageHeader';
 import { TargetBullet } from '@/components/TargetBullet';
@@ -113,6 +114,10 @@ export default function Overview() {
                 to={linkWithFilters(k.to, sp, k.extra)}
               />
             ))}
+          </div>
+
+          <div className="mt-4">
+            <MomTrend />
           </div>
 
           <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-5">

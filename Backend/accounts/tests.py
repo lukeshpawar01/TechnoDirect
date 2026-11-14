@@ -1,7 +1,7 @@
 import re
 from django.core.cache import cache
 from accounts.testing import jwt_login
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
 from analytics.tests import make_world
@@ -77,6 +77,7 @@ class AdminFlowTests(TestCase):
         self.assertEqual(self.c.delete(f"/api/admin/users/{self.admin.id}/").status_code, 403)
 
 
+@override_settings(LOGIN_OTP_ENABLED=True)  # independent of the local .env switch
 class LoginOtpTests(TestCase):
     def setUp(self):
         from django.core import mail

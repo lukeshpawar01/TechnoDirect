@@ -13,7 +13,11 @@ from rest_framework.exceptions import ValidationError
 
 from accounts.scope import ORDER_DIMS, get_scope
 
-PRESETS = ["today", "yesterday", "wtd", "mtd", "prev_month", "qtd", "fytd", "last_12m", "custom"]
+PRESETS = ["today", "yesterday", "wtd", "last_week", "mtd", "prev_month", "q1", "q2", "q3", "q4", "qtd", "fytd",
+           "last_7d", "last_30d", "last_90d", "last_12m", "all_time", "custom"]
+QUARTER_MONTHS = {"q1": (4, "Apr–Jun"), "q2": (7, "Jul–Sep"), "q3": (10, "Oct–Dec"), "q4": (1, "Jan–Mar")}
+ROLLING_DAYS = {"last_7d": 7, "last_30d": 30, "last_90d": 90}
+ALL_TIME_FALLBACK = dt.date(2023, 9, 1)
 SEGMENTS = ["new", "retained", "reactivated", "inactive", "one_time", "repeat",
             "never_ordered", "inactive_30", "inactive_60", "inactive_90"]
 
@@ -139,7 +143,43 @@ def resolve_period(preset="mtd", today=None, date_from=None, date_to=None, compa
         s, e = fy_start(today), today
         cs = add_months(s, -12)
         ce = add_months(today, -12)
-        label = f"FYTD ({fy_label(today)})"
+        label = f"YTD ({fy_label(today)}, from 1 Apr)"
+    elif preset == "last_week":
+        s = today - dt.timedelta(days=today.weekday() + 7)
+        e = s + dt.timedelta(days=6)
+        cs, ce = s - dt.timedelta(days=7), e - dt.timedelta(days=7)
+        label = f"Last week ({s.strftime('%d %b')} – {e.strftime('%d %b')})"
+    elif preset in QUARTER_MONTHS:
+        # quarters of the CURRENT financial year; compared quarter-on-quarter with the whole previous quarter
+        first_month, months_label = QUARTER_MONTHS[preset]
+        fy = fy_start(today)
+        s = dt.date(fy.year + (1 if first_month < 4 else 0), first_month, 1)
+        q_end = month_end(add_months(s, 2))
+        cs = add_months(s, -3)
+        ce = s - dt.timedelta(days=1)
+        if s > today:
+            # not started yet: the real (future) range, so no data is shown rather than another year's
+            e = q_end
+            cs = ce = None
+            label = f"{preset.upper()} {fy_label(s)} · {months_label} (not started)"
+        else:
+            e = min(q_end, today)
+            label = f"{preset.upper()} {fy_label(s)} · {months_label}" + (" (to date)" if e < q_end else "")
+    elif preset in ROLLING_DAYS:
+        n = ROLLING_DAYS[preset]
+        s, e = today - dt.timedelta(days=n - 1), today
+        ce = s - dt.timedelta(days=1)
+        cs = ce - dt.timedelta(days=n - 1)
+        label = f"Last {n} days"
+    elif preset == "all_time":
+        from django.db.models import Min
+
+        from warehouse.models import Order
+
+        s = Order.objects.aggregate(m=Min("placed_date"))["m"] or ALL_TIME_FALLBACK
+        s, e = min(s, today), today
+        cs = ce = None
+        label = "All time"
     elif preset == "last_12m":
         s, e = add_months(month_start(today), -11), today
         cs, ce = add_months(s, -12), add_months(e, -12)
@@ -199,6 +239,16 @@ class Filters:
     segment: str | None = None
     order_status: list = field(default_factory=list)
     payment_status: list = field(default_factory=list)
+    # module filters (sent only by the page that shows them)
+    platforms: list = field(default_factory=list)
+    payment_modes: list = field(default_factory=list)
+    split_only: bool = False
+    cat_l1: list = field(default_factory=list)
+    cat_l2: list = field(default_factory=list)
+    cat_l3: list = field(default_factory=list)
+    sizes: list = field(default_factory=list)
+    has_account: bool | None = None
+    event_types: list = field(default_factory=list)
     today: dt.date = field(default_factory=today_ist)
 
     @property
@@ -214,6 +264,8 @@ class Filters:
             p.start, p.end, p.cmp_start, p.cmp_end, p.preset, sorted(self.regions), sorted(self.states),
             sorted(self.asms), sorted(self.distributors), sorted(self.retailers), sorted(self.categories),
             sorted(self.articles), self.segment, sorted(self.order_status), sorted(self.payment_status), self.today,
+            sorted(self.platforms), sorted(self.payment_modes), self.split_only, sorted(self.cat_l1),
+            sorted(self.cat_l2), sorted(self.cat_l3), sorted(self.sizes), self.has_account, sorted(self.event_types),
         ])
 
     # -- dimension predicates ----------------------------------------------
@@ -280,25 +332,32 @@ class Filters:
             qs = qs.filter(status__in=self.order_status)
         if statuses and self.payment_status:
             qs = qs.filter(payment_status__in=self.payment_status)
-        if self.categories or self.articles:
-            lq = OrderLine.objects.all()
-            if self.categories:
-                lq = lq.filter(product__category__code__in=self.categories)
-            if self.articles:
-                lq = lq.filter(style__in=self.articles)
-            qs = qs.filter(id__in=lq.values("order_id"))
+        if self.platforms:
+            qs = qs.filter(platform__in=self.platforms)
+        if self.payment_modes:
+            qs = qs.filter(payment_mode__in=self.payment_modes)
+        if self.split_only:
+            qs = qs.filter(is_split=True)
+        if self.has_line_filters():
+            qs = qs.filter(id__in=OrderLine.objects.filter(self.lines_q()).values("order_id"))
         seg = self.segment_retailers()
         if seg is not None:
             qs = qs.filter(retailer_id__in=seg)
         return qs
 
-    def lines_q(self):
-        """Extra predicates for OrderLine querysets (category / article)."""
+    def has_line_filters(self):
+        return bool(self.categories or self.articles or self.cat_l1 or self.cat_l2 or self.cat_l3)
+
+    def lines_q(self, prefix="product__"):
+        """Extra predicates for OrderLine querysets (category / article / category I-II-III)."""
         q = Q()
-        if self.categories:
-            q &= Q(product__category__code__in=self.categories)
+        if self.categories:  # global "Category" = Category I (men / women / kids / unisex)
+            q &= Q(**{f"{prefix}category_l1__in": self.categories})
         if self.articles:
             q &= Q(style__in=self.articles)
+        for lvl, vals in ((1, self.cat_l1), (2, self.cat_l2), (3, self.cat_l3)):
+            if vals:
+                q &= Q(**{f"{prefix}category_l{lvl}__in": vals})
         return q
 
 
@@ -319,11 +378,20 @@ def parse_filters(request, default_preset="mtd", today=None):
         asms=_resolve_ids(_csv(p.get("asm")), Asm),
         distributors=_resolve_ids(_csv(p.get("distributor")), Distributor),
         retailers=[int(x) for x in _csv(p.get("retailer")) if x.isdigit()],
-        categories=_csv(p.get("category")),
+        categories=[c.lower() for c in _csv(p.get("category"))],
         articles=[a.upper() for a in _csv(p.get("article"))],
         segment=seg,
         order_status=_csv(p.get("order_status")),
         payment_status=_csv(p.get("payment_status")),
+        platforms=[x.lower() for x in _csv(p.get("platform"))],
+        payment_modes=[x.upper() for x in _csv(p.get("payment_mode"))],
+        split_only=p.get("is_split") in ("1", "true"),
+        cat_l1=_csv(p.get("cat_l1")),
+        cat_l2=_csv(p.get("cat_l2")),
+        cat_l3=_csv(p.get("cat_l3")),
+        sizes=_csv(p.get("size")),
+        has_account={"true": True, "1": True, "false": False, "0": False}.get((p.get("has_account") or "").lower()),
+        event_types=_csv(p.get("event_type")),
         today=today or today_ist(),
     )
 

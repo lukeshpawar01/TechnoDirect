@@ -35,6 +35,8 @@ class LoyaltyView(AnalyticsView):
     def compute(self, f, request, **kw):
         p = f.period
         base = LoyaltyEvent.objects.filter(f.dims_q(ORDER_DIMS))
+        if f.event_types:
+            base = base.filter(event_type__in=f.event_types)
         seg = f.segment_retailers()
         if seg is not None:
             base = base.filter(retailer_id__in=seg)

@@ -5,7 +5,7 @@ import { useTheme, type ThemePref } from '@/lib/theme';
 import { post } from '@/lib/api';
 import { fyLabel, linkWithFilters } from '@/lib/filters';
 import { useRefreshScheduler } from '@/lib/refresh';
-import { ADMIN_NAV, MAIN_NAV, allowed, type NavItem } from '@/nav';
+import { ADMIN_NAV, ALL_TOP_FILTERS, MAIN_NAV, allowed, navItemFor, type NavItem } from '@/nav';
 import { FilterBar } from './FilterBar';
 import { Logo } from './Logo';
 import { Field, InlineError, Modal, cx } from './ui';
@@ -243,7 +243,7 @@ export function Layout() {
             >
               <IconChevron className={cx('transition-transform', !collapsed && 'rotate-180')} />
             </button>
-            <div className="min-w-0 flex-1">{!hideFilters && <FilterBar showSegment={!loc.pathname.startsWith('/retailers')} />}</div>
+            <div className="min-w-0 flex-1">{!hideFilters && <FilterBar visible={navItemFor(loc.pathname)?.filters ?? ALL_TOP_FILTERS} />}</div>
             <ThemeToggle />
             <UserMenu />
           </div>

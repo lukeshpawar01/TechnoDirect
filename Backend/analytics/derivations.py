@@ -224,6 +224,19 @@ def run_data_quality_checks():
     return dict(counts)
 
 
+def attribute_orders_to_distributor_asm():
+    """An order counts for the ASM who manages its distributor (as in the ASM performance tracker).
+    Orders from distributors without an ASM keep the retailer-area (pincode) ASM."""
+    from warehouse.models import Distributor
+
+    n = 0
+    for did, asm_id in Distributor.objects.filter(asm__isnull=False).values_list("id", "asm_id"):
+        n += Order.objects.filter(distributor_id=did).exclude(asm_id=asm_id).update(asm_id=asm_id)
+    for did, region_id in Distributor.objects.filter(region__isnull=False).values_list("id", "region_id"):
+        Order.objects.filter(distributor_id=did, region__isnull=True).update(region_id=region_id)
+    return n
+
+
 def run_all_derivations():
     from .cache import bump_cache_version
 
@@ -231,6 +244,7 @@ def run_all_derivations():
 
     details = {
         "payments_reconciled": reconcile_payments(),
+        "orders_asm_from_distributor": attribute_orders_to_distributor_asm(),
         "retailers_updated": refresh_retailer_aggregates(),
         "retailer_months": rebuild_retailer_months(),
         "dq_issues": run_data_quality_checks(),

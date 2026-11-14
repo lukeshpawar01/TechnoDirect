@@ -65,6 +65,48 @@ class PresetDateMathTests(TestCase):
         self.assertIsNone(self.p("mtd", compare="none").cmp_start)
 
 
+class NewPresetTests(TestCase):
+    """Presets added for the grouped date menu (FY quarters, last week, rolling windows, all time)."""
+
+    def p(self, preset, today):
+        return resolve_period(preset, today=today)
+
+    def test_last_week_is_previous_monday_to_sunday(self):
+        for today in (dt.date(2026, 11, 14), dt.date(2026, 11, 16)):  # Saturday, Monday
+            r = self.p("last_week", today)
+            self.assertEqual(r.start.weekday(), 0)
+            self.assertEqual((r.end - r.start).days, 6)
+            self.assertLess(r.end, today - dt.timedelta(days=today.weekday()) + dt.timedelta(days=0))
+            self.assertEqual(r.cmp_end, r.start - dt.timedelta(days=1))
+
+    def test_running_quarter_compares_whole_previous_quarter(self):
+        r = self.p("q3", dt.date(2026, 11, 14))
+        self.assertEqual((r.start, r.end), (dt.date(2026, 10, 1), dt.date(2026, 11, 14)))
+        self.assertEqual((r.cmp_start, r.cmp_end), (dt.date(2026, 7, 1), dt.date(2026, 9, 30)))
+
+    def test_complete_quarter_compares_whole_previous_quarter(self):
+        r = self.p("q2", dt.date(2026, 11, 14))
+        self.assertEqual((r.start, r.end), (dt.date(2026, 7, 1), dt.date(2026, 9, 30)))
+        self.assertEqual((r.cmp_start, r.cmp_end), (dt.date(2026, 4, 1), dt.date(2026, 6, 30)))
+
+    def test_quarter_not_started_is_its_own_future_range(self):
+        r = self.p("q4", dt.date(2026, 11, 14))  # FY26-27 Q4 = Jan-Mar 2027, not started: no fallback
+        self.assertEqual((r.start, r.end), (dt.date(2027, 1, 1), dt.date(2027, 3, 31)))
+        self.assertIn("not started", r.label)
+        self.assertIsNone(r.cmp_start)
+
+    def test_rolling_windows(self):
+        for preset, n in (("last_7d", 7), ("last_30d", 30), ("last_90d", 90)):
+            r = self.p(preset, dt.date(2026, 11, 14))
+            self.assertEqual((r.end - r.start).days + 1, n)
+            self.assertEqual((r.cmp_end - r.cmp_start).days + 1, n)
+            self.assertEqual(r.cmp_end, r.start - dt.timedelta(days=1))
+
+    def test_all_time_without_orders_uses_fallback_and_no_compare(self):
+        r = self.p("all_time", dt.date(2026, 11, 14))
+        self.assertEqual((r.start, r.end, r.cmp_start), (dt.date(2023, 9, 1), dt.date(2026, 11, 14), None))
+
+
 class RetailerStatusTests(TestCase):
     def test_classification(self):
         months = [D(2025, 1, 1), D(2025, 2, 1), D(2025, 4, 1), D(2025, 5, 1)]
@@ -119,6 +161,29 @@ class EndpointShapeTests(TestCase):
         self.c = APIClient()
         tok = jwt_login(self.c, "admin@test.local", "x-Strong-pass1")["access"]
         self.c.credentials(HTTP_AUTHORIZATION=f"Bearer {tok}")
+
+    def test_new_presets_and_module_params_are_accepted(self):
+        for preset in ("last_week", "q1", "q2", "q3", "q4", "last_7d", "last_30d", "last_90d", "all_time"):
+            self.assertEqual(self.c.get(f"/api/overview/?preset={preset}").status_code, 200, preset)
+        base = self.c.get("/api/orders/?preset=all_time").json()["count"]
+        web = self.c.get("/api/orders/?preset=all_time&platform=web").json()["count"]
+        self.assertLessEqual(web, base)
+        for q in ("loyalty/?event_type=redeemed", "funnel/?has_account=true", "inventory/items/?size=XL",
+                  "products/?cat_l1=men", "distributors/?stock_sync=never"):
+            self.assertEqual(self.c.get(f"/api/{q}").status_code, 200, q)
+        opts = self.c.get("/api/meta/filters/").json()
+        for k in ("payment_modes", "platforms", "category_tree", "sizes"):
+            self.assertIn(k, opts)
+
+    def test_mom_trend_shape(self):
+        r = self.c.get("/api/trends/mom/?months=6")
+        self.assertEqual(r.status_code, 200, r.content)
+        rows = r.json()["data"]["months"]
+        self.assertEqual(len(rows), 6)
+        for k in ("month", "sales", "pieces", "boxes", "sales_mom_pct", "pieces_mom_pct", "is_partial", "basis"):
+            self.assertIn(k, rows[-1])
+        self.assertEqual(sum(1 for x in rows if x["is_partial"]), 1 if rows[-1]["is_partial"] else 0)
+        self.assertEqual(self.c.get("/api/trends/mom/?months=5").status_code, 400)
 
     def test_overview_shape(self):
         r = self.c.get("/api/overview/?preset=last_12m")

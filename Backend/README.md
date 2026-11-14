@@ -41,6 +41,15 @@ With placeholder values (`REPLACE_ME`), the backend falls back to these local de
 
 There is no demo or synthetic data. Users are created by the master admin on Admin > Users.
 
+## Monthly ASM performance tracker
+Each month's tracker CSV (Distributor, Region, ASM, Total Target, ...) sets the ASMs, each distributor's ASM and
+region (South / East / West / North), and that month's sales targets per distributor, ASM, region and overall:
+```powershell
+.\.venv\Scripts\python.exe manage.py import_asm_tracker "data/import/asm_tracker/<file>.csv" --month 2026-12 --dry-run   # check matching
+.\.venv\Scripts\python.exe manage.py import_asm_tracker "data/import/asm_tracker/<file>.csv" --month 2026-12
+```
+Actual sales are always computed from orders; an order counts for the ASM of the distributor that fulfilled it.
+
 ## Login with emailed OTP
 Signing in takes two steps: email + password, then a 6-digit code emailed to the user (valid 5 minutes,
 5 wrong tries, resend after 30 s, at most 5 emails per sign-in; only an HMAC of the code is stored).

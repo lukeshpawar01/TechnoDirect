@@ -108,6 +108,11 @@ export interface FilterOptions {
   categories: { code: string; name: string }[];
   order_statuses: string[];
   payment_statuses: string[];
+  // module filters
+  payment_modes?: string[];
+  platforms?: string[];
+  category_tree?: { l1: string; l2: string; l3: string }[];
+  sizes?: string[];
 }
 
 // ---------------------------------------------------------------- overview
@@ -201,6 +206,8 @@ export interface DistributorRow {
   id: number;
   name: string;
   state: string;
+  region?: string | null;
+  asm?: string | null;
   sales: number;
   share: number;
   orders: number;
@@ -462,4 +469,30 @@ export interface MetricDef {
   source: string;
   owner: string;
   refresh: string;
+}
+
+// ---------------------------------------------------------------- MoM trend (/trends/mom/)
+export interface MomMonth {
+  month: string;
+  is_partial: boolean;
+  days: number;
+  basis: 'full_month' | 'same_days';
+  sales: number;
+  orders: number;
+  pieces: number;
+  boxes: number;
+  avg_price_per_piece: number | null;
+  prev_sales: number;
+  prev_pieces: number;
+  prev_boxes: number;
+  sales_mom_pct: number | null;
+  pieces_mom_pct: number | null;
+  boxes_mom_pct: number | null;
+  avg_price_mom_pct: number | null;
+}
+export interface MomTrend {
+  months: MomMonth[];
+  range: number;
+  as_of: string;
+  first_data_month: string | null;
 }

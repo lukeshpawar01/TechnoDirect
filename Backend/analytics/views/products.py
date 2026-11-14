@@ -124,7 +124,12 @@ def latest_inventory(f):
     if f.articles:
         qs = qs.filter(style__in=f.articles)
     if f.categories:
-        qs = qs.filter(product__category__code__in=f.categories)
+        qs = qs.filter(product__category_l1__in=f.categories)
+    for lvl, vals in ((1, f.cat_l1), (2, f.cat_l2), (3, f.cat_l3)):
+        if vals:
+            qs = qs.filter(**{f"product__category_l{lvl}__in": vals})
+    if f.sizes:
+        qs = qs.filter(size__in=f.sizes)
     return qs
 
 

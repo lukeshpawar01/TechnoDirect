@@ -55,9 +55,12 @@ class DistributorsView(AnalyticsView):
     sources = ["medusa", "payu", "channel_konnect"]
     export_key = "rows"
 
+    def cache_extra(self, request, **kwargs):
+        return super().cache_extra(request, **kwargs) + f"|sync={request.query_params.get('stock_sync', '')}"
+
     def compute(self, f, request, **kw):
         p = f.period
-        dists = list(scoped_distributors(f).select_related("state"))
+        dists = list(scoped_distributors(f).select_related("state", "region", "asm"))
         ids = [d.id for d in dists]
         base = f.orders()
         cur_qs = base.filter(placed_date__gte=p.start, placed_date__lte=p.end)
@@ -96,6 +99,7 @@ class DistributorsView(AnalyticsView):
             dp = disp.get(d.id, (None, None))
             rows.append({
                 "id": d.id, "code": d.code, "name": d.name, "state": d.state.name if d.state_id else None,
+                "region": d.region.name if d.region_id else None, "asm": d.asm.name if d.asm_id else None,
                 "sales": num(sales), "share": share(sales, total), "orders": orders, "aov": ratio(sales, orders),
                 "retailers": mapped.get(d.id, 0), "active_retailers": act, "new_retailers": new,
                 "repeat_pct": pct(act - new, act), "orders_per_retailer": ratio(orders, act),
@@ -107,6 +111,15 @@ class DistributorsView(AnalyticsView):
                 "spark": [num(sp[d.id].get(m, 0)) for m in months12],
             })
         rows.sort(key=lambda r: -r["sales"])
+        sync = request.query_params.get("stock_sync")
+        if sync in ("fresh", "stale", "never"):
+            cutoff = timezone.now() - dt.timedelta(hours=24)
+
+            def bucket(r):
+                at = stock.get(r["id"])
+                return "never" if not at else ("fresh" if at >= cutoff else "stale")
+
+            rows = [r for r in rows if bucket(r) == sync]
         return {"rows": rows}
 
 

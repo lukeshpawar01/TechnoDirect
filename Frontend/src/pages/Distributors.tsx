@@ -83,6 +83,7 @@ export default function Distributors() {
             columns={[
               { key: 'name', header: 'Distributor', render: (r) => <span className="font-medium">{r.name}</span> },
               { key: 'state', header: 'State' },
+              { key: 'asm', header: 'ASM', render: (r) => r.asm ?? <span className="text-muted">–</span>, value: (r) => r.asm ?? '' },
               { key: 'sales', header: 'Sales', align: 'right', render: (r) => inr(r.sales) },
               {
                 key: 'share',

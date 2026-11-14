@@ -19,7 +19,10 @@ from .base import AnalyticsView
 
 
 def retailer_base(f):
-    return Retailer.objects.filter(f.dims_q(RETAILER_DIMS, retailer_field="id"))
+    qs = Retailer.objects.filter(f.dims_q(RETAILER_DIMS, retailer_field="id"))
+    if f.has_account is not None:
+        qs = qs.filter(has_account=f.has_account)
+    return qs
 
 
 def mask_phone(phone, can_see):
