@@ -28,6 +28,7 @@ export const IconGift = (p: P) => <Svg {...p}><rect x="3" y="8" width="18" heigh
 export const IconBell = (p: P) => <Svg {...p}><path d="M6 16V11a6 6 0 0112 0v5l2 2H4z" /><path d="M10 20a2 2 0 004 0" /></Svg>;
 export const IconBook = (p: P) => <Svg {...p}><path d="M4 4h10a4 4 0 014 4v12H8a4 4 0 01-4-4z" /><path d="M4 16a4 4 0 014-4h10" /></Svg>;
 export const IconList = (p: P) => <Svg {...p}><path d="M8 6h13M8 12h13M8 18h13" /><circle cx="4" cy="6" r="1" /><circle cx="4" cy="12" r="1" /><circle cx="4" cy="18" r="1" /></Svg>;
+export const IconSidebar = (p: P) => <Svg {...p}><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16" /></Svg>;
 export const IconChevron = (p: P) => <Svg {...p}><path d="M9 6l6 6-6 6" /></Svg>;
 export const IconChevronDown = (p: P) => <Svg {...p}><path d="M6 9l6 6 6-6" /></Svg>;
 export const IconMenu = (p: P) => <Svg {...p}><path d="M4 6h16M4 12h16M4 18h16" /></Svg>;

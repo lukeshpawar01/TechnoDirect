@@ -9,11 +9,13 @@ import { ADMIN_NAV, ALL_TOP_FILTERS, MAIN_NAV, allowed, navItemFor, type NavItem
 import { FilterBar } from './FilterBar';
 import { Logo } from './Logo';
 import { Field, InlineError, Modal, cx } from './ui';
-import { IconChevron, IconKey, IconLogout, IconMenu, IconMonitor, IconMoon, IconSun } from './Icons';
+import { IconKey, IconLogout, IconMenu, IconMonitor, IconMoon, IconSidebar, IconSun } from './Icons';
 
-function readCollapsed() {
+/** Desktop sidebar visibility, remembered per browser ('hidden' | 'open'; old 'collapsed' counts as hidden). */
+function readHidden() {
   try {
-    return localStorage.getItem('td.sidebar') === 'collapsed';
+    const v = localStorage.getItem('td.sidebar');
+    return v === 'hidden' || v === 'collapsed';
   } catch {
     return false;
   }
@@ -178,7 +180,12 @@ function UserMenu() {
 
 export function Layout() {
   const { can } = useAuth();
-  const [collapsed, setCollapsed] = useState(readCollapsed);
+  const [hidden, setHidden] = useState(readHidden);
+  const asideRef = useRef<HTMLElement>(null);
+  // keep keyboard focus out of the hidden sidebar (React 18 types lack the `inert` prop)
+  useEffect(() => {
+    asideRef.current?.toggleAttribute('inert', hidden);
+  }, [hidden]);
   const [mobileOpen, setMobileOpen] = useState(false);
   const loc = useLocation();
   useRefreshScheduler();
@@ -187,20 +194,42 @@ export function Layout() {
 
   useEffect(() => {
     try {
-      localStorage.setItem('td.sidebar', collapsed ? 'collapsed' : 'open');
+      localStorage.setItem('td.sidebar', hidden ? 'hidden' : 'open');
     } catch {
       /* ignore */
     }
-  }, [collapsed]);
+  }, [hidden]);
+  // Ctrl/Cmd + B toggles the sidebar (not while typing in a field)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'b' && !t?.closest('input, textarea, select, [contenteditable="true"]')) {
+        e.preventDefault();
+        setHidden((h) => !h);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
   useEffect(() => setMobileOpen(false), [loc.pathname]);
 
   const main = MAIN_NAV.filter((i) => allowed(i, can));
   const admin = ADMIN_NAV.filter((i) => allowed(i, can));
 
-  const sidebar = (isCollapsed: boolean) => (
+  const sidebar = (isCollapsed: boolean, onHide?: () => void) => (
     <div className="flex h-full flex-col">
-      <div className={cx('flex items-center border-b border-line', isCollapsed ? 'justify-center px-2 py-3' : 'justify-center px-4 py-4')}>
+      <div className={cx('relative flex items-center border-b border-line', isCollapsed ? 'justify-center px-2 py-3' : 'justify-center px-4 py-4')}>
         <Logo compact={isCollapsed} />
+        {onHide && (
+          <button
+            className="absolute right-2 top-2 rounded p-1.5 text-ink2 hover:bg-sunken hover:text-ink"
+            onClick={onHide}
+            aria-label="Hide sidebar"
+            title="Hide sidebar (Ctrl+B)"
+          >
+            <IconSidebar size={18} />
+          </button>
+        )}
       </div>
       <nav className="flex-1 overflow-y-auto px-2 py-3" aria-label="Main">
         <NavGroup items={main} collapsed={isCollapsed} onNavigate={() => setMobileOpen(false)} keepFilters />
@@ -220,12 +249,19 @@ export function Layout() {
   return (
     <div className="flex h-full">
       {/* desktop sidebar */}
-      <aside className={cx('hidden shrink-0 border-r border-line bg-surface transition-[width] duration-200 md:block', collapsed ? 'w-16' : 'w-60')}>{sidebar(collapsed)}</aside>
+      <aside
+        className={cx('hidden shrink-0 overflow-hidden bg-surface transition-[width] duration-200 md:block', hidden ? 'w-0' : 'w-60 border-r border-line')}
+        aria-hidden={hidden}
+        ref={asideRef}
+      >
+        {/* fixed inner width so the content slides out instead of squashing */}
+        <div className="h-full w-60">{sidebar(false, () => setHidden(true))}</div>
+      </aside>
       {/* mobile sidebar */}
       {mobileOpen && (
         <div className="fixed inset-0 z-50 bg-black/40 md:hidden" onClick={() => setMobileOpen(false)}>
           <aside className="h-full w-64 bg-surface" onClick={(e) => e.stopPropagation()}>
-            {sidebar(false)}
+            {sidebar(false, () => setMobileOpen(false))}
           </aside>
         </div>
       )}
@@ -235,14 +271,17 @@ export function Layout() {
             <button className="rounded p-1.5 text-ink2 hover:bg-sunken md:hidden" onClick={() => setMobileOpen(true)} aria-label="Open menu">
               <IconMenu />
             </button>
-            <button
-              className="hidden rounded p-1.5 text-ink2 hover:bg-sunken md:block"
-              onClick={() => setCollapsed((c) => !c)}
-              aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-              title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            >
-              <IconChevron className={cx('transition-transform', !collapsed && 'rotate-180')} />
-            </button>
+            {/* the toggle lives inside the sidebar; while it is hidden, this one brings it back */}
+            {hidden && (
+              <button
+                className="hidden rounded p-1.5 text-ink2 hover:bg-sunken hover:text-ink md:block"
+                onClick={() => setHidden(false)}
+                aria-label="Show sidebar"
+                title="Show sidebar (Ctrl+B)"
+              >
+                <IconSidebar size={18} />
+              </button>
+            )}
             <div className="min-w-0 flex-1">{!hideFilters && <FilterBar visible={navItemFor(loc.pathname)?.filters ?? ALL_TOP_FILTERS} />}</div>
             <ThemeToggle />
             <UserMenu />
