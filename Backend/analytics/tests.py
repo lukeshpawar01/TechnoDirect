@@ -210,7 +210,7 @@ class EndpointShapeTests(TestCase):
 
     def test_orders_summary_and_list_shapes(self):
         d = self.c.get("/api/orders/summary/?preset=last_12m").json()["data"]
-        self.assertEqual(set(d), {"status_counts", "ageing", "tat", "cancellation_rate", "payment",
+        self.assertEqual(set(d), {"status_counts", "ageing", "tat", "cancellation_rate", "payment", "order_payment_modes", "order_platforms",
                                   "split_orders", "sla_breaches", "crm"})
         self.assertNotIn("refunds", d)
         lst = self.c.get("/api/orders/?preset=last_12m").json()
@@ -237,3 +237,24 @@ class EndpointShapeTests(TestCase):
         r = self.c.get("/api/retailers/?export=csv&preset=last_12m")
         self.assertEqual(r.status_code, 200)
         self.assertIn("text/csv", r["Content-Type"])
+
+
+class KycVerifiedFilterTests(TestCase):
+    def setUp(self):
+        cache.clear()
+        self.w = make_world()
+        self.admin = User.objects.create_superuser(email="kyc@test.local", password="x-Strong-pass1")
+        self.c = APIClient()
+        self.c.force_authenticate(self.admin)
+
+    def test_kyc_verified_splits_retailers_and_funnel(self):
+        from warehouse.models import Retailer
+
+        total = self.c.get("/api/retailers/?preset=all_time").json()["count"]
+        yes = self.c.get("/api/retailers/?preset=all_time&kyc_verified=true").json()["count"]
+        no = self.c.get("/api/retailers/?preset=all_time&kyc_verified=false").json()["count"]
+        self.assertEqual((yes, no), (Retailer.objects.filter(kyc_status="approved").count(),
+                                     Retailer.objects.exclude(kyc_status="approved").count()))
+        self.assertEqual(yes + no, total)
+        stages = {s["key"]: s["count"] for s in self.c.get("/api/funnel/?preset=all_time&kyc_verified=false").json()["data"]["stages"]}
+        self.assertEqual(stages["kyc_approved"], 0)

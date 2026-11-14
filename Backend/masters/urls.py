@@ -12,6 +12,8 @@ router.register("states", views.StateViewSet, basename="states")
 router.register("reconciliation", views.ReconciliationViewSet, basename="reconciliation")
 
 urlpatterns = [
+    path("asm-tracker/", views.AsmTrackerView.as_view()),
+    path("asm-tracker/upload/", views.AsmTrackerUploadView.as_view()),
     path("metrics/", views.MetricDictionaryView.as_view()),
     path("metrics/<str:code>/", views.MetricDictionaryView.as_view()),
 ] + router.urls

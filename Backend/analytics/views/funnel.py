@@ -22,6 +22,10 @@ def retailer_base(f):
     qs = Retailer.objects.filter(f.dims_q(RETAILER_DIMS, retailer_field="id"))
     if f.has_account is not None:
         qs = qs.filter(has_account=f.has_account)
+    if f.kyc_statuses:  # "KYC status" module filter (Retailers, Funnel)
+        qs = qs.filter(kyc_status__in=f.kyc_statuses)
+    if f.kyc_verified is not None:  # "KYC Verified" module filter (Retailers, Funnel)
+        qs = qs.filter(kyc_status="approved") if f.kyc_verified else qs.exclude(kyc_status="approved")
     return qs
 
 
@@ -85,13 +89,27 @@ class FunnelView(AnalyticsView):
             {"key": "active_this_period", "label": f"Active ({p.label})", "count": active},
         ]
 
-        # KYC approval month -> converted to first order
-        kyc_rows = (rb.filter(kyc_status="approved", kyc_approved_at__isnull=False)
-                    .annotate(m=TruncMonth("kyc_approved_at")).values("m")
-                    .annotate(n=Count("id"), conv=Count("id", filter=Q(first_order_date__isnull=False)))
-                    .order_by("m"))
-        kyc_by_month = [{"month": mkey(r["m"]), "kyc_approved": r["n"], "converted": r["conv"],
-                         "rate": share(r["conv"], r["n"])} for r in kyc_rows if as_date(r["m"]) <= p.end]
+        # Sign-up cohorts (the source has no KYC approval date, only the customer's created date):
+        # of the retailers who signed up in a month, how many are KYC-approved today, and how many of those
+        # have placed a first order. Last 18 months up to the period end.
+        last_m = month_start(p.end)
+        first_m = add_months(last_m, -17)
+        cohort = {as_date(r["m"]): r for r in rb.filter(
+            signed_up_at__isnull=False, signed_up_at__date__gte=first_m, signed_up_at__date__lte=p.end,
+        ).annotate(m=TruncMonth("signed_up_at")).values("m").annotate(
+            n=Count("id"),
+            kyc=Count("id", filter=Q(kyc_status="approved")),
+            ordered=Count("id", filter=Q(kyc_status="approved", first_order_date__isnull=False,
+                                         first_order_date__lte=p.end)),
+        )}
+        signup_cohorts, m = [], first_m
+        while m <= last_m:
+            r = cohort.get(m) or {"n": 0, "kyc": 0, "ordered": 0}
+            signup_cohorts.append({
+                "month": mkey(m), "signed_up": r["n"], "kyc_approved": r["kyc"], "first_order": r["ordered"],
+                "kyc_rate": pct(r["kyc"], r["n"]), "order_rate": pct(r["ordered"], r["kyc"]),
+            })
+            m = add_months(m, 1)
 
         acq = dict((as_date(r["m"]), r["n"]) for r in rb.filter(first_order_date__isnull=False).annotate(
             m=TruncMonth("first_order_date")).values("m").annotate(n=Count("id")))
@@ -123,7 +141,7 @@ class FunnelView(AnalyticsView):
             "never_ordered": {"total": agg["never"], "warm": agg["never_warm"],
                               "cold": agg["never"] - agg["never_warm"], "flagged": agg["never_flagged"]},
             "inactivity": {"d30": agg["d30"], "d60": agg["d60"], "d90": agg["d90"]},
-            "kyc_to_first_order_by_month": kyc_by_month,
+            "signup_cohorts": signup_cohorts,
             "acquisition_monthly": acquisition,
             "by_state": by_state,
         }
@@ -192,8 +210,6 @@ class RetailerListView(ExportListMixin, generics.ListAPIView):
         if seg is not None:
             qs = qs.filter(id__in=seg)
         q = self.request.query_params
-        if q.get("kyc_status"):
-            qs = qs.filter(kyc_status__in=q["kyc_status"].split(","))
         if q.get("warm") in ("true", "1", "false", "0"):
             qs = qs.filter(warm_match=q["warm"] in ("true", "1"))
         if q.get("search"):

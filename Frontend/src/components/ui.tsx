@@ -280,13 +280,15 @@ export function Tabs<T extends string>({ value, onChange, tabs }: { value: T; on
 }
 
 // ---------------------------------------------------------------- overlays
-export function Modal({ open, onClose, title, children, footer, wide }: {
+export function Modal({ open, onClose, title, children, footer, wide, xl }: {
   open: boolean;
   onClose: () => void;
   title: ReactNode;
   children: ReactNode;
   footer?: ReactNode;
   wide?: boolean;
+  /** extra-wide, for editable tables */
+  xl?: boolean;
 }) {
   useEffect(() => {
     if (!open) return;
@@ -300,7 +302,7 @@ export function Modal({ open, onClose, title, children, footer, wide }: {
       <div
         role="dialog"
         aria-modal="true"
-        className={cx('card w-full shadow-xl', wide ? 'max-w-3xl' : 'max-w-lg')}
+        className={cx('card w-full shadow-xl', xl ? 'max-w-6xl' : wide ? 'max-w-3xl' : 'max-w-lg')}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-line px-4 py-3">

@@ -20,17 +20,25 @@ export default function Funnel() {
   const dim = q.isFetching && q.isPlaceholderData;
 
   const funnelOpt = useMemo(() => (d?.stages?.length ? funnel(t, d.stages) : null), [d, t]);
+  // both series are percentages -> one shared % axis (no dual axis); counts are in the table view
+  const cohorts = useMemo(() => {
+    const rows = d?.signup_cohorts ?? [];
+    const first = rows.findIndex((r) => r.signed_up > 0);
+    return first < 0 ? [] : rows.slice(first);
+  }, [d]);
   const convOpt = useMemo(
     () =>
-      d?.kyc_to_first_order_by_month?.length
+      cohorts.length
         ? cartesian(t, {
-            x: d.kyc_to_first_order_by_month.map((m) => monthLabel(m.month)),
+            x: cohorts.map((m) => monthLabel(m.month)),
             format: 'pct',
-            series: [{ name: 'KYC → first order conversion', type: 'line', data: d.kyc_to_first_order_by_month.map((m) => asPct(m.rate)), area: true, endLabel: true }],
-            legend: false,
+            series: [
+              { name: 'KYC approved (% of sign-ups)', type: 'line', data: cohorts.map((m) => m.kyc_rate), endLabel: true, color: t.series[0] },
+              { name: 'First order (% of KYC-approved)', type: 'line', data: cohorts.map((m) => m.order_rate), endLabel: true, color: t.series[1] },
+            ],
           })
         : null,
-    [d, t],
+    [cohorts, t],
   );
   const acqOpt = useMemo(
     () =>
@@ -102,11 +110,15 @@ export default function Funnel() {
 
       <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
         <ChartCard
-          title="KYC-approved → first order conversion"
-          subtitle="By month of KYC approval"
+          title="Sign-up → KYC → first order conversion"
+          subtitle="By month of sign-up (customer created date) · status as of today"
           option={convOpt}
           loading={q.isLoading}
-          table={d ? { columns: ['Month', 'KYC approved', 'Converted', 'Rate'], rows: d.kyc_to_first_order_by_month.map((m) => [monthLabel(m.month), num(m.kyc_approved), num(m.converted), pct(asPct(m.rate))]) } : undefined}
+          empty={!cohorts.length}
+          table={{
+            columns: ['Sign-up month', 'Signed up', 'KYC approved', 'KYC %', 'First order', 'Order % of KYC'],
+            rows: cohorts.map((m) => [monthLabel(m.month), num(m.signed_up), num(m.kyc_approved), pct(m.kyc_rate), num(m.first_order), pct(m.order_rate)]),
+          }}
         />
         <ChartCard
           title="Retailer acquisition"

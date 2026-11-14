@@ -79,6 +79,9 @@ class Command(BaseCommand):
 
         with transaction.atomic():
             result = self.apply(rows, matched, month, total_row, path.name)
+            from masters.asm_tracker import sync_state_targets
+
+            result["state_targets"] = sync_state_targets(month)
         self.stdout.write("[tracker] re-deriving retailer months and data-quality checks...")
         run_all_derivations()
         bump_cache_version()

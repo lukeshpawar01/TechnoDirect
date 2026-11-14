@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useQueryClient, useIsFetching } from '@tanstack/react-query';
+import { get } from './api';
 import { useLatestMeta } from './freshnessStore';
 
 /** Scheduled warehouse refreshes (IST). */
@@ -47,4 +48,38 @@ export function useRefreshScheduler() {
       document.removeEventListener('visibilitychange', check);
     };
   }, [next, firedFor, refresh]);
+}
+
+/**
+ * Mount once. Polls the server's data version (while the tab is visible, and when it becomes
+ * visible again; every 15 s). Any save — ASM tracker, targets, mappings, sync — bumps it, so every open dashboard
+ * reloads its data within ~15 s instead of waiting for the next scheduled refresh.
+ */
+export function useDataVersionWatcher(intervalMs = 15_000) {
+  const qc = useQueryClient();
+  useEffect(() => {
+    let last: number | null = null;
+    let stopped = false;
+    const check = async () => {
+      if (stopped || document.visibilityState !== 'visible') return;
+      try {
+        const { version } = await get<{ version: number }>('/meta/data-version/');
+        if (last !== null && version !== last) {
+          await Promise.all([...DATA_KEYS, ['meta'], ['asm-tracker']].map((queryKey) => qc.invalidateQueries({ queryKey })));
+        }
+        last = version;
+      } catch {
+        /* offline / signed out: try again next tick */
+      }
+    };
+    void check();
+    const timer = window.setInterval(() => void check(), intervalMs);
+    const onVisible = () => void check();
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [qc, intervalMs]);
 }

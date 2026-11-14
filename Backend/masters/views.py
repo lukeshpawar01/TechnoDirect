@@ -479,3 +479,87 @@ class MetricDictionaryView(APIView):
                            after=snapshot(s.instance))
                 out.append(s.data)
         return Response(out if isinstance(request.data, list) else out[0])
+
+
+# ----------------------------------------------------------------------------- ASM tracker
+class AsmTrackerView(APIView):
+    """GET  ?month=YYYY-MM[&download=xlsx]  -> tracker rows + ASM summary (xlsx needs export_data)
+    POST {month, rows:[{distributor_id, region, asm, target}]} -> save (manage_targets + manage_mappings)"""
+
+    def get_permissions(self):
+        if self.request.method == "GET":
+            return [IsAuthenticated(), HasPerm("view_territory")()]
+        return [IsAuthenticated(), HasPerm("manage_targets")(), HasPerm("manage_mappings")()]
+
+    def get(self, request):
+        from .asm_tracker import parse_month, to_xlsx, tracker
+
+        try:
+            month = parse_month(request.query_params.get("month"))
+        except ValueError as e:
+            raise ValidationError({"month": str(e)}) from None
+        data = tracker(month, request.user)
+        if request.query_params.get("download") == "xlsx":
+            if not request.user.has_code("export_data"):
+                return Response({"detail": "Your role cannot export data."}, status=403)
+            log_action(request, "export", None, object_type="asm_tracker", object_id=data["month"])
+            resp = HttpResponse(to_xlsx(data),
+                                content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            resp["Content-Disposition"] = f'attachment; filename="ASM_tracker_{data["month"]}.xlsx"'
+            return resp
+        return Response(data)
+
+    def post(self, request):
+        from .asm_tracker import apply_rows, parse_month
+
+        try:
+            month = parse_month(request.data.get("month"))
+        except ValueError as e:
+            raise ValidationError({"month": str(e)}) from None
+        names = dict(Distributor.objects.values_list("id", "name"))
+        rows = []
+        for i, r in enumerate(request.data.get("rows") or [], start=1):
+            did = r.get("distributor_id")
+            if did not in names:
+                raise ValidationError({"rows": f"row {i}: unknown distributor id {did}"})
+            target = r.get("target")
+            if target not in (None, ""):
+                try:
+                    if Decimal(str(target)) < 0:
+                        raise ValidationError({"rows": f"row {i}: target must be ≥ 0"})
+                except InvalidOperation:
+                    raise ValidationError({"rows": f"row {i}: target must be a number"}) from None
+            rows.append({"Distributor": names[did], "Region": str(r.get("region") or "").strip(),
+                         "ASM": str(r.get("asm") or "").strip()[:120],
+                         "Total Target": "" if target in (None, "") else str(target)})
+        if not rows:
+            raise ValidationError({"rows": "nothing to save"})
+        result = apply_rows(rows, month, f"edited on screen by {request.user.email}")
+        log_action(request, "update", None, object_type="asm_tracker", object_id=month.isoformat()[:7],
+                   after={"rows": len(rows), "targets": result.get("targets")})
+        return Response({"saved": len(rows), "result": result})
+
+
+class AsmTrackerUploadView(APIView):
+    """POST multipart {file: .xlsx|.csv in the tracker layout, month: YYYY-MM}"""
+
+    parser_classes = [MultiPartParser, FormParser]
+
+    def get_permissions(self):
+        return [IsAuthenticated(), HasPerm("manage_targets")(), HasPerm("manage_mappings")()]
+
+    def post(self, request):
+        from .asm_tracker import apply_rows, parse_month, rows_from_file
+
+        f = request.FILES.get("file")
+        if not f:
+            raise ValidationError({"file": "Choose the tracker file (.xlsx or .csv)."})
+        try:
+            month = parse_month(request.data.get("month"))
+            rows, total = rows_from_file(f)
+        except ValueError as e:
+            raise ValidationError({"file": str(e)}) from None
+        result = apply_rows(rows, month, f"upload {f.name}", total)
+        log_action(request, "upload", None, object_type="asm_tracker", object_id=f.name,
+                   after={"month": month.isoformat()[:7], "rows": len(rows), "targets": result.get("targets")})
+        return Response({"saved": len(rows), "result": result})

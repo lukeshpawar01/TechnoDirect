@@ -4,10 +4,11 @@ import { useAuth } from '@/auth/AuthContext';
 import { useTheme, type ThemePref } from '@/lib/theme';
 import { post } from '@/lib/api';
 import { fyLabel, linkWithFilters } from '@/lib/filters';
-import { useRefreshScheduler } from '@/lib/refresh';
+import { useDataVersionWatcher, useRefreshScheduler } from '@/lib/refresh';
 import { ADMIN_NAV, ALL_TOP_FILTERS, MAIN_NAV, allowed, navItemFor, type NavItem } from '@/nav';
 import { FilterBar } from './FilterBar';
 import { Logo } from './Logo';
+import { TechnoAI } from './TechnoAI';
 import { Field, InlineError, Modal, cx } from './ui';
 import { IconKey, IconLogout, IconMenu, IconMonitor, IconMoon, IconSidebar, IconSun } from './Icons';
 
@@ -189,6 +190,7 @@ export function Layout() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const loc = useLocation();
   useRefreshScheduler();
+  useDataVersionWatcher();
   const isAdmin = loc.pathname.startsWith('/admin');
   const hideFilters = isAdmin || loc.pathname.startsWith('/data-health');
 
@@ -291,6 +293,7 @@ export function Layout() {
           <Outlet />
         </main>
       </div>
+      <TechnoAI />
     </div>
   );
 }

@@ -50,6 +50,20 @@ region (South / East / West / North), and that month's sales targets per distrib
 ```
 Actual sales are always computed from orders; an order counts for the ASM of the distributor that fulfilled it.
 
+## Techno AI assistant (Ollama)
+A chatbot (bottom-right "Techno AI" button) that explains dashboard metrics and answers questions from the data.
+* **Authorisation:** it never queries the database itself. It calls the dashboard's own API endpoints *as the
+  signed-in user*, so role permissions and data scope apply exactly as on screen; modules the role cannot see are
+  never fetched and the answer says so. Using it needs the `use_assistant` permission (granted to existing roles
+  that can view a dashboard). Every question is written to the Audit Log.
+* **Flow:** the model plans which permitted sources to read (max 4) → they are fetched and trimmed → the model
+  answers only from those numbers as JSON (headline, what to do, data points with R1/R2 references, metric
+  explanation, follow-ups).
+* **Configuration (`.env`, restart after changes):** `OLLAMA_BASE_URL` (`https://ollama.com` for Ollama Cloud or
+  `http://localhost:11434` self-hosted), `OLLAMA_API_KEY` (Ollama Cloud key; blank when self-hosted),
+  `OLLAMA_MODEL` (e.g. `gpt-oss:120b`), optional `OLLAMA_TIMEOUT`, `OLLAMA_NUM_CTX`, `ASSISTANT_RATE_LIMIT`,
+  `ASSISTANT_ENABLED`.
+
 ## Login with emailed OTP
 Signing in takes two steps: email + password, then a 6-digit code emailed to the user (valid 5 minutes,
 5 wrong tries, resend after 30 s, at most 5 emails per sign-in; only an HMAC of the code is stored).

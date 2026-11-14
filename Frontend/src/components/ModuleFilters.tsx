@@ -34,6 +34,9 @@ function catLevel(level: 1 | 2 | 3) {
 
 const SEGMENT: FieldDef = { key: 'segment', label: 'Segment', single: true, options: SEGMENTS };
 // Category I uses the global `category` key (hidden from the top bar on pages that show it here)
+// customer `kyc` column: TRUE = verified (KYC approved)
+const KYC_STATUS: FieldDef = { key: 'kyc_status', label: 'KYC status', options: ['approved', 'pending', 'rejected', 'not_submitted'].map((v) => ({ value: v, label: title(v) })) };
+const KYC_VERIFIED: FieldDef = { key: 'kyc_verified', label: 'KYC Verified', single: true, width: 'w-40', options: [{ value: 'true', label: 'Yes' }, { value: 'false', label: 'No' }] };
 const CAT_L1: FieldDef = { key: 'category', label: 'Category I', options: catLevel(1), width: 'w-36' };
 const CAT_L2: FieldDef = { key: 'cat_l2', label: 'Category II', options: catLevel(2), width: 'w-36' };
 const CAT_L3: FieldDef = { key: 'cat_l3', label: 'Category III', options: catLevel(3), width: 'w-40' };
@@ -41,8 +44,10 @@ const CAT_L3: FieldDef = { key: 'cat_l3', label: 'Category III', options: catLev
 /** Page-specific filters, keyed by the nav path that owns them. Sent to the API only from that page. */
 const MODULES: Record<string, FieldDef[]> = {
   '/overview': [SEGMENT],
+  '/funnel': [KYC_STATUS, KYC_VERIFIED],
   '/retailers': [
-    { key: 'kyc_status', label: 'KYC status', options: ['approved', 'pending', 'rejected', 'not_submitted'].map((v) => ({ value: v, label: title(v) })) },
+    KYC_STATUS,
+    KYC_VERIFIED,
     // segment has its own tabs on the Retailers page
   ],
   '/distributors': [

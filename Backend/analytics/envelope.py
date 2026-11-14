@@ -5,7 +5,7 @@ from rest_framework.response import Response
 from ingestion.models import SyncRun
 from ingestion.schedule import REFRESH_SOURCE, evaluate_status, next_scheduled
 
-SALES_BASIS = "Gross order value of paid orders (PayU-verified), before returns"
+SALES_BASIS = "Gross order value of paid, non-cancelled orders, before returns"
 
 
 def _iso(v):

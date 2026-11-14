@@ -14,6 +14,7 @@ export const ALL_PERMISSIONS = [
   'view_retention',
   'view_loyalty',
   'view_data_health',
+  'use_assistant',
   'export_data',
   'view_pii',
   'manage_targets',

@@ -174,6 +174,18 @@ class FilterOptionsView(APIView):
         })
 
 
+class DataVersionView(APIView):
+    """GET -> {version}. Bumped on every data / mapping / target change; open dashboards poll it (every ~15 s)
+    and reload as soon as it changes, so a save shows up for every user without waiting for the next refresh."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from ..cache import cache_version
+
+        return Response({"version": cache_version()})
+
+
 def _ids(qs, field):
     from django.db.models import Q
 

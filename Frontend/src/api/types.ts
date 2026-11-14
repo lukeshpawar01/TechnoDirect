@@ -168,7 +168,8 @@ export interface Funnel {
   kyc_status: { status: string; count: number }[];
   never_ordered: { total: number; warm: number; cold: number; flagged: number };
   inactivity: { d30: number; d60: number; d90: number };
-  kyc_to_first_order_by_month: { month: string; kyc_approved: number; converted: number; rate: number }[];
+  /** by month of sign-up (customer created date): current KYC approval and first-order conversion */
+  signup_cohorts: { month: string; signed_up: number; kyc_approved: number; first_order: number; kyc_rate: number | null; order_rate: number | null }[];
   acquisition_monthly: { month: string; new_retailers: number; cumulative: number }[];
   by_state: { state: string; kyc_approved: number; ever_ordered: number; active: number; adoption_pct: number }[];
 }
@@ -306,7 +307,10 @@ export interface OrdersSummary {
   } | null;
   split_orders: { split_carts: number; total_carts: number };
   sla_breaches: number;
-  crm: { open: number; by_type: { type: string; count: number }[] };
+  crm: { connected: boolean; open: number; by_type: { type: string; count: number }[] };
+  /** paid, non-cancelled orders in the period by payment mode / platform (from the orders themselves) */
+  order_payment_modes: { key: string; orders: number; value: number; share: number | null }[];
+  order_platforms: { key: string; orders: number; value: number; share: number | null }[];
 }
 
 export interface OrderRow {
@@ -495,4 +499,68 @@ export interface MomTrend {
   range: number;
   as_of: string;
   first_data_month: string | null;
+}
+
+// ---------------------------------------------------------------- Techno AI (/assistant/*)
+export interface AiStatus {
+  enabled: boolean;
+  configured: boolean;
+  model: string | null;
+  provider: string;
+  modules: string[];
+  suggestions: string[];
+}
+export interface AiItem {
+  text: string;
+  refs: string[];
+}
+export interface AiAnswer {
+  headline: string;
+  what_to_do: AiItem[];
+  data_points: AiItem[];
+  explanation: string;
+  not_authorised: string[];
+  follow_ups: string[];
+}
+export interface AiSource {
+  ref: string;
+  tool: string;
+  label: string;
+  period: string | null;
+  params: Record<string, string>;
+  ok: boolean;
+}
+export interface AiReply {
+  answer: AiAnswer;
+  sources: AiSource[];
+  model: string;
+  took_ms: number;
+  asked_at: string;
+}
+
+// ---------------------------------------------------------------- ASM tracker (/masters/asm-tracker/)
+export interface AsmTrackerRow {
+  distributor_id: number;
+  distributor: string;
+  region: string;
+  asm_id: number | null;
+  asm: string;
+  sales: number;
+  orders: number;
+  share: number | null;
+  target: number | null;
+  remaining: number | null;
+  achieved_pct: number | null;
+  asm_target: number | null;
+  asm_sales: number | null;
+  asm_achieved_pct: number | null;
+}
+export interface AsmTrackerData {
+  month: string;
+  as_of: string;
+  rows: AsmTrackerRow[];
+  asm_summary: { asm_id: number; asm: string; region: string; distributors: number; sales: number; orders: number; target: number | null; remaining: number | null; achieved_pct: number | null }[];
+  totals: { sales: number; orders: number; target: number | null; achieved_pct: number | null };
+  regions: string[];
+  asms: string[];
 }

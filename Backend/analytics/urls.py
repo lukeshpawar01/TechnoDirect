@@ -3,7 +3,7 @@ from django.urls import path
 from .views.distributors import DistributorDetailView, DistributorsView, TerritoryView
 from .views.funnel import FunnelView, RetailerDetailView, RetailerListView
 from .views.loyalty import LoyaltyView
-from .views.health import DataHealthView, FilterOptionsView, SyncTriggerView
+from .views.health import DataHealthView, DataVersionView, FilterOptionsView, SyncTriggerView
 from .views.orders import OrderDetailView, OrderListView, OrdersSummaryView
 from .views.overview import OverviewView
 from .views.products import InventoryItemsView, InventoryView, ProductsView, ProductTreeView
@@ -12,6 +12,7 @@ from .views.trends import MomTrendView
 
 urlpatterns = [
     path("meta/filters/", FilterOptionsView.as_view()),
+    path("meta/data-version/", DataVersionView.as_view()),
     path("overview/", OverviewView.as_view()),
     path("trends/mom/", MomTrendView.as_view()),
     path("funnel/", FunnelView.as_view()),

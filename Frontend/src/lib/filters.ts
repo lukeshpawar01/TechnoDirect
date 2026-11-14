@@ -44,7 +44,7 @@ export const GLOBAL_KEYS = ['preset', 'date_from', 'date_to', 'region', 'state',
  */
 export const MODULE_KEYS = [
   'segment', 'payment_status', 'platform', 'payment_mode', 'is_split', 'cat_l1', 'cat_l2', 'cat_l3', 'size',
-  'kyc_status', 'event_type', 'stock_sync',
+  'kyc_status', 'kyc_verified', 'event_type', 'stock_sync',
 ] as const;
 export type ModuleKey = (typeof MODULE_KEYS)[number];
 export type GlobalKey = (typeof GLOBAL_KEYS)[number];

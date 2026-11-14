@@ -110,12 +110,25 @@ class OrdersSummaryView(AnalyticsView):
         if not PayUConnector().is_configured() and not Payment.objects.exists():
             payment = None
 
+        # Payment mode / ordering platform straight from the orders (no gateway or settlement data needed)
+        paid = f.orders(start=p.start, end=p.end)
+        paid_total = float(paid.aggregate(v=Sum("gross_value"))["v"] or 0)
+
+        def mix(field):
+            return [{"key": r[field] or "Unknown", "orders": r["n"], "value": num(r["v"]),
+                     "share": pct(float(r["v"] or 0), paid_total)}
+                    for r in paid.values(field).annotate(n=Count("id"), v=Sum("gross_value")).order_by("-v")]
+
         carts = allq.values("split_group").annotate(n=Count("id"))
         split_carts = sum(1 for c in carts if c["n"] > 1)
 
         crm_qs = CrmTicket.objects.filter(f.dims_q(CRM_DIMS))
         open_t = crm_qs.exclude(status="closed")
+        from ingestion.connectors.google_sheets import GoogleSheetsConnector
+
         crm = {
+            # CRM cards are shown only once the CRM sheet is connected or tickets exist
+            "connected": GoogleSheetsConnector().is_configured() or CrmTicket.objects.exists(),
             "open": open_t.count(),
             "opened_in_period": crm_qs.filter(opened_at__gte=day_bounds(p.start, p.end)[0],
                                               opened_at__lt=day_bounds(p.start, p.end)[1]).count(),
@@ -126,6 +139,8 @@ class OrdersSummaryView(AnalyticsView):
             "status_counts": status_counts, "ageing": ageing, "tat": tat,
             "cancellation_rate": pct(cancelled, total_n) or 0.0,
             "payment": payment,
+            "order_payment_modes": mix("payment_mode"),
+            "order_platforms": mix("platform"),
             "split_orders": {"split_carts": split_carts, "total_carts": len(carts)},
             "sla_breaches": open_sla_breaches(f).count(),
             "crm": crm,

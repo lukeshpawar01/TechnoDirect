@@ -33,7 +33,7 @@ a running quarter compares the same days of the previous quarter; all_time = fir
 
 Module filters (sent only by the page that shows them; ignored where not applicable): `platform` (android,web) ·
 `payment_mode` (UPI,CC,DC,NB) · `is_split=true` · `cat_l1`, `cat_l2`, `cat_l3` (category I/II/III; order lines,
-products and stock) · `size` (stock) · `has_account=true|false` (retailers / funnel; API only, not offered in the UI) · `kyc_status` (retailer list) ·
+products and stock) · `size` (stock) · `has_account=true|false` (retailers / funnel; API only, not offered in the UI) · `kyc_status` (Retailers / Funnel) · `kyc_verified=true|false` (Retailers / Funnel; customer kyc column) ·
 `event_type` = new_customer|earned|redeemed (loyalty) · `stock_sync` = fresh|stale|never (distributor scorecard).
 `/meta/filters/` also returns `payment_modes`, `platforms`, `category_tree` [{l1,l2,l3}] and `sizes` for these.
 The server additionally intersects with the user's data scope.
@@ -78,7 +78,7 @@ Master admin (`is_master_admin`) implicitly has all permissions and full scope.
   KPI = `{"value":n,"compare":n|null,"delta_pct":n|null,"spark":[n,...12 months]}`
 - `GET /funnel/` → `{"stages":[{"key":"signed_up|kyc_submitted|kyc_approved|first_order|repeat_order|active_this_period","label","count"}],
   "kyc_status":[{"status":"pending|approved|rejected","count"}], "never_ordered":{"total","warm","cold","flagged"},
-  "inactivity":{"d30","d60","d90"}, "kyc_to_first_order_by_month":[{"month","kyc_approved","converted","rate"}],
+  "inactivity":{"d30","d60","d90"}, "signup_cohorts":[{"month","signed_up","kyc_approved","first_order","kyc_rate","order_rate"}] (by sign-up month; no KYC approval date in the source),
   "acquisition_monthly":[{"month","new_retailers","cumulative"}], "by_state":[{"state","kyc_approved","ever_ordered","active","adoption_pct"}]}`
 - `GET /retailers/` (list; segment filter incl. `never_ordered`, `inactive_30|60|90`) → rows `{id,name,phone(masked unless view_pii),state,distributor,asm,kyc_status,first_order_date,last_order_date,days_since_last_order,orders,sales,segment,warm_match}`
 - `GET /retailers/{id}/` → profile + `monthly:[{month,sales,orders}]` + `recent_orders:[...]`
@@ -105,6 +105,17 @@ Master admin (`is_master_admin`) implicitly has all permissions and full scope.
   "top_members":[{retailer_id,retailer,owner,state,distributor,earned,redeemed,balance,orders,events,last_event}]}`. Points are positive numbers; `redemption_rate` is 0–100. Export: `?export=csv` (top_members).
 - `GET /data-health/` → `{"sources":[{source,status,last_success_at,last_error,rows_last_run,next_run_at}],"issues":[{code,label,count,severity}],"reconciliation":[{metric,period,dashboard_value,mis_value,diff_pct}]}`
 - `POST /data-health/sync/` {source} → triggers sync (perm `trigger_sync`).
+
+## ASM tracker (Territory page: Export / Upload / Edit)
+- `GET /masters/asm-tracker/?month=YYYY-MM` (perm `view_territory`, scoped) → `{month, as_of, rows:[{distributor_id, distributor, region, asm_id, asm, sales, orders, share, target, remaining, achieved_pct, asm_target, asm_sales, asm_achieved_pct}], asm_summary:[...], totals, regions, asms}`; add `&download=xlsx` for the Excel tracker (needs `export_data`).
+- `POST /masters/asm-tracker/` `{month, rows:[{distributor_id, region, asm, target}]}` and `POST /masters/asm-tracker/upload/` (multipart `file` .xlsx/.csv in the tracker layout + `month`) — perms `manage_targets` + `manage_mappings`. Same rules as `manage.py import_asm_tracker`; the save is the full picture for the month (blank target removes that distributor's own target; ASM / region / overall targets are the sums). Audited.
+
+## Techno AI assistant (perm `use_assistant`)
+- `GET /assistant/status/` → `{enabled, configured, model, provider, modules:[label], suggestions:[str]}`
+- `POST /assistant/chat/` `{question, history:[{role:user|assistant, content}], context:{page, params:{...current filters}}}` →
+  `{answer:{headline, what_to_do:[{text, refs}], data_points:[{text, refs}], explanation, not_authorised:[label], follow_ups:[str]},
+  sources:[{ref, tool, label, period, params, ok}], model, took_ms, asked_at}`. 503 `{detail}` when the model is unreachable / not configured;
+  rate-limited (`ASSISTANT_RATE_LIMIT`, default 15/min). Data is fetched through the dashboard endpoints as the user (same permissions + scope).
 
 ## Masters (Admin)
 - `GET/POST /masters/targets/`, `PATCH/DELETE /masters/targets/{id}/` — `{id,month:"2026-11",scope_type:"overall|region|state|asm|distributor",scope_id,scope_name,metric:"sales|orders|new_retailers|active_retailers",value,effective_from,notes}`

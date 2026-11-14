@@ -48,6 +48,7 @@ INSTALLED_APPS = [
     "ingestion",
     "analytics",
     "masters",
+    "assistant",
 ]
 
 MIDDLEWARE = [
@@ -162,8 +163,9 @@ REST_FRAMEWORK = {
     "COERCE_DECIMAL_TO_STRING": False,
     # Only views that set throttle_scope are rate-limited (login + OTP endpoints).
     "DEFAULT_THROTTLE_CLASSES": ["rest_framework.throttling.ScopedRateThrottle"],
-    "DEFAULT_THROTTLE_RATES": {"login": "10000/min", "otp": "10000/min"} if TESTING else {
-        "login": env_str("LOGIN_RATE_LIMIT", "20/min"), "otp": env_str("OTP_RATE_LIMIT", "30/min")},
+    "DEFAULT_THROTTLE_RATES": {"login": "10000/min", "otp": "10000/min", "assistant": "10000/min"} if TESTING else {
+        "login": env_str("LOGIN_RATE_LIMIT", "20/min"), "otp": env_str("OTP_RATE_LIMIT", "30/min"),
+        "assistant": env_str("ASSISTANT_RATE_LIMIT", "15/min")},
 }
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=env_int("JWT_ACCESS_MINUTES", 60)),
@@ -222,6 +224,14 @@ CK_API_KEY = env_str("CK_API_KEY")
 
 MASTER_ADMIN_EMAIL = env_str("MASTER_ADMIN_EMAIL")
 MASTER_ADMIN_PASSWORD = env_str("MASTER_ADMIN_PASSWORD")
+
+# --- Techno AI assistant (Ollama) ---------------------------------------------
+ASSISTANT_ENABLED = env_bool("ASSISTANT_ENABLED", True)
+OLLAMA_BASE_URL = env_str("OLLAMA_BASE_URL", "https://ollama.com")
+OLLAMA_API_KEY = env_str("OLLAMA_API_KEY")
+OLLAMA_MODEL = env_str("OLLAMA_MODEL")
+OLLAMA_TIMEOUT = env_int("OLLAMA_TIMEOUT", 90)
+OLLAMA_NUM_CTX = env_int("OLLAMA_NUM_CTX", 16384)
 
 # --- Login OTP (6-digit code emailed after the password step) -----------------
 LOGIN_OTP_ENABLED = env_bool("LOGIN_OTP_ENABLED", True)

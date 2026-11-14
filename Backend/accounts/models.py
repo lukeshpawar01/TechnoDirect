@@ -15,6 +15,7 @@ PERMISSIONS = [
     ("view_retention", "View retention & growth", "Dashboards"),
     ("view_loyalty", "View loyalty points", "Dashboards"),
     ("view_data_health", "View data health", "Dashboards"),
+    ("use_assistant", "Use Techno AI assistant", "Dashboards"),
     ("export_data", "Export data (CSV / Excel)", "Data"),
     ("view_pii", "View retailer phone numbers / PII", "Data"),
     ("manage_targets", "Manage targets", "Admin"),

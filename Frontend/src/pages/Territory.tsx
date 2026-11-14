@@ -4,6 +4,7 @@ import type { Territory as TerritoryData } from '@/api/types';
 import { cartesian } from '@/charts/builders';
 import { useChartTokens } from '@/charts/EChart';
 import { colorFor } from '@/charts/palette';
+import { AsmTrackerActions } from '@/components/AsmTracker';
 import { ChartCard } from '@/components/ChartCard';
 import { DataTable } from '@/components/DataTable';
 import { PageHeader } from '@/components/PageHeader';
@@ -101,7 +102,12 @@ export default function Territory() {
           }
         />
       </div>
-      <Card title={`${groupLabel} scorecard`} className="mt-4">
+      <Card
+        title={`${groupLabel} scorecard`}
+        className="mt-4"
+        // ASM targets are maintained by the team in Excel: export / upload / edit the monthly tracker here
+        actions={<AsmTrackerActions month={q.data?.meta?.period?.to?.slice(0, 7)} />}
+      >
         <DataTable
           rows={d?.rows}
           loading={q.isLoading}

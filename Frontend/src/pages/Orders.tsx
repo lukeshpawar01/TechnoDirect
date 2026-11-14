@@ -137,6 +137,8 @@ export function OrderDrawer({ id, onClose }: { id: string | number | null; onClo
 }
 
 // ------------------------------------------------------------------ page
+const MODE_LABELS: Record<string, string> = { UPI: 'UPI', CC: 'Credit card', DC: 'Debit card', NB: 'Net banking', BNPL: 'Pay later', EMI: 'EMI' };
+
 export default function Orders() {
   const q = useAnalytics<OrdersSummary>('/orders/summary/');
   const t = useChartTokens();
@@ -205,11 +207,14 @@ export default function Orders() {
   const pay = d?.payment ?? null;
   const payAttempts = pay ? pay.success + pay.failed + pay.pending : 0;
   const successRate = pay && payAttempts ? (pay.success / payAttempts) * 100 : null;
-  const modeOpt = useMemo(() => {
-    const mm = [...(pay?.mode_mix ?? [])].sort((a, b) => b.value - a.value);
-    if (!mm.length) return null;
-    return cartesian(t, { x: mm.map((m) => m.mode), horizontal: true, format: 'inr', legend: false, showBarLabels: true, series: [{ name: 'Captured value', data: mm.map((m) => m.value) }] });
-  }, [pay, t]);
+  // payment mode / platform come from the orders themselves — no gateway or settlement data needed
+  const modeRows = useMemo(() => (d?.order_payment_modes ?? []).map((m) => ({ ...m, label: MODE_LABELS[m.key] ?? m.key })), [d]);
+  const platformRows = useMemo(() => (d?.order_platforms ?? []).map((m) => ({ ...m, label: titleCase(m.key) })), [d]);
+  const mixOpt = (rows: { label: string; value: number }[]) =>
+    rows.length ? cartesian(t, { x: rows.map((m) => m.label), horizontal: true, format: 'inr', legend: false, showBarLabels: true, series: [{ name: 'Order value', data: rows.map((m) => m.value) }] }) : null;
+  const modeOpt = useMemo(() => mixOpt(modeRows), [modeRows, t]); // eslint-disable-line react-hooks/exhaustive-deps
+  const platformOpt = useMemo(() => mixOpt(platformRows), [platformRows, t]); // eslint-disable-line react-hooks/exhaustive-deps
+  const crmOn = !!d?.crm?.connected;
 
   const crmOpt = useMemo(() => {
     const c = [...(d?.crm?.by_type ?? [])].sort((a, b) => b.count - a.count);
@@ -219,7 +224,7 @@ export default function Orders() {
 
   return (
     <div>
-      <PageHeader title="Orders & Fulfilment" subtitle="Status, ageing, turnaround, PayU payments and CRM" meta={q.data?.meta} />
+      <PageHeader title="Orders & Fulfilment" subtitle="Status, ageing, turnaround, payment modes and ordering platform" meta={q.data?.meta} />
 
       {q.error && !q.data ? (
         <Card>
@@ -238,7 +243,7 @@ export default function Orders() {
               value={num(d?.split_orders.split_carts)}
               sub={d?.split_orders.total_carts ? `${pct((d.split_orders.split_carts / d.split_orders.total_carts) * 100)} of ${num(d.split_orders.total_carts)} carts` : undefined}
             />
-            <MiniStat label="Open CRM tickets" value={num(d?.crm.open)} tone={d?.crm.open ? 'warn' : undefined} />
+            {crmOn && <MiniStat label="Open CRM tickets" value={num(d?.crm.open)} tone={d?.crm.open ? 'warn' : undefined} />}
           </div>
 
           <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-3">
@@ -272,9 +277,26 @@ export default function Orders() {
             />
           </div>
 
-          <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-3">
-            <Card title="Payments (PayU)" subtitle="Payment attempts on orders in the period" className="xl:col-span-1">
-              {pay ? (
+          <div className={cx('mt-4 grid grid-cols-1 gap-4', [true, true, !!pay, crmOn].filter(Boolean).length > 2 ? 'xl:grid-cols-3' : 'xl:grid-cols-2')}>
+            <ChartCard
+              title="Payment mode mix"
+              subtitle="Value of paid orders by payment mode"
+              option={modeOpt}
+              loading={q.isLoading}
+              height={200}
+              table={{ columns: ['Mode', 'Orders', 'Value', 'Share'], rows: modeRows.map((m) => [m.label, num(m.orders), inr(m.value), pct(m.share)]) }}
+            />
+            <ChartCard
+              title="Ordering platform"
+              subtitle="Value of paid orders by app / web"
+              option={platformOpt}
+              loading={q.isLoading}
+              height={200}
+              table={{ columns: ['Platform', 'Orders', 'Value', 'Share'], rows: platformRows.map((m) => [m.label, num(m.orders), inr(m.value), pct(m.share)]) }}
+            />
+            {/* PayU gateway view: only once the PayU integration is connected (settlement is out of scope) */}
+            {pay && (
+              <Card title="Payments (PayU)" subtitle="Payment attempts on orders in the period">
                 <div className="grid grid-cols-2 gap-3">
                   <MiniStat label="Success rate" value={pct(successRate)} sub={`${num(pay.success)} of ${num(payAttempts)} attempts`} tone={successRate !== null && successRate < 85 ? 'bad' : undefined} />
                   <MiniStat label="Failed value" value={inr(pay.failed_value)} sub={`${num(pay.failed)} failed · ${num(pay.pending)} pending`} tone={pay.failed ? 'bad' : undefined} />
@@ -288,26 +310,18 @@ export default function Orders() {
                     />
                   </div>
                 </div>
-              ) : (
-                <p className="py-8 text-center text-xs text-muted">{q.isLoading ? 'Loading…' : 'PayU data not available for this scope.'}</p>
-              )}
-            </Card>
-            <ChartCard
-              title="Payment mode mix"
-              subtitle="Captured value by mode"
-              option={modeOpt}
-              loading={q.isLoading}
-              height={200}
-              table={pay ? { columns: ['Mode', 'Transactions', 'Value'], rows: pay.mode_mix.map((m) => [m.mode, num(m.count), inr(m.value)]) } : undefined}
-            />
-            <ChartCard
-              title="CRM complaints"
-              subtitle={`${num(d?.crm.open)} open tickets by type`}
-              option={crmOpt}
-              loading={q.isLoading}
-              height={200}
-              table={d ? { columns: ['Type', 'Open'], rows: d.crm.by_type.map((c) => [c.type, num(c.count)]) } : undefined}
-            />
+              </Card>
+            )}
+            {crmOn && (
+              <ChartCard
+                title="CRM complaints"
+                subtitle={`${num(d?.crm.open)} open tickets by type`}
+                option={crmOpt}
+                loading={q.isLoading}
+                height={200}
+                table={d ? { columns: ['Type', 'Open'], rows: d.crm.by_type.map((c) => [c.type, num(c.count)]) } : undefined}
+              />
+            )}
           </div>
         </>
       )}

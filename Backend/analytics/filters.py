@@ -248,6 +248,8 @@ class Filters:
     cat_l3: list = field(default_factory=list)
     sizes: list = field(default_factory=list)
     has_account: bool | None = None
+    kyc_verified: bool | None = None  # customer `kyc` TRUE (= KYC approved) / FALSE
+    kyc_statuses: list = field(default_factory=list)  # approved / pending / rejected / not_submitted
     event_types: list = field(default_factory=list)
     today: dt.date = field(default_factory=today_ist)
 
@@ -266,6 +268,7 @@ class Filters:
             sorted(self.articles), self.segment, sorted(self.order_status), sorted(self.payment_status), self.today,
             sorted(self.platforms), sorted(self.payment_modes), self.split_only, sorted(self.cat_l1),
             sorted(self.cat_l2), sorted(self.cat_l3), sorted(self.sizes), self.has_account, sorted(self.event_types),
+            self.kyc_verified, sorted(self.kyc_statuses),
         ])
 
     # -- dimension predicates ----------------------------------------------
@@ -391,6 +394,8 @@ def parse_filters(request, default_preset="mtd", today=None):
         cat_l3=_csv(p.get("cat_l3")),
         sizes=_csv(p.get("size")),
         has_account={"true": True, "1": True, "false": False, "0": False}.get((p.get("has_account") or "").lower()),
+        kyc_statuses=[s.lower() for s in _csv(p.get("kyc_status"))],
+        kyc_verified={"true": True, "1": True, "yes": True, "false": False, "0": False, "no": False}.get((p.get("kyc_verified") or "").lower()),
         event_types=_csv(p.get("event_type")),
         today=today or today_ist(),
     )
