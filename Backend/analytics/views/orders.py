@@ -50,10 +50,14 @@ class OrdersSummaryView(AnalyticsView):
     def compute(self, f, request, **kw):
         p = f.period
         allq = f.orders(start=p.start, end=p.end, qualifying=False)
+        # the status chart is the order-status selector, so it always shows every status (other filters still apply)
         status_counts = [{"status": r["status"], "count": r["n"], "value": num(r["v"])}
-                         for r in allq.values("status").annotate(n=Count("id"), v=Sum("gross_value")).order_by("status")]
-        total_n = sum(r["count"] for r in status_counts)
-        cancelled = sum(r["count"] for r in status_counts if r["status"] == "cancelled")
+                         for r in f.orders(start=p.start, end=p.end, qualifying=False, statuses=False).values("status").annotate(n=Count("id"), v=Sum("gross_value")).order_by("status")]
+        # headline counts respect the selected statuses
+        picked = set(f.order_status)
+        in_scope = [r for r in status_counts if not picked or r["status"] in picked]
+        total_n = sum(r["count"] for r in in_scope)
+        cancelled = sum(r["count"] for r in in_scope if r["status"] == "cancelled")
 
         now = timezone.now()
         ageing_counts = defaultdict(int)
@@ -72,8 +76,11 @@ class OrdersSummaryView(AnalyticsView):
             "placed_date", "placed_at", "shipped_at", "delivered_at")
         disp_all, deliv_all = [], []
         disp_m, deliv_m = defaultdict(list), defaultdict(list)
+        placed_n, shipped_n = defaultdict(int), defaultdict(int)
         for pd, placed, shipped, delivered in tat_rows:
             m = pd.replace(day=1)
+            placed_n[m] += 1
+            shipped_n[m] += 1 if shipped else 0
             dh, vh = hours(placed, shipped), hours(placed, delivered)
             if dh is not None:
                 disp_m[m].append(dh)
@@ -87,7 +94,8 @@ class OrdersSummaryView(AnalyticsView):
             "order_to_dispatch_median_h": median(disp_all),
             "order_to_delivery_median_h": median(deliv_all),
             "trend": [{"month": mkey(m), "dispatch_h": median(disp_m.get(m, [])),
-                       "delivery_h": median(deliv_m.get(m, []))} for m in months12],
+                       "delivery_h": median(deliv_m.get(m, [])),
+                       "dispatch_pct": pct(shipped_n[m], placed_n[m])} for m in months12],
         }
 
         pq = payments_qs(f, p.start, p.end)
@@ -188,10 +196,6 @@ class OrderListView(ExportListMixin, generics.ListAPIView):
             cutoff = timezone.now() - dt.timedelta(hours=settings.ORDER_DISPATCH_SLA_HOURS)
             qs = f.orders(qualifying=False).select_related("retailer", "distributor", "state").filter(
                 status__in=["received", "confirmed"], placed_at__lt=cutoff)
-        if q.get("is_split") in ("1", "true"):
-            qs = qs.filter(is_split=True)
-        if q.get("payment_mode"):
-            qs = qs.filter(payment_mode__in=q["payment_mode"].split(","))
         if q.get("search"):
             s = q["search"].strip()
             qs = qs.filter(Q(display_id__icontains=s) | Q(awb__icontains=s) | Q(retailer__name__icontains=s) |

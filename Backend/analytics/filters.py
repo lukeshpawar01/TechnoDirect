@@ -242,7 +242,7 @@ class Filters:
     # module filters (sent only by the page that shows them)
     platforms: list = field(default_factory=list)
     payment_modes: list = field(default_factory=list)
-    split_only: bool = False
+    split_only: bool | None = None  # True = split carts only, False = single-distributor orders only
     cat_l1: list = field(default_factory=list)
     cat_l2: list = field(default_factory=list)
     cat_l3: list = field(default_factory=list)
@@ -339,8 +339,8 @@ class Filters:
             qs = qs.filter(platform__in=self.platforms)
         if self.payment_modes:
             qs = qs.filter(payment_mode__in=self.payment_modes)
-        if self.split_only:
-            qs = qs.filter(is_split=True)
+        if self.split_only is not None:
+            qs = qs.filter(is_split=self.split_only)
         if self.has_line_filters():
             qs = qs.filter(id__in=OrderLine.objects.filter(self.lines_q()).values("order_id"))
         seg = self.segment_retailers()
@@ -388,7 +388,7 @@ def parse_filters(request, default_preset="mtd", today=None):
         payment_status=_csv(p.get("payment_status")),
         platforms=[x.lower() for x in _csv(p.get("platform"))],
         payment_modes=[x.upper() for x in _csv(p.get("payment_mode"))],
-        split_only=p.get("is_split") in ("1", "true"),
+        split_only={"1": True, "true": True, "0": False, "false": False}.get(p.get("is_split") or ""),
         cat_l1=_csv(p.get("cat_l1")),
         cat_l2=_csv(p.get("cat_l2")),
         cat_l3=_csv(p.get("cat_l3")),

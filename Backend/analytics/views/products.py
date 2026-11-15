@@ -2,7 +2,7 @@ import datetime as dt
 from collections import defaultdict
 
 from django.conf import settings
-from django.db.models import Count, F, Max, Q, Sum
+from django.db.models import Count, F, Max, Min, Q, Sum
 from django.db.models.functions import TruncMonth
 from django.utils import timezone
 from rest_framework import generics
@@ -13,7 +13,7 @@ from accounts.scope import DISTRIBUTOR_DIMS, INVENTORY_DIMS
 from warehouse.models import Distributor, InventorySnapshot, OrderLine, Product, primary_inventory
 
 from ..export import ExportListMixin
-from ..filters import parse_filters
+from ..filters import add_months, month_start, parse_filters
 from ..metrics import mkey, num, ratio, share, spark_months
 from .base import AnalyticsView
 from .funnel import resolve_ordering
@@ -53,7 +53,8 @@ class ProductsView(AnalyticsView):
         def art(r):
             return {"style": r["style"], "name": r["product__name"], "category": r["product__category__name"],
                     "sales": num(r["s"]), "units": r["u"] or 0, "orders": r["o"], "retailers": r["r"],
-                    "share": share(r["s"], total)}
+                    "share": share(r["s"], total), "realisation": ratio(r["s"], r["u"]),
+                    "units_per_order": ratio(r["u"], r["o"])}
 
         sold = [a for a in arts if (a["s"] or 0) > 0]
         launch_cut = p.end - dt.timedelta(days=90)
@@ -71,12 +72,36 @@ class ProductsView(AnalyticsView):
         tot_u = sum(s["u"] or 0 for s in sizes)
         size_mix = [{"size": s["size"] or "NA", "units": s["u"] or 0, "share": share(s["u"], tot_u)} for s in sizes]
 
+        # Category I x Category II (deck slide 47): value, units, share, realisation, units per order
+        category_mix = [{
+            "l1": r["product__category_l1"] or "Unclassified", "l2": r["product__category_l2"] or "Unclassified",
+            "sales": num(r["s"]), "units": r["u"] or 0, "orders": r["o"], "share": share(r["s"], total),
+            "realisation": ratio(r["s"], r["u"]), "units_per_order": ratio(r["u"], r["o"]),
+        } for r in lines.values("product__category_l1", "product__category_l2").annotate(
+            s=Sum("total"), u=Sum("quantity"), o=Count("order_id", distinct=True)).order_by("-s")]
+        mix_l1l2 = [{"month": mkey(r["m"]), "l1": r["product__category_l1"] or "Unclassified",
+                     "l2": r["product__category_l2"] or "Unclassified", "sales": num(r["s"])}
+                    for r in line_qs(f, months12[0], p.end).annotate(m=TruncMonth("order__placed_date")).values(
+                        "m", "product__category_l1", "product__category_l2").annotate(s=Sum("total")).order_by("m")]
+
+        # New articles: first ever sold in the last 6 months (deck slide 61)
+        six_start = add_months(month_start(p.end), -5)
+        first_sold = OrderLine.objects.filter(order__in=f.orders(end=p.end)).exclude(style="").values(
+            "style").annotate(first=Min("order__placed_date"))
+        new_styles = [r["style"] for r in first_sold if r["first"] >= six_start]
+        win = line_qs(f, six_start, p.end)
+        win_total = float(win.aggregate(s=Sum("total"))["s"] or 0)
+        new_sales = float(win.filter(style__in=new_styles).aggregate(s=Sum("total"))["s"] or 0)
+        new_articles_6m = {"since": six_start.isoformat(), "articles": len(new_styles), "sales": num(new_sales),
+                           "share": share(new_sales, win_total)}
+
         sales_sorted = [float(a["s"] or 0) for a in sold]
         return {
             "categories": cats, "category_mix_monthly": mix,
             "top_articles": [art(a) for a in sold[:20]],
             "bottom_articles": [art(a) for a in sorted(sold, key=lambda a: a["s"])[:20]],
             "new_launches": new_launches, "size_mix": size_mix,
+            "category_mix": category_mix, "category_mix_monthly_l1l2": mix_l1l2, "new_articles_6m": new_articles_6m,
             "concentration": {"top4_share": share(sum(sales_sorted[:4]), total),
                               "top12_share": share(sum(sales_sorted[:12]), total),
                               "distinct_articles": len(sold)},

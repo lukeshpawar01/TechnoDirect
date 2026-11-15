@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { useAnalytics, useFilterOptions, usePagedList } from '@/api/hooks';
+import { useAnalytics, usePagedList } from '@/api/hooks';
 import type { OrderDetail, OrderRow, OrdersSummary } from '@/api/types';
 import { cartesian, heatmap } from '@/charts/builders';
 import { useChartTokens } from '@/charts/EChart';
@@ -9,8 +9,9 @@ import { STATUS } from '@/charts/palette';
 import { ChartCard } from '@/components/ChartCard';
 import { DataTable } from '@/components/DataTable';
 import { MiniStat } from '@/components/KpiTile';
+import { MODE_LABELS } from '@/lib/format';
 import { PageHeader } from '@/components/PageHeader';
-import { Badge, Card, Drawer, ErrorState, LoadingBlock, Stat, StatusBadge, cx } from '@/components/ui';
+import { Badge, Card, Drawer, ErrorState, LoadingBlock, Segmented, Stat, StatusBadge, cx } from '@/components/ui';
 import { IconSearch } from '@/components/Icons';
 import { getEnvelope } from '@/lib/api';
 import { linkWithFilters, useFilters } from '@/lib/filters';
@@ -137,16 +138,15 @@ export function OrderDrawer({ id, onClose }: { id: string | number | null; onClo
 }
 
 // ------------------------------------------------------------------ page
-const MODE_LABELS: Record<string, string> = { UPI: 'UPI', CC: 'Credit card', DC: 'Debit card', NB: 'Net banking', BNPL: 'Pay later', EMI: 'EMI' };
 
 export default function Orders() {
   const q = useAnalytics<OrdersSummary>('/orders/summary/');
   const t = useChartTokens();
   const { apiParams, searchParams, update } = useFilters();
   const [sp] = useSearchParams();
-  const opts = useFilterOptions();
   const d = q.data?.data;
   const orderStatus = sp.get('order_status') ?? '';
+  const selectedStatuses = orderStatus ? orderStatus.split(',') : [];
   const [search, setSearch] = useState('');
   const [debounced, setDebounced] = useState('');
   const [page, setPage] = useState(1);
@@ -157,13 +157,15 @@ export default function Orders() {
     const h = setTimeout(() => setDebounced(search), 350);
     return () => clearTimeout(h);
   }, [search]);
-  useEffect(() => setPage(1), [debounced, orderStatus, apiParams]);
+  useEffect(() => setPage(1), [debounced, apiParams]);
 
-  const listParams = { page, page_size: 50, ordering, search: debounced || undefined, order_status: orderStatus || undefined };
+  const listParams = { page, page_size: 50, ordering, search: debounced || undefined };
   const list = usePagedList<OrderRow>('/orders/', listParams);
 
   const statusRows = useMemo(() => [...(d?.status_counts ?? [])].sort((a, b) => STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status)), [d]);
-  const totalOrders = statusRows.reduce((s, r) => s + r.count, 0);
+  // the status chart lists every status; the headline counts only the selected ones
+  const scopedRows = statusRows.filter((r) => !selectedStatuses.length || selectedStatuses.includes(r.status));
+  const totalOrders = scopedRows.reduce((s, r) => s + r.count, 0);
 
   const statusOpt = useMemo(
     () =>
@@ -173,10 +175,10 @@ export default function Orders() {
             horizontal: true,
             legend: false,
             showBarLabels: true,
-            series: [{ name: 'Orders', data: statusRows.map((r) => r.count), colors: statusRows.map((r, i) => (r.status === 'cancelled' ? STATUS.critical : t.ordinal[Math.min(i + 1, t.ordinal.length - 1)])) }],
+            series: [{ name: 'Orders', data: statusRows.map((r) => r.count), colors: statusRows.map((r, i) => (selectedStatuses.length && !selectedStatuses.includes(r.status) ? t.axis : r.status === 'cancelled' ? STATUS.critical : t.ordinal[Math.min(i + 1, t.ordinal.length - 1)])) }],
           })
         : null,
-    [statusRows, t],
+    [statusRows, t, orderStatus],
   );
 
   const ageingOpt = useMemo(() => {
@@ -189,6 +191,14 @@ export default function Orders() {
     return heatmap(t, { x: buckets, y: statuses.map(titleCase), data, labels: true });
   }, [d, t]);
 
+  const [tatView, setTatView] = useState<'tat' | 'rate'>('tat');
+  const rateOpt = useMemo(
+    () =>
+      d?.tat?.trend?.length
+        ? cartesian(t, { x: d.tat.trend.map((m) => monthLabel(m.month)), format: 'pct', legend: false, yMax: 100, series: [{ name: 'Dispatch rate', type: 'line', area: true, endLabel: true, data: d.tat.trend.map((m) => m.dispatch_pct ?? null) }] })
+        : null,
+    [d, t],
+  );
   const tatOpt = useMemo(
     () =>
       d?.tat?.trend?.length
@@ -233,7 +243,7 @@ export default function Orders() {
       ) : (
         <>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
-            <MiniStat label="Orders" value={num(totalOrders)} sub={`${inr(statusRows.reduce((s, r) => s + r.value, 0))} value`} />
+            <MiniStat label="Orders" value={num(totalOrders)} sub={`${inr(scopedRows.reduce((s, r) => s + r.value, 0))} value`} />
             <MiniStat label="Cancellation rate" value={pct(asPct(d?.cancellation_rate))} tone={(asPct(d?.cancellation_rate) ?? 0) > 5 ? 'bad' : undefined} />
             <MiniStat label="SLA breaches" value={num(d?.sla_breaches)} tone={d?.sla_breaches ? 'bad' : 'good'} sub="Not dispatched within SLA" />
             <MiniStat label="Median order → dispatch" value={hours(d?.tat.order_to_dispatch_median_h)} />
@@ -249,13 +259,16 @@ export default function Orders() {
           <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-3">
             <ChartCard
               title="Order status"
-              subtitle="Click a bar to filter the order list"
+              subtitle="Click a bar to filter the page by status"
               option={statusOpt}
               loading={q.isLoading}
               height={240}
               onClick={(p) => {
                 const r = statusRows[p.dataIndex];
-                if (r) update({ order_status: r.status === orderStatus ? undefined : r.status });
+                if (r) {
+                  const next = selectedStatuses.includes(r.status) ? selectedStatuses.filter((x) => x !== r.status) : [...selectedStatuses, r.status];
+                  update({ order_status: next.length ? next : undefined });
+                }
               }}
               table={{ columns: ['Status', 'Orders', 'Value'], rows: statusRows.map((r) => [titleCase(r.status), num(r.count), inr(r.value)]) }}
             />
@@ -268,12 +281,13 @@ export default function Orders() {
               table={d ? { columns: ['Bucket', 'Status', 'Orders'], rows: d.ageing.map((a) => [a.bucket, titleCase(a.status), num(a.count)]) } : undefined}
             />
             <ChartCard
-              title="Turnaround time trend"
-              subtitle="Monthly median, hours"
-              option={tatOpt}
+              title={tatView === 'tat' ? 'Turnaround time trend' : 'Dispatch rate trend'}
+              subtitle={tatView === 'tat' ? 'Monthly median, hours' : 'Share of non-cancelled orders dispatched, by order month'}
+              option={tatView === 'tat' ? tatOpt : rateOpt}
               loading={q.isLoading}
               height={240}
-              table={d ? { columns: ['Month', 'Dispatch (h)', 'Delivery (h)'], rows: d.tat.trend.map((m) => [monthLabel(m.month), hours(m.dispatch_h), hours(m.delivery_h)]) } : undefined}
+              actions={<Segmented value={tatView} onChange={setTatView} size="xs" options={[{ value: 'tat', label: 'TAT' }, { value: 'rate', label: 'Dispatch %' }]} />}
+              table={d ? { columns: ['Month', 'Dispatch (h)', 'Delivery (h)', 'Dispatch rate'], rows: d.tat.trend.map((m) => [monthLabel(m.month), hours(m.dispatch_h), hours(m.delivery_h), pct(m.dispatch_pct)]) } : undefined}
             />
           </div>
 
@@ -337,7 +351,7 @@ export default function Orders() {
           onRowClick={(r) => setOpenId(r.id)}
           exportName="orders"
           exportPath="/orders/"
-          exportParams={{ ...apiParams, search: debounced || undefined, order_status: orderStatus || undefined }}
+          exportParams={{ ...apiParams, search: debounced || undefined }}
           server={{ count: list.data?.count ?? 0, page, pageSize: 50, onPage: setPage, ordering, onOrdering: setOrdering }}
           emptyTitle="No orders match"
           toolbar={
@@ -346,14 +360,6 @@ export default function Orders() {
                 <IconSearch size={13} className="text-muted" />
                 <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Order id, retailer, AWB…" className="w-48 bg-transparent text-xs outline-none placeholder:text-muted" aria-label="Search orders" />
               </div>
-              <select className="rounded-md border border-line bg-surface px-2 py-1 text-xs" value={orderStatus} onChange={(e) => update({ order_status: e.target.value || undefined })} aria-label="Order status">
-                <option value="">All statuses</option>
-                {(opts.data?.order_statuses ?? STATUS_ORDER).map((s) => (
-                  <option key={s} value={s}>
-                    {titleCase(s)}
-                  </option>
-                ))}
-              </select>
             </>
           }
           columns={[

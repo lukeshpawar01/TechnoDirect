@@ -39,7 +39,7 @@ export const MAIN_NAV: NavItem[] = [
   { to: '/funnel', label: 'Retailer Funnel', icon: <IconFunnel />, perms: ['view_funnel'], filters: NO_CATEGORY },
   { to: '/retailers', label: 'Retailers', icon: <IconStore />, perms: ['view_funnel', 'view_retention'], filters: NO_CATEGORY },
   { to: '/distributors', label: 'Distributors', icon: <IconTruck />, perms: ['view_distributors'] },
-  { to: '/territory', label: 'Territory', icon: <IconMap />, perms: ['view_territory'] },
+  { to: '/territory', label: 'Region & ASM Performance', icon: <IconMap />, perms: ['view_territory'] },
   { to: '/orders', label: 'Orders & Fulfilment', icon: <IconCart />, perms: ['view_orders'] },
   // Category I is in the top bar AND the module row here (same `category` key, so they stay in sync)
   { to: '/products', label: 'Products', icon: <IconLayers />, perms: ['view_products'] },

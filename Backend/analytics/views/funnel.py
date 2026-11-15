@@ -14,7 +14,7 @@ from warehouse.models import Order, Retailer, RetailerMonth, State
 from ..envelope import envelope
 from ..export import ExportListMixin
 from ..filters import add_months, month_start, parse_filters
-from ..metrics import as_date, launch_month, mkey, num, pct, share
+from ..metrics import as_date, launch_month, median, mkey, num, pct, share
 from .base import AnalyticsView
 
 
@@ -111,6 +111,20 @@ class FunnelView(AnalyticsView):
             })
             m = add_months(m, 1)
 
+        # KYC -> first order conversion. The source has no KYC approval date, so "time to first order" runs from
+        # the customer's created date (sign-up), which is when KYC is submitted in the app.
+        conv_days = [(fo - su.date()).days for su, fo in rb.filter(
+            kyc_status="approved", signed_up_at__isnull=False, first_order_date__isnull=False,
+            first_order_date__lte=p.end).values_list("signed_up_at", "first_order_date")]
+        conv_days = [d for d in conv_days if d >= 0]
+        converted = rb.filter(kyc_status="approved", first_order_date__lte=p.end).count()
+        within30 = sum(1 for d in conv_days if d <= 30)
+        kyc_conversion = {
+            "kyc_approved": agg["approved"], "converted": converted, "rate": pct(converted, agg["approved"]),
+            "median_days": median(conv_days), "within_30d": within30,
+            "within_30d_pct": pct(within30, len(conv_days)), "basis": "signup",
+        }
+
         acq = dict((as_date(r["m"]), r["n"]) for r in rb.filter(first_order_date__isnull=False).annotate(
             m=TruncMonth("first_order_date")).values("m").annotate(n=Count("id")))
         acquisition, cum = [], 0
@@ -142,6 +156,15 @@ class FunnelView(AnalyticsView):
                               "cold": agg["never"] - agg["never_warm"], "flagged": agg["never_flagged"]},
             "inactivity": {"d30": agg["d30"], "d60": agg["d60"], "d90": agg["d90"]},
             "signup_cohorts": signup_cohorts,
+            "kyc_conversion": kyc_conversion,
+            # deck slide 53: how much of the KYC-verified base TD actually trades with
+            "kyc_penetration": {
+                "kyc_approved": agg["approved"], "ever_ordered": converted, "ever_pct": pct(converted, agg["approved"]),
+                "active": cur_orders.filter(retailer__kyc_status="approved").values("retailer_id").distinct().count(),
+                "active_pct": pct(cur_orders.filter(retailer__kyc_status="approved").values("retailer_id")
+                                  .distinct().count(), agg["approved"]),
+                "period_label": p.label,
+            },
             "acquisition_monthly": acquisition,
             "by_state": by_state,
         }

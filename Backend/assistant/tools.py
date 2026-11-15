@@ -45,7 +45,7 @@ TOOLS = {
         "extra": {"stock_sync"},
     },
     "territory": {
-        "label": "Territory", "perm": "view_territory", "path": "/api/territory/",
+        "label": "Region & ASM Performance", "perm": "view_territory", "path": "/api/territory/",
         "about": "Sales, target and achievement grouped by region, state or ASM (param group_by = region|state|asm).",
         "extra": {"group_by"},
     },

@@ -1,7 +1,7 @@
 import type { EChartsOption } from 'echarts';
 import { hours, inr, inrAxis, num, numAxis, pct } from '@/lib/format';
 import { axisStyle, baseOption } from './EChart';
-import type { ChartTokens } from './palette';
+import { STATUS, type ChartTokens } from './palette';
 
 export type ValueFormat = 'inr' | 'num' | 'pct' | 'hours' | 'dec';
 
@@ -296,6 +296,77 @@ export function sparkline(t: ChartTokens, data: number[], accent?: string): ECha
         symbol: 'none',
         lineStyle: { width: 1.5, color: t.deemph },
         silent: true,
+      },
+    ],
+  } as EChartsOption;
+}
+
+export interface WaterfallStep {
+  label: string;
+  value: number;
+  /** a running total bar (start / end) rather than a change */
+  total?: boolean;
+}
+
+/**
+ * Waterfall / bridge on ONE axis: totals as solid bars, changes floating from the running total
+ * (an invisible base bar + the visible change). Increases and decreases carry a sign in the label,
+ * so direction is never colour-only.
+ */
+export function waterfall(t: ChartTokens, steps: WaterfallStep[], o: { format?: ValueFormat; up?: string; down?: string } = {}): EChartsOption {
+  const f = o.format ?? 'inr';
+  const base = baseOption(t);
+  const ax = axisStyle(t);
+  const invisible: (number | null)[] = [];
+  const visible: { value: number; itemStyle: { color: string; borderRadius: number[] }; raw: number; total: boolean }[] = [];
+  let run = 0;
+  steps.forEach((s) => {
+    if (s.total) {
+      run = s.value;
+      invisible.push(0);
+      visible.push({ value: s.value, raw: s.value, total: true, itemStyle: { color: t.series[0], borderRadius: [4, 4, 0, 0] } });
+    } else {
+      const lo = s.value >= 0 ? run : run + s.value;
+      invisible.push(lo);
+      visible.push({ value: Math.abs(s.value), raw: s.value, total: false, itemStyle: { color: s.value >= 0 ? o.up ?? STATUS.good : o.down ?? STATUS.critical, borderRadius: [4, 4, 4, 4] } });
+      run += s.value;
+    }
+  });
+  return {
+    ...base,
+    legend: { show: false },
+    grid: { left: 8, right: 16, top: 28, bottom: 8, containLabel: true },
+    tooltip: {
+      ...(base.tooltip as object),
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      formatter: (ps: unknown) => {
+        const arr = (Array.isArray(ps) ? ps : [ps]) as { dataIndex: number }[];
+        const i = arr[0]?.dataIndex ?? 0;
+        const v = visible[i];
+        const sign = v.total ? '' : v.raw >= 0 ? '+' : '−';
+        return `<div style="font-weight:600">${steps[i].label}</div>${sign}${fmtValue(Math.abs(v.raw), f)}`;
+      },
+    },
+    xAxis: { type: 'category', data: steps.map((s) => s.label), ...ax, axisLabel: { ...ax.axisLabel, interval: 0, hideOverlap: false, width: 90, overflow: 'break' } },
+    yAxis: { type: 'value', ...ax, axisLine: { show: false }, axisLabel: { ...ax.axisLabel, formatter: (v: number) => fmtAxis(v, f) } },
+    series: [
+      { type: 'bar', stack: 'wf', data: invisible, itemStyle: { color: 'transparent' }, emphasis: { disabled: true }, tooltip: { show: false }, silent: true, barMaxWidth: 48 },
+      {
+        type: 'bar',
+        stack: 'wf',
+        data: visible,
+        barMaxWidth: 48,
+        label: {
+          show: true,
+          position: 'top',
+          color: t.ink2,
+          fontSize: 11,
+          formatter: (p: { dataIndex: number }) => {
+            const v = visible[p.dataIndex];
+            return v.total ? fmtValue(v.raw, f) : `${v.raw >= 0 ? '+' : '−'}${fmtValue(Math.abs(v.raw), f)}`;
+          },
+        },
       },
     ],
   } as EChartsOption;

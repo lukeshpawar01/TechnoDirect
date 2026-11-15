@@ -34,6 +34,9 @@ def _iso(v):
     return v.isoformat()
 
 
+L3M_MIN_BASE = 50_000  # growth on a smaller base is noise
+
+
 def scoped_distributors(f):
     return Distributor.objects.filter(f.dims_q(DISTRIBUTOR_DIMS, retailer_field=None))
 
@@ -75,6 +78,9 @@ class DistributorsView(AnalyticsView):
         l3_start = add_months(month_start(p.end), -2)
         l3m = dict(base.filter(placed_date__gte=l3_start, placed_date__lte=p.end).values("distributor_id")
                    .annotate(s=Sum("gross_value")).values_list("distributor_id", "s"))
+        # previous 3 months, for "growth L3M vs P3M" (deck slide 50/51)
+        p3m = dict(base.filter(placed_date__gte=add_months(l3_start, -3), placed_date__lt=l3_start)
+                   .values("distributor_id").annotate(s=Sum("gross_value")).values_list("distributor_id", "s"))
         months12 = spark_months(p.end)
         sp = defaultdict(dict)
         for r in base.filter(placed_date__gte=months12[0], placed_date__lte=p.end).annotate(
@@ -104,8 +110,12 @@ class DistributorsView(AnalyticsView):
                 "retailers": mapped.get(d.id, 0), "active_retailers": act, "new_retailers": new,
                 "repeat_pct": pct(act - new, act), "orders_per_retailer": ratio(orders, act),
                 "dispatch_pct": dp[0], "median_dispatch_days": dp[1],
-                "l3m_sales": num(l3m.get(d.id)),
+                "l3m_sales": num(l3m.get(d.id)), "p3m_sales": num(p3m.get(d.id)),
+                "l3m_growth_pct": delta_pct(float(l3m.get(d.id) or 0), float(p3m[d.id]))
+                if float(p3m.get(d.id) or 0) >= L3M_MIN_BASE else None,
+                "sales_per_retailer": ratio(sales, act),
                 "growth_pct": delta_pct(sales, float(cmp.get(d.id) or 0)) if p.cmp_start else None,
+                "prev_sales": num(cmp.get(d.id)) if p.cmp_start else None,
                 "target": num(t) if t else None, "achievement_pct": share(sales, t) if t else None,
                 "last_stock_sync": _iso(stock.get(d.id)),
                 "spark": [num(sp[d.id].get(m, 0)) for m in months12],
@@ -271,6 +281,7 @@ class TerritoryView(AnalyticsView):
                 "new_retailers": c.get("new", 0), "kyc_base": k.get("kyc", 0),
                 "adoption_pct": pct(k.get("ever", 0), k.get("kyc", 0)),
                 "distributors": dist_counts.get(gid, 0),
+                "sales_per_retailer": ratio(sales, c.get("retailers", 0)),
                 "growth_pct": delta_pct(sales, float(cmp.get(gid) or 0)) if p.cmp_start else None,
             })
         rows.sort(key=lambda r: -r["sales"])
@@ -281,3 +292,75 @@ class TerritoryView(AnalyticsView):
                    .annotate(m=TruncMonth("placed_date")).values("m", gfield).annotate(s=Sum("gross_value"))
                    .order_by("m", gfield)]
         return {"group_by": group_by, "rows": rows, "monthly_by_group": monthly}
+
+
+class DistributorInsightsView(AnalyticsView):
+    """GET /distributors/insights/ — board-review views of the distributor network (deck slides 49, 52, 62, 63):
+    top-5 monthly trend, top 3 articles per distributor, distributors transacting per month and
+    retailers buying from more than one distributor."""
+
+    permission_code = "view_distributors"
+    sources = ["medusa", "payu"]
+    export_key = "top_articles"
+
+    def compute(self, f, request, **kw):
+        p = f.period
+        ids = set(scoped_distributors(f).values_list("id", flat=True))
+        names = dict(Distributor.objects.filter(id__in=ids).values_list("id", "name"))
+        base = f.orders(end=p.end).filter(distributor_id__in=ids)
+        cur = base.filter(placed_date__gte=p.start)
+        months12 = spark_months(p.end)
+
+        # top 5 distributors of the period, monthly over 12 months; the rest folded into "Other"
+        top5 = list(cur.values("distributor_id").annotate(s=Sum("gross_value")).order_by("-s")
+                    .values_list("distributor_id", flat=True)[:5])
+        series = defaultdict(lambda: defaultdict(float))
+        transacting = {}
+        for r in base.filter(placed_date__gte=months12[0]).annotate(m=TruncMonth("placed_date")).values(
+                "m", "distributor_id").annotate(s=Sum("gross_value")):
+            key = names.get(r["distributor_id"], "Unmapped") if r["distributor_id"] in top5 else "Other"
+            series[key][as_date(r["m"])] += float(r["s"] or 0)
+        for r in base.filter(placed_date__gte=months12[0]).annotate(m=TruncMonth("placed_date")).values("m").annotate(
+                n=Count("distributor_id", distinct=True), rt=Count("retailer_id", distinct=True)):
+            transacting[as_date(r["m"])] = r
+        order = [names.get(d, "Unmapped") for d in top5] + (["Other"] if "Other" in series else [])
+        trend = {"months": [mkey(m) for m in months12],
+                 "series": [{"name": n, "data": [num(series[n].get(m, 0)) for m in months12]} for n in order]}
+
+        # top 3 articles per distributor in the period
+        per = defaultdict(list)
+        lines = OrderLine.objects.filter(order__in=cur).exclude(style="")
+        if f.has_line_filters():
+            lines = lines.filter(f.lines_q())
+        for r in lines.values("order__distributor_id", "style").annotate(s=Sum("total")).order_by(
+                "order__distributor_id", "-s"):
+            lst = per[r["order__distributor_id"]]
+            if len(lst) < 3:
+                lst.append({"style": r["style"], "sales": num(r["s"])})
+        dsales = dict(cur.values("distributor_id").annotate(s=Sum("gross_value")).values_list("distributor_id", "s"))
+        top_articles = sorted([{"id": d, "name": names.get(d, "Unmapped"), "sales": num(dsales.get(d)),
+                                "articles": per[d]} for d in per], key=lambda r: -r["sales"])
+
+        # retailers buying from 2+ distributors: ever, and per month
+        life = list(base.values("retailer_id").annotate(d=Count("distributor_id", distinct=True),
+                                                        n=Count("split_group", distinct=True)))
+        multi = [r for r in life if r["d"] >= 2]
+        single = [r for r in life if r["d"] < 2]
+        per_m = defaultdict(lambda: [0, 0])
+        for r in base.filter(placed_date__gte=months12[0]).annotate(m=TruncMonth("placed_date")).values(
+                "m", "retailer_id").annotate(d=Count("distributor_id", distinct=True)):
+            c = per_m[as_date(r["m"])]
+            c[0] += 1
+            c[1] += 1 if r["d"] >= 2 else 0
+        multi_distributor = {
+            "retailers": len(life), "multi": len(multi), "multi_pct": pct(len(multi), len(life)),
+            "avg_orders_multi": ratio(sum(r["n"] for r in multi), len(multi)),
+            "avg_orders_single": ratio(sum(r["n"] for r in single), len(single)),
+            "monthly": [{"month": mkey(m), "active": per_m[m][0], "multi": per_m[m][1],
+                         "multi_pct": pct(per_m[m][1], per_m[m][0])} for m in months12],
+        }
+        return {
+            "trend": trend, "top_articles": top_articles, "multi_distributor": multi_distributor,
+            "transacting_monthly": [{"month": mkey(m), "distributors": transacting.get(m, {}).get("n", 0),
+                                     "retailers": transacting.get(m, {}).get("rt", 0)} for m in months12],
+        }

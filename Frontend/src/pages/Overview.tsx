@@ -243,7 +243,7 @@ export default function Overview() {
               )}
             </Card>
 
-            <Card title="Top states" subtitle="Share of sales" actions={<Link to={linkWithFilters('/territory', sp, { group_by: 'state' })} className="text-xs text-ink2 hover:text-ink">Territory →</Link>}>
+            <Card title="Top states" subtitle="Share of sales" actions={<Link to={linkWithFilters('/territory', sp, { group_by: 'state' })} className="text-xs text-ink2 hover:text-ink">Region &amp; ASM →</Link>}>
               {q.isLoading ? (
                 <Skeleton className="h-32" />
               ) : d?.top_states?.length ? (

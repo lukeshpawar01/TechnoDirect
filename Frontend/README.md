@@ -59,7 +59,7 @@ src/
   charts/       ECharts registration, palette, option builders
   components/   Layout, FilterBar, DataTable, KpiTile, ChartCard, TargetBullet, UI primitives
   lib/          axios client + refresh interceptor, filters (URL state), formatting, refresh scheduler
-  pages/        Overview, Funnel, Retailers(+detail), Distributors(+detail), Territory, Orders,
+  pages/        Overview, Funnel, Retailers(+detail), Distributors(+detail), Territory (shown as "Region & ASM Performance"), Orders,
                 Products, Inventory, Retention, Loyalty, DataHealth, Login
   pages/admin/  Users, Roles, Targets, Mappings, Metrics, AuditLog
 public/

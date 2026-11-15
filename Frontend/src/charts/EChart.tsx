@@ -8,6 +8,7 @@ import {
   GridComponent,
   LegendComponent,
   MarkLineComponent,
+  MarkPointComponent,
   TooltipComponent,
   VisualMapComponent,
 } from 'echarts/components';
@@ -26,6 +27,7 @@ echarts.use([
   LegendComponent,
   VisualMapComponent,
   MarkLineComponent,
+  MarkPointComponent,
   DatasetComponent,
   AriaComponent,
   CanvasRenderer,

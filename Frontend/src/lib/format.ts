@@ -74,12 +74,11 @@ export function signedPct(n: number | null | undefined, decimals = 1): string {
 }
 
 /**
- * Shares in the contract are percentages (0–100). Defensive: if a backend
- * sends a ratio (0–1) we scale it, so "share" renders correctly either way.
+ * Every percentage in the API contract is already 0–100 (backend `metrics.pct` / `share`).
+ * Do NOT guess-scale small values: a real 0.72% must not render as 72%.
  */
 export function asPct(n: number | null | undefined): number | null {
-  if (!isNum(n)) return null;
-  return Math.abs(n) <= 1 && n !== 0 ? n * 100 : n;
+  return isNum(n) ? n : null;
 }
 
 export function hours(h: number | null | undefined): string {
@@ -118,3 +117,6 @@ export function titleCase(s: string | null | undefined): string {
   if (!s) return '–';
   return s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
+
+/** Order payment_mode codes as people say them. */
+export const MODE_LABELS: Record<string, string> = { UPI: 'UPI', CC: 'Credit card', DC: 'Debit card', NB: 'Net banking', BNPL: 'Pay later', EMI: 'EMI' };

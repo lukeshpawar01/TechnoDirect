@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { useFilterOptions } from '@/api/hooks';
 import type { FilterOptions } from '@/api/types';
 import { SEGMENTS, useFilters, type ModuleKey } from '@/lib/filters';
+import { MODE_LABELS } from '@/lib/format';
 import { navItemFor } from '@/nav';
 import { MultiSelect } from './MultiSelect';
 import { IconX } from './Icons';
@@ -31,6 +32,9 @@ function catLevel(level: 1 | 2 | 3) {
     return vals.map((v) => ({ value: v, label: title(v) }));
   };
 }
+
+
+const PLATFORM_LABELS: Record<string, string> = { android: 'Android app', ios: 'iOS app', web: 'Website' };
 
 const SEGMENT: FieldDef = { key: 'segment', label: 'Segment', single: true, options: SEGMENTS };
 // Category I uses the global `category` key (hidden from the top bar on pages that show it here)
@@ -62,11 +66,12 @@ const MODULES: Record<string, FieldDef[]> = {
       ],
     },
   ],
+  // Fulfilment first; payment fields come straight from the order (no gateway / settlement data)
   '/orders': [
-    { key: 'payment_status', label: 'Payment status', single: true, options: (o) => (o?.payment_statuses ?? []).map((s) => ({ value: s, label: title(s) })) },
-    { key: 'payment_mode', label: 'Payment mode', options: (o) => (o?.payment_modes ?? []).map((s) => ({ value: s, label: s })) },
-    { key: 'platform', label: 'Platform', options: (o) => (o?.platforms ?? []).map((s) => ({ value: s, label: title(s) })) },
-    { key: 'is_split', label: 'Split orders', single: true, options: [{ value: 'true', label: 'Split only' }] },
+    { key: 'order_status', label: 'Order status', width: 'w-48', options: (o) => (o?.order_statuses ?? []).map((s) => ({ value: s, label: title(s) })) },
+    { key: 'payment_mode', label: 'Payment mode', width: 'w-40', options: (o) => (o?.payment_modes ?? []).map((s) => ({ value: s, label: MODE_LABELS[s] ?? s })) },
+    { key: 'platform', label: 'Platform', options: (o) => (o?.platforms ?? []).map((s) => ({ value: s, label: PLATFORM_LABELS[s] ?? title(s) })) },
+    { key: 'is_split', label: 'Cart type', single: true, options: [{ value: 'false', label: 'Single distributor' }, { value: 'true', label: 'Split cart' }] },
   ],
   '/products': [CAT_L1, CAT_L2, CAT_L3],
   '/inventory': [CAT_L1, CAT_L2, CAT_L3, { key: 'size', label: 'Size', options: (o) => (o?.sizes ?? []).map((s) => ({ value: s, label: s })), width: 'w-32' }],

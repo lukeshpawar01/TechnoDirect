@@ -1,16 +1,29 @@
 import { useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useAnalytics } from '@/api/hooks';
-import type { Retention as RetentionData } from '@/api/types';
+import type { Growth, Retention as RetentionData } from '@/api/types';
+import { GrowthJourney } from '@/components/GrowthJourney';
+import { RetailerValue } from '@/components/RetailerValue';
 import { cartesian, heatmap } from '@/charts/builders';
 import { useChartTokens } from '@/charts/EChart';
 import { ChartCard } from '@/components/ChartCard';
 import { MiniStat } from '@/components/KpiTile';
 import { PageHeader } from '@/components/PageHeader';
-import { Card, ErrorState } from '@/components/ui';
+import { Card, ErrorState, Tabs } from '@/components/ui';
 import { asPct, inr, monthLabel, num, pct } from '@/lib/format';
 
 export default function Retention() {
   const q = useAnalytics<RetentionData>('/retention/');
+  const g = useAnalytics<Growth>('/growth/');
+  const [sp, setSp] = useSearchParams();
+  type View = 'retention' | 'growth' | 'value';
+  const view = (['growth', 'value'].includes(sp.get('view') ?? '') ? sp.get('view') : 'retention') as View;
+  const setView = (v: View) => {
+    const n = new URLSearchParams(sp);
+    if (v === 'retention') n.delete('view');
+    else n.set('view', v);
+    setSp(n, { replace: true });
+  };
   const t = useChartTokens();
   const d = q.data?.data;
   const basis = q.data?.meta?.sales_basis;
@@ -67,6 +80,45 @@ export default function Retention() {
     });
   }, [d, t]);
 
+  // gained vs lost (deck slide 41): net change as bars, lost and won-back as lines, one count axis
+  const gainLossOpt = useMemo(() => {
+    const m = (d?.movement ?? []).slice(1);
+    if (!m.length) return null;
+    return cartesian(t, {
+      x: m.map((r) => monthLabel(r.month)),
+      series: [
+        { name: 'Net change', data: m.map((r) => r.net), colors: m.map((r) => (r.net >= 0 ? t.series[0] : t.series[7])) },
+        { name: 'Lost vs previous month', type: 'line', data: m.map((r) => r.lost), color: t.series[7] },
+        { name: 'Reactivated', type: 'line', data: m.map((r) => r.reactivated), color: t.series[2] },
+      ],
+    });
+  }, [d, t]);
+
+  // month +1 retention by cohort (deck slide 43)
+  const m1Opt = useMemo(() => {
+    const c = (d?.cohorts ?? []).filter((r) => r.values.length > 1);
+    if (!c.length) return null;
+    return cartesian(t, { x: c.map((r) => monthLabel(r.cohort)), format: 'pct', legend: false, series: [{ name: 'Month +1 retention', data: c.map((r) => r.values[1]) }] });
+  }, [d, t]);
+
+  // sales mix as % (deck slide 38): repeat / new / reactivated
+  const mixPctOpt = useMemo(() => {
+    const c = d?.contribution ?? [];
+    if (!c.length) return null;
+    const tot = c.map((r) => r.repeat_sales + r.new_sales + r.reactivated_sales);
+    const p = (v: number, i: number) => (tot[i] ? Math.round((v / tot[i]) * 1000) / 10 : null);
+    return cartesian(t, {
+      x: c.map((r) => monthLabel(r.month)),
+      format: 'pct',
+      yMax: 100,
+      series: [
+        { name: 'Repeat', data: c.map((r, i) => p(r.repeat_sales, i)), stack: 'p', color: t.series[0] },
+        { name: 'New', data: c.map((r, i) => p(r.new_sales, i)), stack: 'p', color: t.series[1] },
+        { name: 'Reactivated', data: c.map((r, i) => p(r.reactivated_sales, i)), stack: 'p', color: t.series[2] },
+      ],
+    });
+  }, [d, t]);
+
   const bandsOpt = useMemo(() => {
     const b = d?.order_bands ?? [];
     if (!b.length) return null;
@@ -114,7 +166,13 @@ export default function Retention() {
 
   return (
     <div>
-      <PageHeader title="Retention & Growth" subtitle="Who stays, who comes back, who drives sales" meta={q.data?.meta} />
+      <PageHeader title="Retention & Growth" subtitle="Who stays, who comes back, who drives sales" meta={(view === 'retention' ? q : g).data?.meta} />
+      <div className="mb-4">
+        <Tabs value={view} onChange={setView} tabs={[{ value: 'retention', label: 'Retention' }, { value: 'growth', label: 'Growth journey' }, { value: 'value', label: 'Retailer base & value' }]} />
+      </div>
+      {view === 'growth' && <GrowthJourney d={g.data?.data} loading={g.isLoading} />}
+      {view === 'value' && <RetailerValue d={g.data?.data} loading={g.isLoading} />}
+      {view === 'retention' && (<>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
         <MiniStat label="Active retailers (latest month)" value={num(last?.active)} sub={last ? monthLabel(last.month) : undefined} />
         <MiniStat label="Retained" value={num(last?.retained)} />
@@ -198,6 +256,15 @@ export default function Retention() {
           table={d ? { columns: ['Month', 'Orders / retailer'], rows: d.orders_per_active_retailer.map((r) => [monthLabel(r.month), num(r.value, 2)]) } : undefined}
         />
       </div>
+
+      <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-3">
+        <ChartCard title="Gained vs lost" subtitle="Bars = net change in active retailers · lines = lost and won back" option={gainLossOpt} loading={q.isLoading}
+          table={d ? { columns: ['Month', 'Net', 'Lost', 'Reactivated'], rows: d.movement.map((r) => [monthLabel(r.month), num(r.net), num(r.lost), num(r.reactivated)]) } : undefined} />
+        <ChartCard title="Month +1 retention by cohort" subtitle="Share of each first-order cohort that ordered again the next month" option={m1Opt} loading={q.isLoading}
+          table={d ? { columns: ['Cohort', 'Size', 'Month +1'], rows: d.cohorts.map((c) => [monthLabel(c.cohort), num(c.size), c.values[1] == null ? '–' : pct(c.values[1], 0)]) } : undefined} />
+        <ChartCard title="Sales mix by retailer type" subtitle="Share of monthly sales: repeat, new, reactivated" option={mixPctOpt} loading={q.isLoading} />
+      </div>
+      </>)}
     </div>
   );
 }

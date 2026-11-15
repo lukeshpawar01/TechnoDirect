@@ -1,6 +1,7 @@
 from django.urls import path
 
-from .views.distributors import DistributorDetailView, DistributorsView, TerritoryView
+from .views.distributors import DistributorDetailView, DistributorInsightsView, DistributorsView, TerritoryView
+from .views.growth import GrowthView
 from .views.funnel import FunnelView, RetailerDetailView, RetailerListView
 from .views.loyalty import LoyaltyView
 from .views.health import DataHealthView, DataVersionView, FilterOptionsView, SyncTriggerView
@@ -19,6 +20,7 @@ urlpatterns = [
     path("retailers/", RetailerListView.as_view()),
     path("retailers/<int:pk>/", RetailerDetailView.as_view()),
     path("distributors/", DistributorsView.as_view()),
+    path("distributors/insights/", DistributorInsightsView.as_view()),
     path("distributors/<int:pk>/", DistributorDetailView.as_view()),
     path("territory/", TerritoryView.as_view()),
     path("orders/summary/", OrdersSummaryView.as_view()),
@@ -29,6 +31,7 @@ urlpatterns = [
     path("inventory/", InventoryView.as_view()),
     path("inventory/items/", InventoryItemsView.as_view()),
     path("retention/", RetentionView.as_view()),
+    path("growth/", GrowthView.as_view()),
     path("loyalty/", LoyaltyView.as_view()),
     path("data-health/", DataHealthView.as_view()),
     path("data-health/sync/", SyncTriggerView.as_view()),

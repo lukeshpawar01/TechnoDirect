@@ -59,7 +59,7 @@ export default function Territory() {
   return (
     <div>
       <PageHeader
-        title="Territory"
+        title="Region & ASM Performance"
         subtitle="Target achievement and adoption by geography"
         meta={q.data?.meta}
         actions={
@@ -76,7 +76,7 @@ export default function Territory() {
       />
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         <ChartCard
-          title={`Target achievement by ${groupLabel.toLowerCase()}`}
+          title={`Target achievement by ${groupBy === "asm" ? "ASM" : groupLabel.toLowerCase()}`}
           subtitle="Sales ÷ target for the selected period · line = 100%"
           option={achOpt}
           loading={q.isLoading}
@@ -87,7 +87,7 @@ export default function Territory() {
           table={d ? { columns: [groupLabel, 'Sales', 'Target', 'Achieved'], rows: d.rows.map((r) => [r.name, inr(r.sales), inr(r.target), pct(asPct(r.achievement_pct))]) } : undefined}
         />
         <ChartCard
-          title={`Monthly sales by ${groupLabel.toLowerCase()}`}
+          title={`Monthly sales by ${groupBy === "asm" ? "ASM" : groupLabel.toLowerCase()}`}
           subtitle={basis ? `Top 5, rest as Other · ${basis}` : 'Top 5, rest as Other'}
           option={trendOpt}
           loading={q.isLoading}
@@ -145,6 +145,7 @@ export default function Territory() {
             { key: 'kyc_base', header: 'KYC base', align: 'right', render: (r) => num(r.kyc_base) },
             { key: 'adoption_pct', header: 'Adoption', align: 'right', render: (r) => pct(asPct(r.adoption_pct), 0) },
             { key: 'distributors', header: 'Distributors', align: 'right', render: (r) => num(r.distributors) },
+            { key: 'sales_per_retailer', header: 'Sales / active retailer', align: 'right', value: (r) => r.sales_per_retailer ?? null, render: (r) => inr(r.sales_per_retailer) },
           ]}
         />
         <p className="mt-2 text-2xs text-muted">Click a row to filter the whole dashboard to that {groupLabel.toLowerCase()}.</p>

@@ -258,3 +258,70 @@ class KycVerifiedFilterTests(TestCase):
         self.assertEqual(yes + no, total)
         stages = {s["key"]: s["count"] for s in self.c.get("/api/funnel/?preset=all_time&kyc_verified=false").json()["data"]["stages"]}
         self.assertEqual(stages["kyc_approved"], 0)
+
+
+@override_settings(CELERY_TASK_ALWAYS_EAGER=True)
+class GrowthJourneyTests(TestCase):
+    """/growth/ and /distributors/insights/ (TD_DataDeck slides 28-63): the numbers must reconcile."""
+
+    def setUp(self):
+        cache.clear()
+        reg = Region.objects.create(code="S", name="South")
+        ka = State.objects.create(code="KA", name="Karnataka", region=reg)
+        self.d1 = Distributor.objects.create(code="D1", name="Dist One", state=ka, region=reg)
+        self.d2 = Distributor.objects.create(code="D2", name="Dist Two", state=ka, region=reg)
+        rets = [Retailer.objects.create(name=f"R{i}", phone=f"98765000{i}0", pincode="560001", state=ka, region=reg,
+                                        distributor=self.d1, kyc_status="approved") for i in range(3)]
+        # r0: both years (like-for-like) and two distributors; r1: last year only (lapsed); r2: this year only (new)
+        plan = [(rets[0], self.d1, D(2025, 11, 5), 100000, 10), (rets[0], self.d2, D(2026, 11, 5), 150000, 20),
+                (rets[0], self.d1, D(2026, 10, 3), 50000, 5), (rets[1], self.d1, D(2025, 10, 7), 40000, 8),
+                (rets[2], self.d2, D(2026, 9, 9), 60000, 12)]
+        for n, (ret, dist, day, val, units) in enumerate(plan):
+            placed = timezone.make_aware(dt.datetime.combine(day, dt.time(11)))
+            Order.objects.create(source_id=f"g{n}", display_id=f"G{n}", split_group=f"gc{n}", retailer=ret,
+                                 distributor=dist, state=ka, region=reg, status="delivered",
+                                 payment_status="captured", medusa_payment_status="captured",
+                                 gross_value=Decimal(val), units=units, placed_at=placed, placed_date=day,
+                                 shipped_at=placed + dt.timedelta(hours=10))
+        run_all_derivations()
+        User.objects.create_superuser(email="g@test.local", password="x-Strong-pass1")
+        self.c = APIClient()
+        tok = jwt_login(self.c, "g@test.local", "x-Strong-pass1")["access"]
+        self.c.credentials(HTTP_AUTHORIZATION=f"Bearer {tok}")
+        r = self.c.get("/api/growth/?preset=custom&date_from=2026-11-01&date_to=2026-11-14")
+        self.assertEqual(r.status_code, 200, r.content)
+        self.d = r.json()["data"]
+
+    def test_rollups_match_monthly(self):
+        total = sum(m["sales"] for m in self.d["monthly"])
+        self.assertAlmostEqual(total, 400000)
+        self.assertAlmostEqual(sum(q["sales"] for q in self.d["quarters"]), total)
+        self.assertAlmostEqual(sum(y["sales"] for y in self.d["fy"]), total)
+        self.assertAlmostEqual(self.d["monthly"][-1]["cum_sales"], total)
+        self.assertEqual(self.d["headline"]["retailers"], 3)
+        nov = next(m for m in self.d["monthly"] if m["month"] == "2026-11")
+        self.assertAlmostEqual(nov["yoy_pct"], 50.0)  # 150K vs 100K same month last year
+
+    def test_decomposition_multiplies_back_and_shares_sum_to_100(self):
+        dec = self.d["decomposition"]
+        self.assertTrue(dec["available"])
+        f = {x["key"]: x for x in dec["factors"]}
+        for side, sales in (("prev", 100000), ("cur", 150000)):
+            prod = f["active_retailers"][side] * f["orders_per_retailer"][side] * f["aov"][side]
+            self.assertAlmostEqual(prod, sales, delta=1)
+        self.assertAlmostEqual(sum(x["share_pct"] for x in dec["factors"]), 100, delta=0.2)
+
+    def test_bridge_reconciles(self):
+        b = self.d["bridge"]  # Jun-Nov 2026 vs Jun-Nov 2025
+        rebuilt = b["prev_total"] - b["lapsed"]["sales"] + b["like_for_like"]["change"] + b["new"]["sales"]
+        self.assertAlmostEqual(rebuilt, b["cur_total"])
+        self.assertEqual((b["like_for_like"]["retailers"], b["new"]["retailers"], b["lapsed"]["retailers"]), (1, 1, 1))
+
+    def test_distributor_insights(self):
+        r = self.c.get("/api/distributors/insights/?preset=custom&date_from=2026-09-01&date_to=2026-11-14")
+        self.assertEqual(r.status_code, 200, r.content)
+        d = r.json()["data"]
+        self.assertEqual(d["multi_distributor"]["multi"], 1)  # r0 bought from both distributors
+        self.assertEqual({x["name"] for x in d["trend"]["series"]}, {"Dist One", "Dist Two"})
+        rows = self.c.get("/api/distributors/?preset=mtd").json()["data"]["rows"]
+        self.assertIn("l3m_growth_pct", rows[0])

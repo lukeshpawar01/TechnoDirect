@@ -54,6 +54,10 @@ export default function Funnel() {
   );
   const lastCum = d?.acquisition_monthly?.[d.acquisition_monthly.length - 1]?.cumulative;
   const kycTotal = d?.kyc_status?.reduce((s, x) => s + x.count, 0) ?? 0;
+  // repeat purchase rate = retailers with 2+ orders / retailers with a first order
+  const firstN = d?.stages?.find((s) => s.key === 'first_order')?.count ?? 0;
+  const repeatN = d?.stages?.find((s) => s.key === 'repeat_order')?.count ?? 0;
+  const repeatRate = firstN ? (repeatN / firstN) * 100 : null;
 
   if (q.error && !q.data)
     return (
@@ -106,6 +110,40 @@ export default function Funnel() {
             ))}
           </ul>
         </Card>
+      </div>
+
+      {/* KYC → first order. The source has no KYC approval date, so timing runs from sign-up (created date). */}
+      <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+        <MiniStat
+          label="KYC base ever ordered"
+          value={pct(d?.kyc_penetration?.ever_pct)}
+          sub={d?.kyc_penetration ? `${num(d.kyc_penetration.ever_ordered)} of ${num(d.kyc_penetration.kyc_approved)} KYC-verified` : undefined}
+        />
+        <MiniStat
+          label={`KYC base ordering (${d?.kyc_penetration?.period_label ?? 'period'})`}
+          value={pct(d?.kyc_penetration?.active_pct)}
+          sub={d?.kyc_penetration ? `${num(d.kyc_penetration.active)} KYC-verified retailers ordered` : undefined}
+        />
+        <MiniStat
+          label="KYC → first order"
+          value={pct(d?.kyc_conversion?.rate)}
+          sub={d?.kyc_conversion ? `${num(d.kyc_conversion.converted)} of ${num(d.kyc_conversion.kyc_approved)} KYC-approved` : undefined}
+        />
+        <MiniStat
+          label="Median sign-up → first order"
+          value={d?.kyc_conversion?.median_days == null ? '–' : `${num(d.kyc_conversion.median_days)} days`}
+          sub="From the created date (no KYC approval date)"
+        />
+        <MiniStat
+          label="First order within 30 days"
+          value={pct(d?.kyc_conversion?.within_30d_pct)}
+          sub={d?.kyc_conversion ? `${num(d.kyc_conversion.within_30d)} retailers` : undefined}
+        />
+        <MiniStat
+          label="Repeat purchase rate"
+          value={pct(repeatRate)}
+          sub={firstN ? `${num(repeatN)} of ${num(firstN)} first-time buyers ordered again` : undefined}
+        />
       </div>
 
       <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">

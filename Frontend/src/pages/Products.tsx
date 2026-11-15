@@ -22,7 +22,11 @@ const articleCols: Column<ArticleRow>[] = [
   { key: 'orders', header: 'Orders', align: 'right', render: (r) => num(r.orders) },
   { key: 'retailers', header: 'Retailers', align: 'right', render: (r) => num(r.retailers) },
   { key: 'share', header: 'Share', align: 'right', render: (r) => pct(asPct(r.share)) },
+  { key: 'units_per_order', header: 'Units / order', align: 'right', value: (r) => r.units_per_order ?? null, render: (r) => num(r.units_per_order, 1) },
+  { key: 'realisation', header: 'Realisation / unit', align: 'right', value: (r) => r.realisation ?? null, render: (r) => inr(r.realisation, { compact: false }) },
 ];
+
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 export default function Products() {
   const q = useAnalytics<ProductsData>('/products/');
@@ -33,14 +37,26 @@ export default function Products() {
   const basis = q.data?.meta?.sales_basis;
   const [list, setList] = useState<'top' | 'bottom'>('top');
 
+  // Category I (men / women / kids / unisex) stacked by Category II (topwear / bottomwear / ...)
   const catOpt = useMemo(() => {
-    const c = [...(d?.categories ?? [])].sort((a, b) => b.sales - a.sales);
+    const c = d?.category_mix ?? [];
     if (!c.length) return null;
-    return cartesian(t, { x: c.map((x) => x.name), horizontal: true, format: 'inr', legend: false, showBarLabels: true, series: [{ name: 'Sales', data: c.map((x) => x.sales) }] });
+    const l1Tot = new Map<string, number>();
+    const l2Tot = new Map<string, number>();
+    c.forEach((x) => {
+      l1Tot.set(x.l1, (l1Tot.get(x.l1) ?? 0) + x.sales);
+      l2Tot.set(x.l2, (l2Tot.get(x.l2) ?? 0) + x.sales);
+    });
+    const l1s = [...l1Tot.entries()].sort((a, b) => a[1] - b[1]).map(([k]) => k);
+    const l2top = [...l2Tot.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([k]) => k);
+    const l2s = [...l2top, ...(l2Tot.size > l2top.length ? ['Other'] : [])];
+    const colors = colorFor(l2s, t);
+    const val = (l1: string, l2: string) => c.filter((x) => x.l1 === l1 && (l2 === 'Other' ? !l2top.includes(x.l2) : x.l2 === l2)).reduce((s, x) => s + x.sales, 0);
+    return cartesian(t, { x: l1s.map(cap), horizontal: true, format: 'inr', series: l2s.map((l2) => ({ name: cap(l2), data: l1s.map((l1) => val(l1, l2)), stack: 'cat', color: colors[l2] })) });
   }, [d, t]);
 
   const mixOpt = useMemo(() => {
-    const m = d?.category_mix_monthly ?? [];
+    const m = (d?.category_mix_monthly_l1l2 ?? []).map((x) => ({ month: x.month, category: `${cap(x.l1)} · ${x.l2}`, sales: x.sales }));
     if (!m.length) return null;
     const months = [...new Set(m.map((x) => x.month))].sort();
     const totals = new Map<string, number>();
@@ -75,7 +91,11 @@ export default function Products() {
         <MiniStat label="Distinct articles sold" value={num(d?.concentration.distinct_articles)} />
         <MiniStat label="Top 4 articles' share" value={pct(asPct(d?.concentration.top4_share))} sub="of sales" />
         <MiniStat label="Top 12 articles' share" value={pct(asPct(d?.concentration.top12_share))} sub="of sales" />
-        <MiniStat label="New launches in period" value={num(d?.new_launches.length)} />
+        <MiniStat
+          label="New articles, last 6 months"
+          value={num(d?.new_articles_6m?.articles)}
+          sub={d?.new_articles_6m ? `${inr(d.new_articles_6m.sales)} · ${pct(d.new_articles_6m.share)} of those months' sales` : undefined}
+        />
       </div>
 
       <Card
@@ -88,19 +108,19 @@ export default function Products() {
 
       <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-3">
         <ChartCard
-          title="Sales by category"
-          subtitle={basis}
+          title="Category mix"
+          subtitle="Category I, split by Category II · table has share and realisation"
           option={catOpt}
           loading={q.isLoading}
-          table={d ? { columns: ['Category', 'Sales', 'Units', 'Share', 'Realisation/unit'], rows: d.categories.map((c) => [c.name, inr(c.sales), num(c.units), pct(asPct(c.share)), inr(c.realisation, { compact: false })]) } : undefined}
+          table={d?.category_mix ? { columns: ['Category I', 'Category II', 'Sales', 'Units', 'Share', 'Realisation/unit', 'Units/order'], rows: d.category_mix.map((c) => [cap(c.l1), c.l2, inr(c.sales), num(c.units), pct(c.share), inr(c.realisation, { compact: false }), num(c.units_per_order, 1)]) } : undefined}
         />
         <ChartCard
           className="xl:col-span-2"
           title="Category mix by month"
-          subtitle="Top 6 categories, rest as Other"
+          subtitle="Category I · Category II, top 6 with the rest as Other"
           option={mixOpt}
           loading={q.isLoading}
-          table={d ? { columns: ['Month', 'Category', 'Sales'], rows: d.category_mix_monthly.map((m) => [monthLabel(m.month), m.category, inr(m.sales)]) } : undefined}
+          table={d?.category_mix_monthly_l1l2 ? { columns: ['Month', 'Category I', 'Category II', 'Sales'], rows: d.category_mix_monthly_l1l2.map((m) => [monthLabel(m.month), cap(m.l1), m.l2, inr(m.sales)]) } : undefined}
         />
       </div>
 
@@ -113,7 +133,7 @@ export default function Products() {
           <DataTable
             rows={list === 'top' ? d?.top_articles : d?.bottom_articles}
             loading={q.isLoading}
-            rowKey={(r) => r.style}
+            rowKey={(r) => `${r.style}·${r.name}·${r.category}`}
             exportName={`${list}_articles`}
             exportPath="/products/"
             exportParams={{ ...apiParams, table: `${list}_articles` }}

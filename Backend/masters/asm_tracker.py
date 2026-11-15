@@ -155,7 +155,7 @@ def to_xlsx(data):
     for line in [
         f"ASM tracker for {data['month']} (actuals as of {data['as_of']}).",
         "To update: change Region, ASM or Total Target on the first sheet, save, and use 'Upload tracker' on the",
-        "Territory page (pick the same month). Order Value / Orders / Acheived % are calculated by the dashboard",
+        "Region & ASM Performance page (pick the same month). Order Value / Orders / Acheived % are calculated by the dashboard",
         "and are ignored on upload. A new ASM name creates the ASM. 'Vacant' or blank ASM = no ASM.",
         "Blank Total Target = the distributor has no own target (it is covered by its ASM's target).",
         "The ASM / region / overall targets are the sums of the distributor targets.",

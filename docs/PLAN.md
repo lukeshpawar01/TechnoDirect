@@ -42,7 +42,7 @@ Rule: no dashboard request touches a source system. Every number is read from th
 - Financial year April–March, timezone IST, currency formatting lakh/crore.
 
 ## Pages
-1. Executive Overview · 2. Retailer Funnel · 3. Distributor & Territory · 4. Orders & Payments · 5. Product & Inventory · 6. Retention & Growth · 7. Loyalty Points · 8. Data Health · 9. Admin (Users & Roles, Targets, Mappings, Alerts, Metric dictionary, Audit log).
+1. Executive Overview · 2. Retailer Funnel · 3. Distributors · Region & ASM Performance · 4. Orders & Payments · 5. Product & Inventory · 6. Retention & Growth · 7. Loyalty Points · 8. Data Health · 9. Admin (Users & Roles, Targets, Mappings, Alerts, Metric dictionary, Audit log).
 
 ## Phases (current build scope — confirmed 11 Nov 2026)
 - P0: users/roles/scope, Medusa sync, warehouse, Overview, Funnel, Distributor & Territory, targets admin, Data Health.

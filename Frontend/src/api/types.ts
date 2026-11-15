@@ -170,6 +170,9 @@ export interface Funnel {
   inactivity: { d30: number; d60: number; d90: number };
   /** by month of sign-up (customer created date): current KYC approval and first-order conversion */
   signup_cohorts: { month: string; signed_up: number; kyc_approved: number; first_order: number; kyc_rate: number | null; order_rate: number | null }[];
+  /** KYC-approved → first order; timing from sign-up (created date) because the source has no approval date */
+  kyc_penetration?: { kyc_approved: number; ever_ordered: number; ever_pct: number | null; active: number; active_pct: number | null; period_label: string };
+  kyc_conversion?: { kyc_approved: number; converted: number; rate: number | null; median_days: number | null; within_30d: number; within_30d_pct: number | null; basis: 'signup' | 'approval' };
   acquisition_monthly: { month: string; new_retailers: number; cumulative: number }[];
   by_state: { state: string; kyc_approved: number; ever_ordered: number; active: number; adoption_pct: number }[];
 }
@@ -222,6 +225,12 @@ export interface DistributorRow {
   median_dispatch_days: number | null;
   l3m_sales: number;
   growth_pct: number | null;
+  /** sales in the comparison period (null when the preset has none) */
+  prev_sales?: number | null;
+  /** last 3 months vs the 3 before them (null when that base is under ₹50K) */
+  l3m_growth_pct?: number | null;
+  p3m_sales?: number | null;
+  sales_per_retailer?: number | null;
   target: number | null;
   achievement_pct: number | null;
   last_stock_sync: string | null;
@@ -237,6 +246,8 @@ export interface ArticleRow {
   orders: number;
   retailers: number;
   share: number;
+  realisation?: number | null;
+  units_per_order?: number | null;
 }
 
 export interface DistributorDetail {
@@ -281,6 +292,7 @@ export interface TerritoryRow {
   adoption_pct: number;
   distributors: number;
   growth_pct: number | null;
+  sales_per_retailer?: number | null;
 }
 export interface Territory {
   rows: TerritoryRow[];
@@ -294,7 +306,7 @@ export interface OrdersSummary {
   tat: {
     order_to_dispatch_median_h: number | null;
     order_to_delivery_median_h: number | null;
-    trend: { month: string; dispatch_h: number | null; delivery_h: number | null }[];
+    trend: { month: string; dispatch_h: number | null; delivery_h: number | null; dispatch_pct?: number | null }[];
   };
   cancellation_rate: number;
   payment: {
@@ -353,6 +365,9 @@ export interface Products {
   new_launches: { style: string; launched_on: string; sales: number; units: number; retailers: number; name?: string }[];
   size_mix: { size: string; units: number; share: number }[];
   concentration: { top4_share: number; top12_share: number; distinct_articles: number };
+  category_mix?: { l1: string; l2: string; sales: number; units: number; orders: number; share: number; realisation: number | null; units_per_order: number | null }[];
+  category_mix_monthly_l1l2?: { month: string; l1: string; l2: string; sales: number }[];
+  new_articles_6m?: { since: string; articles: number; sales: number; share: number };
 }
 
 /** GET /products/tree/ — one row per style; the client rolls rows up Category I > II > III > Style. */
@@ -563,4 +578,84 @@ export interface AsmTrackerData {
   totals: { sales: number; orders: number; target: number | null; achieved_pct: number | null };
   regions: string[];
   asms: string[];
+}
+
+/* ---------------------------------------------------------------- /growth/ (TD_DataDeck slides 28-44, 56, 59-61) */
+export interface GrowthMonth {
+  month: string;
+  is_partial: boolean;
+  sales: number;
+  orders: number;
+  units: number;
+  active_retailers: number;
+  distributors: number;
+  new_retailers: number;
+  aov: number | null;
+  units_per_order: number | null;
+  realisation_per_unit: number | null;
+  sales_per_retailer: number | null;
+  orders_per_retailer: number | null;
+  mom_pct: number | null;
+  prev_year_sales: number | null;
+  yoy_pct: number | null;
+  cum_sales: number;
+  cum_orders: number;
+  cum_retailers: number;
+  active_pct_of_base: number | null;
+  new_sales: number;
+  repeat_sales: number;
+  repeat_share: number | null;
+  articles_per_order: number | null;
+  articles_sold: number;
+}
+export interface GrowthRollup { label: string; start: string; sales: number; orders: number; aov: number | null; active_retailers: number; growth_pct: number | null; is_partial: boolean }
+export interface GrowthFactor { key: string; label: string; prev: number | null; cur: number | null; change_pct: number | null; share_pct: number | null; contribution: number | null }
+export interface Growth {
+  headline: { since: string; cum_sales: number; cum_orders: number; retailers: number; distributors: number; last_month: string | null; last_month_sales: number | null; repeat_share_last_month: number | null; record_month: string | null };
+  monthly: GrowthMonth[];
+  quarters: GrowthRollup[];
+  fy: GrowthRollup[];
+  milestones: { month: string; kind: 'cumulative' | 'month' | 'record'; label: string }[];
+  decomposition: {
+    period: { start: string; end: string };
+    compare: { start: string; end: string };
+    prev_sales: number;
+    cur_sales: number;
+    change: number;
+    change_pct: number | null;
+    factors: GrowthFactor[];
+    aov_factors: GrowthFactor[];
+    available: boolean;
+  };
+  bridge: {
+    window: { start: string; end: string };
+    prev_window: { start: string; end: string };
+    prev_total: number;
+    cur_total: number;
+    like_for_like: { retailers: number; prev: number; cur: number; change: number; change_pct: number | null };
+    new: { retailers: number; sales: number };
+    lapsed: { retailers: number; sales: number };
+  };
+  retailer_value: {
+    window: { start: string; end: string };
+    transacting: number;
+    avg_spend: number | null;
+    median_spend: number | null;
+    top_quartile: { retailers: number; avg_spend: number | null; share: number };
+    histogram: { bucket: string; retailers: number }[];
+    months_active: { months: number; retailers: number }[];
+    avg_months_active: number | null;
+    single_month: number;
+    lifetime: { acquired: number; repeat_retailers: number; repeat_pct: number | null; repeat_sales_share: number; avg_orders: number | null; one_order: number; one_order_sales: number };
+    first_vs_repeat_aov: { first_aov: number | null; first_orders: number; repeat_aov: number | null; repeat_orders: number };
+    top_retailers: { id: number; name: string; orders: number; sales: number; months_active: number; last_order: string | null }[];
+  };
+}
+
+/* ---------------------------------------------------------------- /distributors/insights/ (slides 49, 52, 62, 63) */
+export interface DistributorInsights {
+  trend: { months: string[]; series: { name: string; data: number[] }[] };
+  top_articles: { id: number; name: string; sales: number; articles: { style: string; sales: number }[] }[];
+  multi_distributor: { retailers: number; multi: number; multi_pct: number | null; avg_orders_multi: number | null; avg_orders_single: number | null; monthly: { month: string; active: number; multi: number; multi_pct: number | null }[] };
+  transacting_monthly: { month: string; distributors: number; retailers: number }[];
 }
