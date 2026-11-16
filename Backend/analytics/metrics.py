@@ -125,6 +125,8 @@ def target_scope(filters):
         return "asm", filters.asms
     if filters.states:
         return "state", filters.states
+    if filters.rsms:
+        return "rsm", filters.rsms
     if filters.regions:
         return "region", filters.regions
     sc = filters.scope
@@ -141,6 +143,8 @@ def target_values(scope_type, ids, months, metric="sales", as_of=None):
     """{(scope_id, month): value} using the latest effective version per key."""
     if not scope_type or not months:
         return {}
+    if scope_type == "rsm":
+        return rsm_target_values(ids, months, metric, as_of)
     as_of = as_of or dt.date.today()
     qs = Target.objects.filter(scope_type=scope_type, metric=metric, month__in=months)
     if ids is not None:
@@ -152,6 +156,39 @@ def target_values(scope_type, ids, months, metric="sales", as_of=None):
         if key not in best or rank > best[key][0]:
             best[key] = (rank, t["value"])
     return {k: v[1] for k, v in best.items()}
+
+
+def rsm_target_values(ids, months, metric="sales", as_of=None):
+    """RSM target = its ASMs' targets + targets of ASM-less distributors in the region it heads.
+    An explicit RSM-level target for a month replaces that sum."""
+    from warehouse.models import Asm, Distributor
+
+    from .rsm import region_rsm_map
+
+    want = set(ids) if ids is not None else None
+    out = defaultdict(Decimal)
+    asm_rsm = dict(Asm.objects.filter(rsm__isnull=False).values_list("id", "rsm_id"))
+    for (aid, m), v in target_values("asm", list(asm_rsm), months, metric, as_of).items():
+        if want is None or asm_rsm[aid] in want:
+            out[(asm_rsm[aid], m)] += v
+    reg_rsm = region_rsm_map()
+    no_asm = {d: reg_rsm.get(r) for d, r in Distributor.objects.filter(asm__isnull=True).values_list("id", "region_id")}
+    for (did, m), v in target_values("distributor", list(no_asm), months, metric, as_of).items():
+        r = no_asm[did]
+        if r and (want is None or r in want):
+            out[(r, m)] += v
+    direct = Target.objects.filter(scope_type="rsm", metric=metric, month__in=months)
+    if want is not None:
+        direct = direct.filter(scope_id__in=want)
+    if direct.exists():
+        best = {}
+        for t in direct.values("scope_id", "month", "value", "effective_from", "version"):
+            key, rank = (t["scope_id"], t["month"]), (t["effective_from"] <= (as_of or dt.date.today()),
+                                                      t["effective_from"], t["version"])
+            if key not in best or rank > best[key][0]:
+                best[key] = (rank, t["value"])
+        out.update({k: v[1] for k, v in best.items()})
+    return dict(out)
 
 
 def target_by_month(filters, months, metric="sales"):
@@ -171,12 +208,18 @@ def target_block(filters, base_qs):
     if not tmap:
         return None, {}
     total = float(sum(tmap.values()))
-    range_start, range_end = months[0], month_end(months[-1])
+    # Achievement counts only the months that have a target: a YTD view with targets for 3 of 8 months must
+    # not divide 8 months of sales by 3 months of target.
     eff_end = min(p.end, filters.today)
-    achieved = float(base_qs.filter(placed_date__gte=range_start, placed_date__lte=eff_end)
-                     .aggregate(s=Sum("gross_value"))["s"] or 0)
-    days_total = (range_end - range_start).days + 1
-    days_elapsed = max(0, min((eff_end - range_start).days + 1, days_total))
+    targeted = sorted(m for m, v in tmap.items() if v)
+    achieved, days_total, days_elapsed = 0.0, 0, 0
+    for m in targeted:
+        m_end = month_end(m)
+        days_total += (m_end - m).days + 1
+        days_elapsed += max(0, min((eff_end - m).days + 1, (m_end - m).days + 1))
+        if m <= eff_end:
+            achieved += float(base_qs.filter(placed_date__gte=m, placed_date__lte=min(m_end, eff_end))
+                              .aggregate(s=Sum("gross_value"))["s"] or 0)
     remaining = days_total - days_elapsed
     balance = max(total - achieved, 0.0)
     crr = achieved / days_elapsed if days_elapsed else 0.0
@@ -190,6 +233,8 @@ def target_block(filters, base_qs):
         "current_run_rate": num(crr),
         "required_run_rate": num(balance / remaining) if remaining > 0 else 0.0,
         "projected": num(crr * days_total),
+        "target_months": [m.isoformat()[:7] for m in targeted],
+        "period_months": len(months),
     }, tmap
 
 

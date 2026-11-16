@@ -77,3 +77,14 @@ def sync_source(source, triggered_by="manual"):
     if source == "all":
         return refresh_all_inline(triggered_by)
     return run_single_inline(source, triggered_by)
+
+
+@shared_task(name="masters.tasks.forecast_next_month_targets")
+def forecast_next_month_targets():
+    """27th of every month: TD Target Forecaster suggests next month's targets (masters/target_forecast.py)."""
+    from analytics.cache import bump_cache_version
+    from masters.target_forecast import run
+
+    res = run()
+    bump_cache_version()
+    return {k: str(v) for k, v in res.items()}

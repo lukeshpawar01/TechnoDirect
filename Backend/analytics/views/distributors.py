@@ -8,9 +8,11 @@ from django.http import Http404
 from rest_framework.exceptions import ValidationError
 
 from accounts.scope import ASM_DIMS, DISTRIBUTOR_DIMS, REGION_DIMS, RETAILER_DIMS, STATE_DIMS
-from warehouse.models import Asm, Distributor, InventorySnapshot, OrderLine, Region, Retailer, State, primary_inventory
+from warehouse.models import (Asm, Distributor, FieldStaff, InventorySnapshot, OrderLine, Region, Retailer, Rsm, State,
+                              primary_inventory)
 
 from ..filters import add_months, month_start, months_between
+from ..rsm import region_rsm_map, with_rsm
 from ..metrics import (
     as_date,
     delta_pct,
@@ -93,6 +95,7 @@ class DistributorsView(AnalyticsView):
         targets = defaultdict(float)
         for (sid, _), v in tv.items():
             targets[sid] += float(v)
+        tsales = targeted_sales(cur_qs, "distributor_id", tv)
         stock = dict(primary_inventory().filter(distributor_id__in=ids).values("distributor_id")
                      .annotate(m=Max("synced_at")).values_list("distributor_id", "m"))
         total = sum(float(r["sales"] or 0) for r in cur.values())
@@ -116,7 +119,8 @@ class DistributorsView(AnalyticsView):
                 "sales_per_retailer": ratio(sales, act),
                 "growth_pct": delta_pct(sales, float(cmp.get(d.id) or 0)) if p.cmp_start else None,
                 "prev_sales": num(cmp.get(d.id)) if p.cmp_start else None,
-                "target": num(t) if t else None, "achievement_pct": share(sales, t) if t else None,
+                "target": num(t) if t else None,
+                "achievement_pct": share(tsales.get(d.id, 0.0), t) if t else None,
                 "last_stock_sync": _iso(stock.get(d.id)),
                 "spark": [num(sp[d.id].get(m, 0)) for m in months12],
             })
@@ -227,10 +231,33 @@ class DistributorDetailView(AnalyticsView):
                 "top_articles": top_articles, "retailers": retailers}
 
 
+GROWTH_MIN_BASE = 50_000  # growth % on a smaller comparison base is noise (e.g. +12,27,35,820% on a few rupees)
+
+
+def growth_on_base(sales, prev):
+    prev = float(prev or 0)
+    return delta_pct(float(sales), prev) if prev >= GROWTH_MIN_BASE else None
+
+
+def targeted_sales(qs, gfield, tv):
+    """{group: sales in the months that group has a target} - achievement must not divide all months' sales
+    by the few months that carry a target."""
+    months = defaultdict(set)
+    for (gid, m), v in tv.items():
+        if v:
+            months[gid].add(m)
+    out = defaultdict(float)
+    for r in qs.annotate(_m=TruncMonth("placed_date")).values(gfield, "_m").annotate(_s=Sum("gross_value")):
+        if as_date(r["_m"]) in months.get(r[gfield], ()):
+            out[r[gfield]] += float(r["_s"] or 0)
+    return out
+
+
 GROUPS = {
     "region": (Region, REGION_DIMS, "region_id"),
     "state": (State, STATE_DIMS, "state_id"),
     "asm": (Asm, ASM_DIMS, "asm_id"),
+    "rsm": (Rsm, None, "rsm_key"),  # derived: ASM's RSM, else the region's RSM (analytics/rsm.py)
 }
 
 
@@ -241,10 +268,11 @@ class TerritoryView(AnalyticsView):
     def compute(self, f, request, **kw):
         group_by = request.query_params.get("group_by", "state")
         if group_by not in GROUPS:
-            raise ValidationError({"group_by": "must be region, state or asm"})
+            raise ValidationError({"group_by": "must be region, rsm, state or asm"})
         model, _, gfield = GROUPS[group_by]
         p = f.period
-        base = f.orders()
+        prep = with_rsm if group_by == "rsm" else (lambda qs: qs)
+        base = prep(f.orders())
         cur_qs = base.filter(placed_date__gte=p.start, placed_date__lte=p.end)
         cur = {r[gfield]: r for r in cur_qs.values(gfield).annotate(
             sales=Sum("gross_value"), orders=Count("split_group", distinct=True),
@@ -255,12 +283,12 @@ class TerritoryView(AnalyticsView):
         if p.cmp_start:
             cmp = dict(base.filter(placed_date__gte=p.cmp_start, placed_date__lte=p.cmp_end).values(gfield)
                        .annotate(s=Sum("gross_value")).values_list(gfield, "s"))
-        rb = Retailer.objects.filter(f.dims_q(RETAILER_DIMS, retailer_field="id"))
+        rb = prep(Retailer.objects.filter(f.dims_q(RETAILER_DIMS, retailer_field="id")))
         kyc = {r[gfield]: r for r in rb.values(gfield).annotate(
             kyc=Count("id", filter=Q(kyc_status="approved")),
             ever=Count("id", filter=Q(first_order_date__isnull=False)))}
-        dist_counts = dict(Distributor.objects.filter(f.dims_q(DISTRIBUTOR_DIMS, retailer_field=None),
-                                                      is_active=True)
+        dist_counts = dict(prep(Distributor.objects.filter(f.dims_q(DISTRIBUTOR_DIMS, retailer_field=None),
+                                                           is_active=True))
                            .values(gfield).annotate(n=Count("id")).values_list(gfield, "n"))
         group_ids = set(cur) | set(kyc) | set(dist_counts)
         group_ids.discard(None)
@@ -269,6 +297,7 @@ class TerritoryView(AnalyticsView):
         targets = defaultdict(float)
         for (sid, _), v in tv.items():
             targets[sid] += float(v)
+        tsales = targeted_sales(cur_qs, gfield, tv)
         rows = []
         for gid in group_ids | ({None} if None in cur else set()):
             c, k = cur.get(gid, {}), kyc.get(gid, {})
@@ -276,22 +305,118 @@ class TerritoryView(AnalyticsView):
             t = targets.get(gid)
             rows.append({
                 "id": gid, "name": names.get(gid, "Unmapped"), "sales": num(sales),
-                "target": num(t) if t else None, "achievement_pct": share(sales, t) if t else None,
+                "target": num(t) if t else None,
+                "achievement_pct": share(tsales.get(gid, 0.0), t) if t else None,
                 "orders": c.get("orders", 0), "active_retailers": c.get("retailers", 0),
                 "new_retailers": c.get("new", 0), "kyc_base": k.get("kyc", 0),
                 "adoption_pct": pct(k.get("ever", 0), k.get("kyc", 0)),
                 "distributors": dist_counts.get(gid, 0),
                 "sales_per_retailer": ratio(sales, c.get("retailers", 0)),
-                "growth_pct": delta_pct(sales, float(cmp.get(gid) or 0)) if p.cmp_start else None,
+                "growth_pct": growth_on_base(sales, cmp.get(gid)) if p.cmp_start else None,
             })
         rows.sort(key=lambda r: -r["sales"])
+        team = self.team(group_by, rows)
         months12 = spark_months(p.end)
         monthly = [{"month": mkey(r["m"]), "group": names.get(r[gfield], "Unmapped"), "group_id": r[gfield],
                     "sales": num(r["s"])}
                    for r in base.filter(placed_date__gte=months12[0], placed_date__lte=p.end)
                    .annotate(m=TruncMonth("placed_date")).values("m", gfield).annotate(s=Sum("gross_value"))
                    .order_by("m", gfield)]
-        return {"group_by": group_by, "rows": rows, "monthly_by_group": monthly}
+        out = {"group_by": group_by, "rows": rows, "monthly_by_group": monthly}
+        if group_by == "rsm":
+            out["breakdown"] = self.rsm_breakdown(f, base, cur_qs, p)
+        return out
+
+    @staticmethod
+    def team(group_by, rows):
+        """Adds the people behind each row: RSM -> ASMs / field staff; ASM -> its RSM and field staff."""
+        ids = [r["id"] for r in rows if r["id"]]
+        if group_by == "rsm":
+            asms = dict(Asm.objects.filter(rsm_id__in=ids, is_active=True).values("rsm_id").annotate(
+                n=Count("id")).values_list("rsm_id", "n"))
+            fse = dict(FieldStaff.objects.filter(rsm_id__in=ids, is_active=True).values("rsm_id").annotate(
+                n=Count("id")).values_list("rsm_id", "n"))
+            info = {r.id: r for r in Rsm.objects.filter(id__in=ids).select_related("region")}
+            for r in rows:
+                x = info.get(r["id"])
+                r.update({"asms": asms.get(r["id"], 0), "field_staff": fse.get(r["id"], 0),
+                          "region": x.region.name if x and x.region_id else None})
+        elif group_by == "asm":
+            fse = dict(FieldStaff.objects.filter(asm_id__in=ids, is_active=True).values("asm_id").annotate(
+                n=Count("id")).values_list("asm_id", "n"))
+            info = {a.id: a for a in Asm.objects.filter(id__in=ids).select_related("rsm")}
+            for r in rows:
+                a = info.get(r["id"])
+                r.update({"field_staff": fse.get(r["id"], 0), "rsm_id": a.rsm_id if a else None,
+                          "rsm": a.rsm.name if a and a.rsm_id else None,
+                          "full_name": (a.full_name or None) if a else None})
+        return None
+
+    @staticmethod
+    def rsm_breakdown(f, base, cur_qs, p):
+        """RSM -> ASM rows for the team hierarchy table (ASM-less sales shown as 'Distributor-managed')."""
+        cur = {(r["rsm_key"], r["asm_id"]): r for r in cur_qs.values("rsm_key", "asm_id").annotate(
+            sales=Sum("gross_value"), orders=Count("split_group", distinct=True),
+            retailers=Count("retailer_id", distinct=True))}
+        cmp = {}
+        if p.cmp_start:
+            cmp = {(r["rsm_key"], r["asm_id"]): r["s"] for r in base.filter(
+                placed_date__gte=p.cmp_start, placed_date__lte=p.cmp_end).values("rsm_key", "asm_id").annotate(
+                s=Sum("gross_value"))}
+        asms = {a.id: a for a in Asm.objects.filter(rsm__isnull=False, is_active=True)}
+        if f.rsms:
+            asms = {k: a for k, a in asms.items() if a.rsm_id in f.rsms}
+        if f.asms:
+            asms = {k: a for k, a in asms.items() if k in f.asms}
+        # an ASM who joined after the period is not part of that period's team
+        asms = {k: a for k, a in asms.items() if not a.joined_on or a.joined_on <= p.end}
+        keys = set(cur) | {(a.rsm_id, a.id) for a in asms.values()}
+        tv = target_values("asm", [k[1] for k in keys if k[1]], months_between(p.start, p.end), "sales", f.today)
+        tgt = defaultdict(float)
+        for (aid, _), v in tv.items():
+            tgt[aid] += float(v)
+        tsales = targeted_sales(cur_qs, "asm_id", tv)
+        # ASM-less distributors' own targets belong to the "Distributor-managed" row of their region's RSM
+        reg_rsm = region_rsm_map()
+        no_asm = {d: reg_rsm.get(r) for d, r in Distributor.objects.filter(asm__isnull=True).values_list(
+            "id", "region_id")}
+        dm_tgt, dm_months = defaultdict(float), defaultdict(set)
+        for (did, m), v in target_values("distributor", list(no_asm), months_between(p.start, p.end), "sales",
+                                         f.today).items():
+            if no_asm[did] and not f.asms and (not f.rsms or no_asm[did] in f.rsms):
+                dm_tgt[no_asm[did]] += float(v)
+                dm_months[no_asm[did]].add(m)
+                keys.add((no_asm[did], None))
+        dm_sales = defaultdict(float)
+        for r in cur_qs.filter(asm__isnull=True).annotate(_m=TruncMonth("placed_date")).values(
+                "rsm_key", "_m").annotate(_s=Sum("gross_value")):
+            if as_date(r["_m"]) in dm_months.get(r["rsm_key"], ()):
+                dm_sales[r["rsm_key"]] += float(r["_s"] or 0)
+        fse = dict(FieldStaff.objects.filter(is_active=True, asm__isnull=False).values("asm_id").annotate(
+            n=Count("id")).values_list("asm_id", "n"))
+        out = []
+        for rsm_id, asm_id in keys:
+            if rsm_id is None:
+                continue
+            c = cur.get((rsm_id, asm_id), {})
+            sales = float(c.get("sales") or 0)
+            t = tgt.get(asm_id) if asm_id else dm_tgt.get(rsm_id)
+            t_sales = tsales.get(asm_id, 0.0) if asm_id else dm_sales.get(rsm_id, 0.0)
+            a = asms.get(asm_id) or (Asm.objects.filter(id=asm_id).first() if asm_id else None)
+            out.append({
+                "rsm_id": rsm_id, "asm_id": asm_id,
+                "name": a.name if a else "Distributor-managed (no ASM)",
+                "full_name": (a.full_name or None) if a else None,
+                "is_active": a.is_active if a else True,
+                "joined_on": a.joined_on if a else None,
+                "sales": num(sales), "target": num(t) if t else None,
+                "achievement_pct": share(t_sales, t) if t else None,
+                "orders": c.get("orders", 0), "active_retailers": c.get("retailers", 0),
+                "growth_pct": growth_on_base(sales, cmp.get((rsm_id, asm_id))) if p.cmp_start else None,
+                "field_staff": fse.get(asm_id, 0) if asm_id else 0,
+            })
+        out.sort(key=lambda r: (r["rsm_id"], r["asm_id"] is None, -r["sales"]))
+        return out
 
 
 class DistributorInsightsView(AnalyticsView):
@@ -363,4 +488,45 @@ class DistributorInsightsView(AnalyticsView):
             "trend": trend, "top_articles": top_articles, "multi_distributor": multi_distributor,
             "transacting_monthly": [{"month": mkey(m), "distributors": transacting.get(m, {}).get("n", 0),
                                      "retailers": transacting.get(m, {}).get("rt", 0)} for m in months12],
+        }
+
+
+class DistributorNetworkView(AnalyticsView):
+    """GET /distributors/network/ — distributors grouped by state (state per the sales team's distributor list),
+    with each one's sales and orders in the period."""
+
+    permission_code = "view_distributors"
+    export_key = "states"
+
+    def compute(self, f, request, **kw):
+        p = f.period
+        dists = list(scoped_distributors(f).select_related("state", "region"))
+        ids = [d.id for d in dists]
+        cur = {r["distributor_id"]: r for r in f.orders(start=p.start, end=p.end).filter(distributor_id__in=ids)
+               .values("distributor_id").annotate(s=Sum("gross_value"), n=Count("split_group", distinct=True))}
+        ever = set(f.orders(end=p.end).filter(distributor_id__in=ids).values_list("distributor_id", flat=True)
+                   .distinct())
+        states = {}
+        for d in dists:
+            if d.id not in ever:
+                continue  # never traded (test / dormant accounts)
+            key = d.state_id
+            b = states.setdefault(key, {"state": d.state.name if d.state_id else "Unmapped",
+                                        "region": d.region.name if d.region_id else None,
+                                        "sales": 0.0, "distributors": []})
+            c = cur.get(d.id) or {}
+            sales = float(c.get("s") or 0)
+            b["sales"] += sales
+            b["distributors"].append({"id": d.id, "name": d.name, "sales": num(sales), "orders": c.get("n") or 0})
+        rows = []
+        for b in states.values():
+            b["distributors"].sort(key=lambda x: -x["sales"])
+            b["selling"] = sum(1 for x in b["distributors"] if x["orders"])
+            b["sales"] = num(b["sales"])
+            rows.append(b)
+        rows.sort(key=lambda r: (-r["sales"], r["state"]))
+        return {
+            "summary": {"states": len(rows), "distributors": sum(len(r["distributors"]) for r in rows),
+                        "selling": sum(r["selling"] for r in rows)},
+            "states": rows,
         }

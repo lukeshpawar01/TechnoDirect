@@ -1,4 +1,4 @@
-from django.db.models import Count, Sum
+from django.db.models import Count, Q, Sum
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
@@ -16,6 +16,7 @@ from warehouse.models import (
     ORDER_STATUSES,
     PAYMENT_STATUSES,
     Asm,
+    Rsm,
     DataQualityIssue,
     Distributor,
     Order,
@@ -151,10 +152,14 @@ class FilterOptionsView(APIView):
             states = states.filter(sc.q(STATE_DIMS) | _ids(dists, "state_id"))
             regions = regions.filter(sc.q(REGION_DIMS) | _ids(dists, "region_id") | _ids(states, "region_id"))
             asms = asms.filter(sc.q(ASM_DIMS) | _ids(dists, "asm_id"))
+        rsms = Rsm.objects.filter(is_active=True)
+        if not sc.all:
+            rsms = rsms.filter(Q(id__in=asms.values("rsm_id")) | Q(region__in=regions))
         return Response({
             "regions": list(regions.order_by("name").values("id", "name", "code")),
             "states": list(states.order_by("name").values("id", "name", "code", "region_id")),
-            "asms": list(asms.order_by("name").values("id", "name", "code", "region_id")),
+            "rsms": list(rsms.order_by("name").values("id", "name", "code", "region_id")),
+            "asms": list(asms.order_by("name").values("id", "name", "code", "region_id", "rsm_id")),
             "distributors": list(dists.order_by("name").values("id", "name", "code", "state_id")),
             # top-bar Category = Category I of the product catalogue
             "categories": [{"code": c, "name": c.replace("-", " ").title()} for c in Product.objects.exclude(

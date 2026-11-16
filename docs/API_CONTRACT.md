@@ -28,14 +28,14 @@ Any list endpoint accepts `?export=csv|xlsx` (requires permission `export_data`)
 `preset` = today|yesterday|wtd|last_week|mtd|prev_month|q1|q2|q3|q4|qtd|fytd|last_7d|last_30d|last_90d|last_12m|all_time|custom
 (default mtd; q1–q4 = FY quarters Apr–Jun / Jul–Sep / Oct–Dec / Jan–Mar of the current FY, or last FY if not started yet;
 a running quarter compares the same days of the previous quarter; all_time = first order date → today, no comparison) ·
-`date_from`, `date_to` (when custom) · `region`, `state`, `asm`, `distributor`, `retailer`, `category`, `article`
-(comma-separated ids/codes) · `segment` = new|retained|reactivated|inactive|one_time|repeat · `order_status` · `payment_status`.
+`date_from`, `date_to` (when custom) · `region`, `rsm`, `state`, `asm`, `distributor`, `retailer`, `category`, `article`
+(comma-separated ids/codes; `rsm` = records whose ASM reports to that RSM, plus ASM-less records in the region the RSM heads) · `segment` = new|retained|reactivated|inactive|one_time|repeat · `order_status` · `payment_status`.
 
 Module filters (sent only by the page that shows them; ignored where not applicable): `platform` (android,web) ·
 `payment_mode` (UPI,CC,DC,NB) · `is_split=true|false` (split carts / single-distributor orders) · `order_status` (received,confirmed,shipped,delivered,cancelled; the summary's status chart always lists every status) · `cat_l1`, `cat_l2`, `cat_l3` (category I/II/III; order lines,
 products and stock) · `size` (stock) · `has_account=true|false` (retailers / funnel; API only, not offered in the UI) · `kyc_status` (Retailers / Funnel) · `kyc_verified=true|false` (Retailers / Funnel; customer kyc column) ·
 `event_type` = new_customer|earned|redeemed (loyalty) · `stock_sync` = fresh|stale|never (distributor scorecard).
-`/meta/filters/` also returns `payment_modes`, `platforms`, `category_tree` [{l1,l2,l3}] and `sizes` for these.
+`/meta/filters/` also returns `rsms` [{id,name,code,region_id}] (and `rsm_id` on each ASM), `payment_modes`, `platforms`, `category_tree` [{l1,l2,l3}] and `sizes` for these.
 The server additionally intersects with the user's data scope.
 
 ## Auth & users
@@ -84,7 +84,13 @@ Master admin (`is_master_admin`) implicitly has all permissions and full scope.
 - `GET /retailers/{id}/` → profile + `monthly:[{month,sales,orders}]` + `recent_orders:[...]`
 - `GET /distributors/` → `{"rows":[{id,name,state,sales,share,orders,aov,retailers,active_retailers,new_retailers,repeat_pct,orders_per_retailer,dispatch_pct,median_dispatch_days,l3m_sales,growth_pct,prev_sales,target,achievement_pct,last_stock_sync,spark:[12]}]}` · Leaders & laggards (top/bottom 5) is computed client-side from these rows: sales (>0), growth (prev_sales ≥ ₹50K), target achievement (has target), activation (active/mapped retailers, ≥20 mapped), fulfilment (dispatch %, ≥5 orders).
 - `GET /distributors/{id}/` → `{profile, kpis, monthly:[...], top_articles:[...], retailers:[...top 50]}`
-- `GET /territory/?group_by=region|state|asm` → `{"rows":[{id,name,sales,target,achievement_pct,orders,active_retailers,new_retailers,kyc_base,adoption_pct,distributors,growth_pct}], "monthly_by_group":[{month, group, sales}]}`
+- `GET /distributors/network/` (perm `view_distributors`) → `{summary:{states, distributors, selling}, states:[{state, region, sales, selling, distributors:[{id,name,sales,orders}]}]}` — distributors by state (state per the team's distributor list, `manage.py import_distributor_network <csv>`).
+- `GET /territory/?group_by=region|rsm|state|asm` → `{"rows":[{id,name,sales,target,achievement_pct,orders,active_retailers,new_retailers,kyc_base,adoption_pct,distributors,growth_pct,sales_per_retailer}], "monthly_by_group":[{month, group, sales}]}`.
+  `group_by=rsm` rows add `asms`, `field_staff`, `region` and the response adds `breakdown` [{rsm_id, asm_id (null = distributor-managed), name, full_name, is_active (false = has left), joined_on, sales, target, achievement_pct, orders, active_retailers, growth_pct, field_staff}] (ASMs who joined after the period are left out); `group_by=asm` rows add `rsm_id`, `rsm`, `full_name`, `field_staff`.
+  Orders are credited to the ASM in charge of their distributor **on the order date** (`AsmAssignment` history; `manage.py asm_handover "<distributor>" --asm <name|vacant> --from YYYY-MM-DD`; a monthly tracker that changes a distributor's ASM records a handover from that month).
+  RSM target = its ASMs' targets + targets of ASM-less distributors in its region (an explicit `rsm` target replaces the sum).
+  `achievement_pct` everywhere (territory, distributors, overview `target`) = sales **in the months that carry a target** ÷ target; the overview `target` block also returns `target_months` and `period_months`.
+  `growth_pct` on territory rows is null when the comparison base is below ₹50,000.
 - `GET /orders/summary/` → `{"status_counts":[{status,count,value}],"ageing":[{bucket:"0-1d|1-2d|2-4d|4-7d|7d+",status,count}],
   "tat":{"order_to_dispatch_median_h","order_to_delivery_median_h","trend":[{month,dispatch_h,delivery_h}]},
   "cancellation_rate","payment":{"success","failed","failed_value","paid_no_order"},
@@ -115,6 +121,12 @@ Master admin (`is_master_admin`) implicitly has all permissions and full scope.
 - `POST /data-health/sync/` {source} → triggers sync (perm `trigger_sync`).
 
 ## ASM tracker (Region & ASM Performance page, `/territory`: Export / Upload / Edit)
+TD Target Forecaster (`masters/target_forecast.py`, `TargetForecast`): suggested target per ASM / distributor / overall for next month, made on the 27th (Celery beat `forecast-next-month-targets`, 11:00 IST) or by `manage.py forecast_targets [--month YYYY-MM --as-of YYYY-MM-DD | --backtest]`. The tracker GET returns `forecast` {as_of, model, params, overall, asm: {name: value}, wape_vs_set} and `suggested` on each row / ASM.
+
+Add from the Edit window (perm `manage_mappings`): `POST /masters/asm-tracker/asm/` {name, full_name, region, rsm_id (default: the region's RSM), joined_on} and `POST /masters/asm-tracker/distributor/` {name, state_id, city, asm} (region follows the state; a name that already exists under any spelling is refused; matched by name when it later appears in the data export). The tracker GET also returns `states` and `rsms` for these forms.
+
+Monthly ASM targets workbook (one tab per month, TD Target in lakhs): `manage.py import_asm_targets "<xlsx>"` (`--dry-run`, `--check` = sheet achieved vs dashboard per ASM-month). Row rules and tab→month mapping live in `masters/asm_targets.py`; months that have a distributor-level tracker keep it.
+
 - `GET /masters/asm-tracker/?month=YYYY-MM` (perm `view_territory`, scoped) → `{month, as_of, rows:[{distributor_id, distributor, region, asm_id, asm, sales, orders, share, target, remaining, achieved_pct, asm_target, asm_sales, asm_achieved_pct}], asm_summary:[...], totals, regions, asms}`; add `&download=xlsx` for the Excel tracker (needs `export_data`).
 - `POST /masters/asm-tracker/` `{month, rows:[{distributor_id, region, asm, target}]}` and `POST /masters/asm-tracker/upload/` (multipart `file` .xlsx/.csv in the tracker layout + `month`) — perms `manage_targets` + `manage_mappings`. Same rules as `manage.py import_asm_tracker`; the save is the full picture for the month (blank target removes that distributor's own target; ASM / region / overall targets are the sums). Audited.
 

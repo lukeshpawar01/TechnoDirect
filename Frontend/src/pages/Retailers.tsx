@@ -88,6 +88,7 @@ export default function Retailers() {
               { key: 'state', header: 'State' },
               { key: 'distributor', header: 'Distributor' },
               { key: 'asm', header: 'ASM' },
+              { key: 'rsm', header: 'RSM', sortable: false },
               { key: 'kyc_status', header: 'KYC', render: (r) => <StatusBadge status={r.kyc_status} /> },
               { key: 'segment', header: 'Segment', render: (r) => <span className="text-xs text-ink2">{titleCase(r.segment)}</span> },
               { key: 'warm_match', header: 'Warm', align: 'center', render: (r) => (r.warm_match ? <Badge tone="brand">Warm</Badge> : <span className="text-muted">–</span>), value: (r) => (r.warm_match ? 'Yes' : 'No') },

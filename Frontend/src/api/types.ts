@@ -103,7 +103,8 @@ export interface IdName {
 export interface FilterOptions {
   regions: IdName[];
   states: (IdName & { region_id: number })[];
-  asms: (IdName & { region_id: number })[];
+  rsms?: (IdName & { region_id: number | null })[];
+  asms: (IdName & { region_id: number; rsm_id?: number | null })[];
   distributors: (IdName & { state_id: number })[];
   categories: { code: string; name: string }[];
   order_statuses: string[];
@@ -143,6 +144,9 @@ export interface TargetBlock {
   days_total: number;
   current_run_rate: number;
   required_run_rate: number;
+  /** months (YYYY-MM) that carry a target; achievement counts sales in these months only */
+  target_months?: string[];
+  period_months?: number;
   projected: number;
 }
 
@@ -185,6 +189,7 @@ export interface RetailerRow {
   state: string;
   distributor: string;
   asm: string;
+  rsm?: string | null;
   kyc_status: string;
   first_order_date: string | null;
   last_order_date: string | null;
@@ -293,10 +298,38 @@ export interface TerritoryRow {
   distributors: number;
   growth_pct: number | null;
   sales_per_retailer?: number | null;
+  // group_by=rsm
+  asms?: number;
+  region?: string | null;
+  // group_by=rsm / asm
+  field_staff?: number;
+  // group_by=asm
+  rsm_id?: number | null;
+  rsm?: string | null;
+  full_name?: string | null;
+}
+/** group_by=rsm: one row per RSM x ASM (asm_id null = distributor-managed sales in that RSM's region). */
+export interface TerritoryTeamRow {
+  rsm_id: number;
+  asm_id: number | null;
+  name: string;
+  full_name: string | null;
+  sales: number;
+  target: number | null;
+  achievement_pct: number | null;
+  orders: number;
+  active_retailers: number;
+  growth_pct: number | null;
+  field_staff: number;
+  /** false = has left (sales stay credited to them for the months they were in charge) */
+  is_active?: boolean;
+  joined_on?: string | null;
 }
 export interface Territory {
+  group_by?: string;
   rows: TerritoryRow[];
   monthly_by_group: { month: string; group: string; sales: number }[];
+  breakdown?: TerritoryTeamRow[];
 }
 
 // ---------------------------------------------------------------- orders
@@ -566,18 +599,45 @@ export interface AsmTrackerRow {
   target: number | null;
   remaining: number | null;
   achieved_pct: number | null;
-  asm_target: number | null;
-  asm_sales: number | null;
-  asm_achieved_pct: number | null;
+  /** TD Target Forecaster suggestion for this month (when a forecast exists) */
+  suggested?: number | null;
+}
+export interface AsmTrackerAsm {
+  asm_id: number;
+  asm: string;
+  region: string;
+  distributors: number;
+  sales: number;
+  orders: number;
+  target: number | null;
+  remaining: number | null;
+  achieved_pct: number | null;
+  /** 'distributors' = sum of its distributors' targets; 'asm' = one target for the ASM as a whole */
+  target_from: 'distributors' | 'asm';
+  suggested?: number | null;
+}
+export interface AsmTrackerForecast {
+  as_of: string;
+  model: string;
+  params: Record<string, number | string> | null;
+  overall: number | null;
+  /** ASM name -> suggested target */
+  asm: Record<string, number>;
+  /** how far the suggestions were from the targets set for this month (WAPE %), when targets exist */
+  wape_vs_set: number | null;
 }
 export interface AsmTrackerData {
   month: string;
   as_of: string;
   rows: AsmTrackerRow[];
-  asm_summary: { asm_id: number; asm: string; region: string; distributors: number; sales: number; orders: number; target: number | null; remaining: number | null; achieved_pct: number | null }[];
-  totals: { sales: number; orders: number; target: number | null; achieved_pct: number | null };
+  first_month: string;
+  asm_summary: AsmTrackerAsm[];
+  forecast: AsmTrackerForecast | null;
+  totals: { sales: number; orders: number; target: number | null; remaining: number | null; achieved_pct: number | null };
   regions: string[];
   asms: string[];
+  states: { id: number; name: string; region: string | null }[];
+  rsms: { id: number; name: string; region: string | null }[];
 }
 
 /* ---------------------------------------------------------------- /growth/ (TD_DataDeck slides 28-44, 56, 59-61) */

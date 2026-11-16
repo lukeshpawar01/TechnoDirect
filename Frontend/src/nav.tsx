@@ -20,9 +20,9 @@ import {
 } from './components/Icons';
 
 /** Filters of the global top bar. Each page lists the ones its data actually responds to. */
-export type TopFilter = 'date' | 'region' | 'state' | 'asm' | 'distributor' | 'category';
-export const ALL_TOP_FILTERS: TopFilter[] = ['date', 'region', 'state', 'asm', 'distributor', 'category'];
-const NO_CATEGORY: TopFilter[] = ['date', 'region', 'state', 'asm', 'distributor'];
+export type TopFilter = 'date' | 'region' | 'rsm' | 'state' | 'asm' | 'distributor' | 'category';
+export const ALL_TOP_FILTERS: TopFilter[] = ['date', 'region', 'rsm', 'state', 'asm', 'distributor', 'category'];
+const NO_CATEGORY: TopFilter[] = ['date', 'region', 'rsm', 'state', 'asm', 'distributor'];
 
 export interface NavItem {
   to: string;
@@ -44,7 +44,7 @@ export const MAIN_NAV: NavItem[] = [
   // Category I is in the top bar AND the module row here (same `category` key, so they stay in sync)
   { to: '/products', label: 'Products', icon: <IconLayers />, perms: ['view_products'] },
   // stock is a current snapshot: no date range
-  { to: '/inventory', label: 'Inventory', icon: <IconBox />, perms: ['view_inventory'], filters: ['region', 'state', 'asm', 'distributor', 'category'] },
+  { to: '/inventory', label: 'Inventory', icon: <IconBox />, perms: ['view_inventory'], filters: ['region', 'rsm', 'state', 'asm', 'distributor', 'category'] },
   { to: '/retention', label: 'Retention & Growth', icon: <IconRepeat />, perms: ['view_retention'], filters: NO_CATEGORY },
   { to: '/loyalty', label: 'Loyalty Points', icon: <IconGift />, perms: ['view_loyalty'], filters: NO_CATEGORY },
   { to: '/data-health', label: 'Data Health', icon: <IconPulse />, perms: ['view_data_health'] },

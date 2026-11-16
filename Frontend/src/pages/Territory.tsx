@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useAnalytics } from '@/api/hooks';
-import type { Territory as TerritoryData } from '@/api/types';
+import type { Territory as TerritoryData, TerritoryRow } from '@/api/types';
 import { cartesian } from '@/charts/builders';
 import { useChartTokens } from '@/charts/EChart';
 import { colorFor } from '@/charts/palette';
@@ -8,20 +8,22 @@ import { AsmTrackerActions } from '@/components/AsmTracker';
 import { ChartCard } from '@/components/ChartCard';
 import { DataTable } from '@/components/DataTable';
 import { PageHeader } from '@/components/PageHeader';
+import { SalesTeam } from '@/components/SalesTeam';
 import { Card, Delta, Meter, Segmented } from '@/components/ui';
 import { useFilters } from '@/lib/filters';
 import { asPct, inr, monthLabel, num, pct } from '@/lib/format';
 
-type GroupBy = 'region' | 'state' | 'asm';
+type GroupBy = 'region' | 'rsm' | 'state' | 'asm';
 
 export default function Territory() {
   const { searchParams, update, apiParams } = useFilters();
-  const groupBy = (['region', 'state', 'asm'].includes(searchParams.get('group_by') ?? '') ? searchParams.get('group_by') : 'region') as GroupBy;
+  const groupBy = (['region', 'rsm', 'state', 'asm'].includes(searchParams.get('group_by') ?? '') ? searchParams.get('group_by') : 'region') as GroupBy;
   const q = useAnalytics<TerritoryData>('/territory/', { group_by: groupBy });
   const t = useChartTokens();
   const d = q.data?.data;
   const basis = q.data?.meta?.sales_basis;
-  const groupLabel = groupBy === 'asm' ? 'ASM' : groupBy === 'region' ? 'Region' : 'State';
+  const groupLabel = groupBy === 'asm' ? 'ASM' : groupBy === 'rsm' ? 'RSM' : groupBy === 'region' ? 'Region' : 'State';
+  const byLabel = groupBy === 'asm' || groupBy === 'rsm' ? groupLabel : groupLabel.toLowerCase();
 
   const achOpt = useMemo(() => {
     const rows = (d?.rows ?? []).filter((r) => r.achievement_pct !== null).sort((a, b) => (asPct(b.achievement_pct) ?? 0) - (asPct(a.achievement_pct) ?? 0));
@@ -60,7 +62,7 @@ export default function Territory() {
     <div>
       <PageHeader
         title="Region & ASM Performance"
-        subtitle="Target achievement and adoption by geography"
+        subtitle="Target achievement and adoption by geography and sales team (RSM → ASM)"
         meta={q.data?.meta}
         actions={
           <Segmented<GroupBy>
@@ -68,15 +70,17 @@ export default function Territory() {
             onChange={(v) => update({ group_by: v })}
             options={[
               { value: 'region', label: 'Region' },
+              { value: 'rsm', label: 'RSM' },
               { value: 'state', label: 'State' },
               { value: 'asm', label: 'ASM' },
             ]}
           />
         }
       />
+      {groupBy === 'rsm' && <SalesTeam rsms={d?.rows.filter((r) => r.id) ?? []} team={d?.breakdown ?? []} loading={q.isLoading} periodStart={q.data?.meta?.period?.from} />}
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         <ChartCard
-          title={`Target achievement by ${groupBy === "asm" ? "ASM" : groupLabel.toLowerCase()}`}
+          title={`Target achievement by ${byLabel}`}
           subtitle="Sales ÷ target for the selected period · line = 100%"
           option={achOpt}
           loading={q.isLoading}
@@ -87,7 +91,7 @@ export default function Territory() {
           table={d ? { columns: [groupLabel, 'Sales', 'Target', 'Achieved'], rows: d.rows.map((r) => [r.name, inr(r.sales), inr(r.target), pct(asPct(r.achievement_pct))]) } : undefined}
         />
         <ChartCard
-          title={`Monthly sales by ${groupBy === "asm" ? "ASM" : groupLabel.toLowerCase()}`}
+          title={`Monthly sales by ${byLabel}`}
           subtitle={basis ? `Top 5, rest as Other · ${basis}` : 'Top 5, rest as Other'}
           option={trendOpt}
           loading={q.isLoading}
@@ -121,7 +125,17 @@ export default function Territory() {
           initialSort={{ key: 'sales', dir: 'desc' }}
           onRowClick={(r) => update({ [groupBy]: String(r.id) })}
           columns={[
-            { key: 'name', header: groupLabel, render: (r) => <span className="font-medium">{r.name}</span> },
+            {
+              key: 'name',
+              header: groupLabel,
+              render: (r) => (
+                <span>
+                  <span className="font-medium">{r.name}</span>
+                  {groupBy === 'asm' && r.rsm && <span className="ml-1.5 text-xs text-muted">RSM {r.rsm}</span>}
+                  {groupBy === 'rsm' && r.region && <span className="ml-1.5 text-xs text-muted">{r.region}</span>}
+                </span>
+              ),
+            },
             { key: 'sales', header: 'Sales', align: 'right', render: (r) => inr(r.sales) },
             { key: 'target', header: 'Target', align: 'right', render: (r) => inr(r.target) },
             {
@@ -145,6 +159,9 @@ export default function Territory() {
             { key: 'kyc_base', header: 'KYC base', align: 'right', render: (r) => num(r.kyc_base) },
             { key: 'adoption_pct', header: 'Adoption', align: 'right', render: (r) => pct(asPct(r.adoption_pct), 0) },
             { key: 'distributors', header: 'Distributors', align: 'right', render: (r) => num(r.distributors) },
+            ...(groupBy === 'rsm' || groupBy === 'asm'
+              ? [{ key: 'field_staff' as const, header: 'Field staff', align: 'right' as const, value: (r: TerritoryRow) => r.field_staff ?? 0, render: (r: TerritoryRow) => num(r.field_staff ?? 0) }]
+              : []),
             { key: 'sales_per_retailer', header: 'Sales / active retailer', align: 'right', value: (r) => r.sales_per_retailer ?? null, render: (r) => inr(r.sales_per_retailer) },
           ]}
         />

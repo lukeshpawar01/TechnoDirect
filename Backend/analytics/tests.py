@@ -325,3 +325,122 @@ class GrowthJourneyTests(TestCase):
         self.assertEqual({x["name"] for x in d["trend"]["series"]}, {"Dist One", "Dist Two"})
         rows = self.c.get("/api/distributors/?preset=mtd").json()["data"]["rows"]
         self.assertIn("l3m_growth_pct", rows[0])
+
+
+class RsmRollupTests(TestCase):
+    """RSM = the ASM's RSM, else the RSM heading the region; filter, grouping and targets must agree."""
+
+    def setUp(self):
+        from warehouse.models import Asm, Rsm, Target
+
+        cache.clear()
+        south, east = Region.objects.create(code="S", name="South"), Region.objects.create(code="E", name="East")
+        ka = State.objects.create(code="KA", name="Karnataka", region=south)
+        od = State.objects.create(code="OD", name="Odisha", region=east)
+        self.r_s = Rsm.objects.create(code="RS", name="Ravi South", region=south)
+        self.r_e = Rsm.objects.create(code="RE", name="Esha East", region=east)
+        a_s = Asm.objects.create(code="AS", name="Asha", region=south, rsm=self.r_s)
+        # an ASM based in the South who reports to the East RSM: follows the reporting line, not the region
+        a_x = Asm.objects.create(code="AX", name="Xavier", region=south, rsm=self.r_e)
+        d1 = Distributor.objects.create(code="D1", name="D1", state=ka, region=south, asm=a_s)
+        d2 = Distributor.objects.create(code="D2", name="D2", state=ka, region=south, asm=a_x)
+        d3 = Distributor.objects.create(code="D3", name="D3", state=od, region=east)  # no ASM -> East RSM
+        day = D(2026, 11, 5)
+        for n, (dist, st, reg, asm, val) in enumerate([(d1, ka, south, a_s, 100), (d2, ka, south, a_x, 40),
+                                                        (d3, od, east, None, 10)]):
+            ret = Retailer.objects.create(name=f"R{n}", phone=f"9000000{n}00", state=st, region=reg, asm=asm,
+                                          distributor=dist)
+            placed = timezone.make_aware(dt.datetime.combine(day, dt.time(11)))
+            Order.objects.create(source_id=f"o{n}", display_id=f"O{n}", split_group=f"c{n}", retailer=ret,
+                                 distributor=dist, state=st, region=reg, asm=asm, status="delivered",
+                                 payment_status="captured", gross_value=Decimal(val), units=1, placed_at=placed,
+                                 placed_date=day)
+        m = D(2026, 11, 1)
+        for scope, sid, v in (("asm", a_s.id, 200), ("asm", a_x.id, 80), ("distributor", d3.id, 20)):
+            Target.objects.create(month=m, scope_type=scope, scope_id=sid, value=v, effective_from=m)
+        run_all_derivations()
+        User.objects.create_superuser(email="r@test.local", password="x-Strong-pass1")
+        self.c = APIClient()
+        self.c.credentials(HTTP_AUTHORIZATION="Bearer " + jwt_login(self.c, "r@test.local", "x-Strong-pass1")["access"])
+        self.q = "preset=custom&date_from=2026-11-01&date_to=2026-11-14"
+
+    def test_grouping_targets_and_breakdown(self):
+        d = self.c.get(f"/api/territory/?{self.q}&group_by=rsm").json()["data"]
+        rows = {r["name"]: r for r in d["rows"]}
+        self.assertEqual((rows["Ravi South"]["sales"], rows["Ravi South"]["target"]), (100, 200))
+        # East = Xavier (reports to East) + the ASM-less East distributor
+        self.assertEqual((rows["Esha East"]["sales"], rows["Esha East"]["target"]), (50, 100))
+        self.assertEqual(rows["Esha East"]["asms"], 1)
+        east = [b for b in d["breakdown"] if b["rsm_id"] == self.r_e.id]
+        self.assertEqual({b["name"]: (b["sales"], b["target"]) for b in east},
+                         {"Xavier": (40, 80), "Distributor-managed (no ASM)": (10, 20)})
+
+    def test_filter_matches_grouping(self):
+        k = self.c.get(f"/api/overview/?{self.q}&rsm={self.r_e.id}").json()["data"]["kpis"]["sales"]["value"]
+        self.assertEqual(k, 50)
+        t = self.c.get(f"/api/overview/?{self.q}&rsm={self.r_e.id}").json()["data"]["target"]["target"]
+        self.assertEqual(t, 100)
+
+    def test_achievement_counts_only_months_with_a_target(self):
+        from warehouse.models import Asm
+
+        a_s = Asm.objects.get(code="AS")
+        ret = Retailer.objects.get(name="R0")
+        day = D(2026, 10, 10)  # October has no target
+        Order.objects.create(source_id="oct", display_id="OCT", split_group="coct", retailer=ret,
+                             distributor=ret.distributor, state=ret.state, region=ret.region, asm=a_s,
+                             status="delivered", payment_status="captured", gross_value=Decimal(1000), units=1,
+                             placed_at=timezone.make_aware(dt.datetime.combine(day, dt.time(11))), placed_date=day)
+        cache.clear()
+        q = "preset=custom&date_from=2026-10-01&date_to=2026-11-14"
+        rows = {r["name"]: r for r in self.c.get(f"/api/territory/?{q}&group_by=rsm").json()["data"]["rows"]}
+        self.assertEqual(rows["Ravi South"]["sales"], 1100)
+        self.assertEqual(rows["Ravi South"]["achievement_pct"], 50.0)  # Nov sales 100 / Nov target 200
+        t = self.c.get(f"/api/overview/?{q}&rsm={self.r_s.id}").json()["data"]["target"]
+        self.assertEqual((t["achieved"], t["target"], t["target_months"]), (100, 200, ["2026-11"]))
+
+
+class AsmHandoverTests(TestCase):
+    """A resignation / new joiner keeps history: orders stay with the ASM in charge on the order date."""
+
+    def test_handover_splits_orders_by_date(self):
+        from masters.services import assign_distributor_asm
+        from warehouse.models import Asm
+
+        from .derivations import attribute_orders_to_distributor_asm
+
+        reg = Region.objects.create(code="S", name="South")
+        old, new = Asm.objects.create(code="OLD", name="Imran"), Asm.objects.create(code="NEW", name="Valluru")
+        d = Distributor.objects.create(code="V", name="Virat", region=reg, asm=old)
+        for n, day in enumerate([D(2026, 9, 20), D(2026, 10, 9)]):
+            Order.objects.create(source_id=f"h{n}", display_id=f"H{n}", split_group=f"h{n}", distributor=d, region=reg,
+                                 status="delivered", payment_status="captured", gross_value=Decimal(100), units=1,
+                                 placed_at=timezone.make_aware(dt.datetime.combine(day, dt.time(11))), placed_date=day)
+        assign_distributor_asm(d, new, D(2026, 10, 1))
+        attribute_orders_to_distributor_asm()
+        d.refresh_from_db()
+        self.assertEqual(d.asm_id, new.id)  # current ASM = whoever is in charge today
+        self.assertEqual(Order.objects.get(source_id="h0").asm_id, old.id)  # September stays with the leaver
+        self.assertEqual(Order.objects.get(source_id="h1").asm_id, new.id)
+        self.assertEqual(attribute_orders_to_distributor_asm(), 0)  # idempotent
+
+
+class DistributorNetworkTests(TestCase):
+    """Distributors grouped by state with their period sales."""
+
+    def test_network_by_state(self):
+        cache.clear()
+        reg = Region.objects.create(code="S", name="South")
+        ka = State.objects.create(code="KA", name="Karnataka", region=reg)
+        d = Distributor.objects.create(code="H", name="Heera", state=ka, region=reg)
+        Distributor.objects.create(code="T", name="Never traded", state=ka, region=reg)
+        day = D(2026, 11, 5)
+        Order.objects.create(source_id="n1", display_id="N1", split_group="n1", distributor=d, state=ka, region=reg,
+                             status="delivered", payment_status="captured", gross_value=Decimal(500), units=1,
+                             placed_at=timezone.make_aware(dt.datetime.combine(day, dt.time(11))), placed_date=day)
+        User.objects.create_superuser(email="n@test.local", password="x-Strong-pass1")
+        c = APIClient()
+        c.credentials(HTTP_AUTHORIZATION="Bearer " + jwt_login(c, "n@test.local", "x-Strong-pass1")["access"])
+        data = c.get("/api/distributors/network/?preset=custom&date_from=2026-11-01&date_to=2026-11-14").json()["data"]
+        self.assertEqual(data["summary"], {"states": 1, "distributors": 1, "selling": 1})
+        self.assertEqual(data["states"][0]["distributors"][0]["sales"], 500)

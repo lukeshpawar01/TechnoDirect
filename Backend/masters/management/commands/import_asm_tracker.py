@@ -30,7 +30,7 @@ from accounts.models import User
 from analytics.cache import bump_cache_version
 from analytics.derivations import attribute_orders_to_distributor_asm, run_all_derivations
 from ingestion.csv_import import nice_name, norm
-from masters.services import remap_retailers_for_pincodes
+from masters.services import assign_distributor_asm, remap_retailers_for_pincodes
 from warehouse.models import Asm, Distributor, Order, Pincode, Region, State, Target
 
 NO_ASM = {"", "vacant", "na", "n/a", "-", "none"}
@@ -53,6 +53,9 @@ class Command(BaseCommand):
         parser.add_argument("file")
         parser.add_argument("--month", required=True, help="Target month, YYYY-MM (e.g. 2026-11)")
         parser.add_argument("--dry-run", action="store_true", help="Show the matching without saving")
+        parser.add_argument("--targets-only", action="store_true",
+                            help="Past month's sheet: load its targets only; keep today's distributor ASM / region "
+                                 "and pincode mappings. ASM targets are kept only for ASMs that exist today.")
 
     def handle(self, *args, **o):
         path = Path(o["file"])
@@ -68,7 +71,13 @@ class Command(BaseCommand):
         total_row = next((r for r in rows if r.get("Distributor", "").lower() == "total"), None)
         rows = [r for r in rows if r.get("Distributor") and r["Distributor"].lower() != "total"]
 
-        matched = self.match_distributors([r["Distributor"] for r in rows], create=not o["dry_run"])
+        matched = self.match_distributors([r["Distributor"] for r in rows],
+                                          create=not o["dry_run"] and not o["targets_only"])
+        if o["targets_only"]:
+            unknown = [n for n, (d, _) in matched.items() if d is None]
+            if unknown:
+                self.stdout.write(f"  not matched, target skipped: {', '.join(unknown)}")
+            rows = [r for r in rows if matched[r["Distributor"]][0] is not None]
         for r in rows:
             d, how = matched[r["Distributor"]]
             self.stdout.write(f"  {r['Distributor']:<28} -> {d.name if d else '(new) ' + nice_name(r['Distributor']):<34}"
@@ -78,7 +87,10 @@ class Command(BaseCommand):
             return
 
         with transaction.atomic():
-            result = self.apply(rows, matched, month, total_row, path.name)
+            if o["targets_only"]:
+                result = self.apply_targets(rows, matched, month, total_row, path.name)
+            else:
+                result = self.apply(rows, matched, month, total_row, path.name)
             from masters.asm_tracker import sync_state_targets
 
             result["state_targets"] = sync_state_targets(month)
@@ -166,7 +178,8 @@ class Command(BaseCommand):
                 asms[a.lower()] = obj
         for key, obj in asms.items():
             obj.region = regions[asm_regions[key].most_common(1)[0][0]] if asm_regions[key] else obj.region
-            obj.is_active = True
+            if month >= dt.date.today().replace(day=1):
+                obj.is_active = True  # a past month's sheet must not bring back someone who has left
             obj.save(update_fields=["region", "is_active", "updated_at"])
 
         # distributor ASM + region; pincodes follow the distributor's ASM
@@ -175,13 +188,21 @@ class Command(BaseCommand):
             d = matched[r["Distributor"]][0]
             new_asm = asms.get(r.get("ASM", "").lower())
             old_asm_id = d.asm_id
-            d.asm = new_asm
-            if r.get("Region"):
+            if r.get("_asm_unchanged"):
+                pass  # the user did not touch this ASM: keep the distributor's mapping and history as they are
+            elif d.asm_history.exists() or (old_asm_id and new_asm and old_asm_id != new_asm.id):
+                # a handover keeps history: the tracker's ASM is in charge from this tracker's month on,
+                # and the distributor's current ASM is whoever is in charge today
+                assign_distributor_asm(d, new_asm, month, notes=f"ASM tracker {month:%b %Y}")
+                d.refresh_from_db()
+            else:
+                d.asm = new_asm
+            if r.get("Region") and not r.get("_region_unchanged"):
                 d.region = regions[r["Region"]]
             d.save(update_fields=["asm", "region", "updated_at"])
             pins = Pincode.objects.filter(distributor_p1=d)
             fill = pins.filter(asm__isnull=True) if old_asm_id is None else pins.filter(asm_id__in=[old_asm_id, None])
-            new_id = new_asm.id if new_asm else None
+            new_id = d.asm_id
             touched = list(fill.exclude(asm_id=new_id).values_list("pincode", flat=True)) if new_id else \
                 list(fill.exclude(asm__isnull=True).values_list("pincode", flat=True))
             fill.update(asm_id=new_id)
@@ -225,29 +246,8 @@ class Command(BaseCommand):
                 removed.append(reg.name)
                 reg.delete()
 
-        # targets
-        notes = f"ASM tracker: {filename}"[:255]
-        by_dist, by_asm, by_region = {}, defaultdict(Decimal), defaultdict(Decimal)
-        for r in rows:
-            v = money(r.get("Total Target"))
-            if not v:
-                continue
-            d = matched[r["Distributor"]][0]
-            by_dist[d.id] = by_dist.get(d.id, Decimal(0)) + v
-            a = asms.get(r.get("ASM", "").lower())
-            if a:
-                by_asm[a.id] += v
-            if r.get("Region"):
-                by_region[regions[r["Region"]].id] += v
-        overall = money(total_row.get("Total Target")) if total_row else None
-        if overall is None:
-            overall = sum(by_dist.values(), Decimal(0))
-        written = Counter()
-        for scope, values in (("distributor", by_dist), ("asm", by_asm), ("region", by_region),
-                              ("overall", {None: overall})):
-            for sid, value in values.items():
-                written[self.put_target(month, scope, sid, value, notes)] += 1
-        diff = overall - sum(by_dist.values(), Decimal(0))
+        region_of = {r["Distributor"]: regions[r["Region"]].id for r in rows if r.get("Region")}
+        written, overall, diff = self.write_targets(rows, matched, month, total_row, filename, asms, region_of)
 
         return {
             "distributors_in_tracker": len(rows),
@@ -261,6 +261,69 @@ class Command(BaseCommand):
             "targets": dict(written),
             "overall_target": f"{overall:,.0f}" + (f" (differs from sum of rows by {diff:,.0f})" if diff else ""),
         }
+
+    def apply_targets(self, rows, matched, month, total_row, filename):
+        """--targets-only: write the sheet's targets, leave every mapping as it is today.
+
+        ASM targets roll up to the ASM who managed each distributor in that month (handover history), not
+        to the name typed in the sheet - a copied sheet often still carries last quarter's names."""
+        from analytics.filters import month_end
+        from masters.asm_tracker import asm_in_charge
+
+        asms = {a.name.lower(): a for a in Asm.objects.all()}
+        dists = [matched[r["Distributor"]][0] for r in rows]
+        in_charge = asm_in_charge(dists, month_end(month))
+        self.asm_changes = []
+        rows = [dict(r) for r in rows]
+        for r in rows:
+            d = matched[r["Distributor"]][0]
+            actual = in_charge.get(d.id)
+            sheet = (r.get("ASM") or "").strip()
+            name = actual.name if actual else ""
+            if sheet.lower() != name.lower() and not (sheet.lower() in NO_ASM and not name):
+                self.asm_changes.append(f"{r['Distributor']}: sheet {sheet or '-'} -> {name or 'no ASM'}")
+            r["ASM"] = name
+        # region of a target = the sheet's region, else the distributor's current region
+        region_of = {}
+        for r in rows:
+            d = matched[r["Distributor"]][0]
+            reg = (Region.objects.filter(name__iexact=r["Region"]).first() if r.get("Region") else None)
+            region_of[r["Distributor"]] = reg.id if reg else d.region_id
+        written, overall, diff = self.write_targets(rows, matched, month, total_row, filename, asms, region_of)
+        skipped = sorted({r.get("ASM", "") for r in rows if r.get("ASM", "").lower() not in asms
+                          and r.get("ASM", "").lower() not in NO_ASM})
+        return {
+            "mode": "targets only (mappings unchanged)",
+            "distributors_in_tracker": len(rows),
+            "targets": dict(written),
+            "asm_targets_skipped_unknown_asm": ", ".join(skipped) or "none",
+            "asm_from_handover_history": "; ".join(self.asm_changes) or "same as sheet",
+            "overall_target": f"{overall:,.0f}" + (f" (differs from sum of rows by {diff:,.0f})" if diff else ""),
+        }
+
+    def write_targets(self, rows, matched, month, total_row, filename, asms, region_of):
+        notes = f"ASM tracker: {filename}"[:255]
+        by_dist, by_asm, by_region = {}, defaultdict(Decimal), defaultdict(Decimal)
+        for r in rows:
+            v = money(r.get("Total Target"))
+            if not v:
+                continue
+            d = matched[r["Distributor"]][0]
+            by_dist[d.id] = by_dist.get(d.id, Decimal(0)) + v
+            a = asms.get(r.get("ASM", "").lower())
+            if a:
+                by_asm[a.id] += v
+            if region_of.get(r["Distributor"]):
+                by_region[region_of[r["Distributor"]]] += v
+        overall = money(total_row.get("Total Target")) if total_row else None
+        if overall is None:
+            overall = sum(by_dist.values(), Decimal(0))
+        written = Counter()
+        for scope, values in (("distributor", by_dist), ("asm", by_asm), ("region", by_region),
+                              ("overall", {None: overall})):
+            for sid, value in values.items():
+                written[self.put_target(month, scope, sid, value, notes)] += 1
+        return written, overall, overall - sum(by_dist.values(), Decimal(0))
 
     @staticmethod
     def put_target(month, scope, scope_id, value, notes):

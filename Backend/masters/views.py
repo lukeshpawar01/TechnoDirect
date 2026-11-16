@@ -484,7 +484,8 @@ class MetricDictionaryView(APIView):
 # ----------------------------------------------------------------------------- ASM tracker
 class AsmTrackerView(APIView):
     """GET  ?month=YYYY-MM[&download=xlsx]  -> tracker rows + ASM summary (xlsx needs export_data)
-    POST {month, rows:[{distributor_id, region, asm, target}]} -> save (manage_targets + manage_mappings)"""
+    POST {month, rows:[{distributor_id, region, asm, target}], asm_targets:[{asm, target}]} -> save
+         (manage_targets + manage_mappings). asm_targets only applies to ASMs with no distributor targets."""
 
     def get_permissions(self):
         if self.request.method == "GET":
@@ -529,12 +530,28 @@ class AsmTrackerView(APIView):
                         raise ValidationError({"rows": f"row {i}: target must be ≥ 0"})
                 except InvalidOperation:
                     raise ValidationError({"rows": f"row {i}: target must be a number"}) from None
-            rows.append({"Distributor": names[did], "Region": str(r.get("region") or "").strip(),
-                         "ASM": str(r.get("asm") or "").strip()[:120],
-                         "Total Target": "" if target in (None, "") else str(target)})
+            row = {"Distributor": names[did], "Region": str(r.get("region") or "").strip(),
+                   "ASM": str(r.get("asm") or "").strip()[:120],
+                   "Total Target": "" if target in (None, "") else str(target)}
+            # what the editor showed when it loaded: an untouched cell must not overwrite a newer mapping
+            if "asm_orig" in r:
+                row["ASM Original"] = str(r.get("asm_orig") or "").strip()
+            if "region_orig" in r:
+                row["Region Original"] = str(r.get("region_orig") or "").strip()
+            rows.append(row)
         if not rows:
             raise ValidationError({"rows": "nothing to save"})
-        result = apply_rows(rows, month, f"edited on screen by {request.user.email}")
+        asm_targets = []
+        for i, a in enumerate(request.data.get("asm_targets") or [], start=1):
+            v = a.get("target")
+            if v not in (None, ""):
+                try:
+                    if Decimal(str(v)) < 0:
+                        raise ValidationError({"asm_targets": f"row {i}: target must be >= 0"})
+                except InvalidOperation:
+                    raise ValidationError({"asm_targets": f"row {i}: target must be a number"}) from None
+            asm_targets.append({"asm": str(a.get("asm") or "").strip(), "target": v})
+        result = apply_rows(rows, month, f"edited on screen by {request.user.email}", asm_targets=asm_targets)
         log_action(request, "update", None, object_type="asm_tracker", object_id=month.isoformat()[:7],
                    after={"rows": len(rows), "targets": result.get("targets")})
         return Response({"saved": len(rows), "result": result})
@@ -563,3 +580,27 @@ class AsmTrackerUploadView(APIView):
         log_action(request, "upload", None, object_type="asm_tracker", object_id=f.name,
                    after={"month": month.isoformat()[:7], "rows": len(rows), "targets": result.get("targets")})
         return Response({"saved": len(rows), "result": result})
+
+
+class AsmTrackerCreateView(APIView):
+    """POST /masters/asm-tracker/asm/          {name, full_name, region, rsm_id, joined_on}  -> new ASM
+       POST /masters/asm-tracker/distributor/  {name, state_id, city, asm}                    -> new distributor
+    From the Edit ASM & targets window (perm manage_mappings)."""
+
+    kind = None
+
+    def get_permissions(self):
+        return [IsAuthenticated(), HasPerm("manage_mappings")()]
+
+    def post(self, request):
+        from analytics.cache import bump_cache_version
+
+        from .asm_tracker import create_asm, create_distributor
+
+        try:
+            obj = create_asm(request.data) if self.kind == "asm" else create_distributor(request.data)
+        except ValueError as e:
+            raise ValidationError({"detail": str(e)}) from None
+        log_action(request, "create", obj)
+        bump_cache_version()
+        return Response({"id": obj.id, "name": obj.name}, status=201)

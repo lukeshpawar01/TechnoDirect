@@ -1,6 +1,7 @@
 from django.urls import path
 
-from .views.distributors import DistributorDetailView, DistributorInsightsView, DistributorsView, TerritoryView
+from .views.distributors import (DistributorDetailView, DistributorInsightsView, DistributorNetworkView,
+                                 DistributorsView, TerritoryView)
 from .views.growth import GrowthView
 from .views.funnel import FunnelView, RetailerDetailView, RetailerListView
 from .views.loyalty import LoyaltyView
@@ -21,6 +22,7 @@ urlpatterns = [
     path("retailers/<int:pk>/", RetailerDetailView.as_view()),
     path("distributors/", DistributorsView.as_view()),
     path("distributors/insights/", DistributorInsightsView.as_view()),
+    path("distributors/network/", DistributorNetworkView.as_view()),
     path("distributors/<int:pk>/", DistributorDetailView.as_view()),
     path("territory/", TerritoryView.as_view()),
     path("orders/summary/", OrdersSummaryView.as_view()),

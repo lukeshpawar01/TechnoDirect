@@ -39,12 +39,74 @@ class State(TimeStamped):
         return self.name
 
 
+class Rsm(TimeStamped):
+    """Regional Sales Manager: the level above ASM (from the Master ASM Tracker's reporting lines).
+
+    A retailer / order belongs to the RSM of its ASM; with no ASM, to the RSM heading its region.
+    """
+    code = models.CharField(max_length=32, unique=True)
+    name = models.CharField(max_length=120)
+    emp_id = models.CharField(max_length=32, blank=True, db_index=True)
+    region = models.ForeignKey(Region, null=True, blank=True, on_delete=models.SET_NULL, related_name="rsms")
+    joined_on = models.DateField(null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
+
 class Asm(TimeStamped):
     code = models.CharField(max_length=32, unique=True)
     name = models.CharField(max_length=120)
+    full_name = models.CharField(max_length=120, blank=True, help_text="Name in the HR master")
+    emp_id = models.CharField(max_length=32, blank=True, db_index=True)
     email = models.EmailField(blank=True)
     phone = models.CharField(max_length=20, blank=True)
     region = models.ForeignKey(Region, null=True, blank=True, on_delete=models.SET_NULL, related_name="asms")
+    rsm = models.ForeignKey(Rsm, null=True, blank=True, on_delete=models.SET_NULL, related_name="asms")
+    joined_on = models.DateField(null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
+
+class AsmAssignment(TimeStamped):
+    """Which ASM managed a distributor over which dates (asm empty = vacant).
+
+    Orders are credited to the ASM in charge on the order date, so a handover (resignation, new joiner)
+    keeps history with the person who made it. Distributor.asm is the current one.
+    """
+    distributor = models.ForeignKey("Distributor", on_delete=models.CASCADE, related_name="asm_history")
+    asm = models.ForeignKey(Asm, null=True, blank=True, on_delete=models.SET_NULL, related_name="assignments")
+    start = models.DateField()
+    end = models.DateField(null=True, blank=True, help_text="Last day (inclusive); empty = still in charge")
+    notes = models.CharField(max_length=255, blank=True)
+
+    class Meta:
+        ordering = ["distributor_id", "start"]
+        constraints = [models.UniqueConstraint(fields=["distributor", "start"], name="uniq_asm_assignment_start")]
+
+    def __str__(self):
+        return f"{self.distributor_id}: {self.asm or 'vacant'} {self.start}–{self.end or ''}"
+
+
+class FieldStaff(TimeStamped):
+    """Senior / field sales executives under an ASM (or directly under an RSM). No contact details are kept."""
+    emp_id = models.CharField(max_length=32, unique=True)
+    name = models.CharField(max_length=120)
+    designation = models.CharField(max_length=64, blank=True)
+    asm = models.ForeignKey(Asm, null=True, blank=True, on_delete=models.SET_NULL, related_name="field_staff")
+    rsm = models.ForeignKey(Rsm, null=True, blank=True, on_delete=models.SET_NULL, related_name="field_staff")
+    region = models.ForeignKey(Region, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    base_city = models.CharField(max_length=100, blank=True)
+    joined_on = models.DateField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
 
     class Meta:
@@ -434,7 +496,7 @@ class RetailerMonth(models.Model):
 
 
 class Target(TimeStamped):
-    SCOPE_TYPES = [("overall", "Overall"), ("region", "Region"), ("state", "State"), ("asm", "ASM"),
+    SCOPE_TYPES = [("overall", "Overall"), ("region", "Region"), ("rsm", "RSM"), ("state", "State"), ("asm", "ASM"),
                    ("distributor", "Distributor")]
     METRICS = [("sales", "Sales"), ("orders", "Orders"), ("new_retailers", "New retailers"),
                ("active_retailers", "Active retailers")]
@@ -466,3 +528,45 @@ class DataQualityIssue(models.Model):
 
     class Meta:
         indexes = [models.Index(fields=["code", "resolved_at"])]
+
+
+class TrackedDistributor(TimeStamped):
+    """The sales team's distributor network list (one tracker sheet per distributor, with its state).
+
+    Linked to the app distributor when it trades on TechnoDirect; unlinked = tracked by the team but not on the
+    app yet (pipeline). Kept apart from Distributor so pipeline names never appear in sales / stock tables.
+    """
+    name = models.CharField(max_length=200, unique=True)
+    state = models.ForeignKey(State, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    state_label = models.CharField(max_length=100, blank=True, help_text="State as written on the list")
+    distributor = models.ForeignKey(Distributor, null=True, blank=True, on_delete=models.SET_NULL,
+                                    related_name="trackers")
+    notes = models.CharField(max_length=255, blank=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
+
+class TargetForecast(TimeStamped):
+    """Suggested target for a month (TD Target Forecaster), made on `as_of` (the 27th of the month before).
+
+    scope_type asm / distributor / overall, like Target. Kept apart from Target: a suggestion never changes a
+    set target; it is shown next to it and can be copied in the Edit ASM & targets window.
+    """
+    month = models.DateField(help_text="First day of the forecast month")
+    scope_type = models.CharField(max_length=16)
+    scope_id = models.BigIntegerField(null=True, blank=True)
+    value = models.DecimalField(max_digits=16, decimal_places=2, help_text="Suggested target (Rs)")
+    sales_forecast = models.DecimalField(max_digits=16, decimal_places=2, default=0)
+    as_of = models.DateField(help_text="Data up to this day was used")
+    model_version = models.CharField(max_length=32)
+    details = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["-as_of", "month"]
+        constraints = [models.UniqueConstraint(fields=["month", "scope_type", "scope_id", "as_of"],
+                                               name="uniq_target_forecast")]
+        indexes = [models.Index(fields=["month", "scope_type"])]

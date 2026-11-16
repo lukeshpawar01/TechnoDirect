@@ -199,6 +199,9 @@ CELERY_BEAT_SCHEDULE = {
     f"refresh-all-{h:02d}{m:02d}-ist": {"task": "ingestion.tasks.refresh_all", "schedule": crontab(hour=h, minute=m)}
     for h, m in SYNC_TIMES
 }
+# TD Target Forecaster: on the 27th (after the 10:00 refresh) suggest next month's targets per ASM / distributor
+CELERY_BEAT_SCHEDULE["forecast-next-month-targets"] = {
+    "task": "masters.tasks.forecast_next_month_targets", "schedule": crontab(day_of_month=27, hour=11, minute=0)}
 # A scheduled refresh counts as "missed" (freshness=stale) this long after its slot.
 REFRESH_GRACE_MINUTES = env_int("REFRESH_GRACE_MINUTES", 30)
 

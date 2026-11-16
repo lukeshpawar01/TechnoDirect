@@ -55,3 +55,54 @@ def remap_retailers_for_pincodes(pincodes):
         attribute_orders_to_distributor_asm()
         bump_cache_version()
     return touched
+
+
+def assign_distributor_asm(distributor, asm, start, end=None, notes=""):
+    """Record that `asm` (None = vacant) manages `distributor` from `start` (to `end`, inclusive).
+
+    Keeps history: the assignment running at `start` is closed the day before, a later one caps this one, and
+    the distributor's current ASM becomes whoever is in charge today. The first time a distributor gets a
+    history, its existing ASM is kept for the period before `start` (so a handover never rewrites the past).
+    """
+    import datetime as dt
+
+    from warehouse.models import AsmAssignment
+
+    asm_id = asm.id if asm is not None else None
+    hist = AsmAssignment.objects.filter(distributor=distributor)
+    if not hist.exists() and distributor.asm_id and distributor.asm_id != asm_id and start > dt.date(2023, 1, 1):
+        AsmAssignment.objects.create(distributor=distributor, asm_id=distributor.asm_id, start=dt.date(2023, 1, 1),
+                                     end=start - dt.timedelta(days=1), notes="ASM before the first recorded handover")
+    same = hist.filter(start=start).first()
+    prev = hist.filter(start__lt=start).order_by("-start").first()
+    if prev and (prev.end is None or prev.end >= start):
+        prev.end = start - dt.timedelta(days=1)
+        prev.save(update_fields=["end", "updated_at"])
+    nxt = hist.filter(start__gt=start).order_by("start").first()
+    if end is None and nxt:
+        end = nxt.start - dt.timedelta(days=1)
+    if same:
+        same.asm_id, same.end, same.notes = asm_id, end, notes[:255] or same.notes
+        same.save(update_fields=["asm", "end", "notes", "updated_at"])
+    else:
+        AsmAssignment.objects.create(distributor=distributor, asm_id=asm_id, start=start, end=end, notes=notes[:255])
+    current_asm_id(distributor, save=True)
+
+
+def current_asm_id(distributor, today=None, save=False):
+    """The ASM in charge of a distributor today according to its history (unchanged if it has none)."""
+    import datetime as dt
+
+    from django.db.models import Q as Q_
+
+    from warehouse.models import AsmAssignment
+
+    today = today or dt.date.today()
+    a = (AsmAssignment.objects.filter(distributor=distributor, start__lte=today)
+         .filter(Q_(end__isnull=True) | Q_(end__gte=today)).order_by("-start").first())
+    if a is None:
+        return distributor.asm_id
+    if save and distributor.asm_id != a.asm_id:
+        distributor.asm_id = a.asm_id
+        distributor.save(update_fields=["asm", "updated_at"])
+    return a.asm_id

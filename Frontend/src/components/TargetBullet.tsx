@@ -1,5 +1,5 @@
 import type { TargetBlock } from '@/api/types';
-import { inr, pct } from '@/lib/format';
+import { inr, monthLabel, pct } from '@/lib/format';
 import { Badge, cx } from './ui';
 
 /**
@@ -41,6 +41,11 @@ export function TargetBullet({ t, basis }: { t: TargetBlock; basis?: string }) {
           <span className="inline-flex items-center gap-1"><span className="h-3 w-[3px] rounded bg-ink" /> Target {inr(t.target)}</span>
           <span className="text-muted">Balance {inr(t.balance)} · day {t.days_elapsed} of {t.days_total}</span>
         </div>
+        {t.target_months && t.period_months !== undefined && t.target_months.length < t.period_months && (
+          <p className="mt-1.5 text-xs text-warn">
+            Targets set for {t.target_months.length} of {t.period_months} months ({t.target_months.map(monthLabel).join(', ')}): achievement counts sales in those months only.
+          </p>
+        )}
       </div>
 
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">

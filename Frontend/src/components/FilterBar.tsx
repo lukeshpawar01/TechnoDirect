@@ -33,6 +33,7 @@ function notStartedQuarters(now = new Date()): Set<string> {
 const TOP_KEYS: Record<TopFilter, string[]> = {
   date: ['preset', 'date_from', 'date_to'],
   region: ['region'],
+  rsm: ['rsm'],
   state: ['state'],
   asm: ['asm'],
   distributor: ['distributor'],
@@ -60,9 +61,18 @@ export function FilterBar({ visible = ALL_TOP_FILTERS }: { visible?: TopFilter[]
     () => (o?.states ?? []).filter((s) => regionSet.size === 0 || regionSet.has(String(s.region_id))).map((s) => ({ value: String(s.id), label: s.name })),
     [o, filters.region.join()], // eslint-disable-line react-hooks/exhaustive-deps
   );
-  const asmOpts = useMemo(
-    () => (o?.asms ?? []).filter((a) => regionSet.size === 0 || regionSet.has(String(a.region_id))).map((a) => ({ value: String(a.id), label: a.name })),
+  // Sales line: RSM narrows by region; ASMs narrow by RSM (their reporting line) or else by region.
+  const rsmSet = new Set(filters.rsm);
+  const rsmOpts = useMemo(
+    () => (o?.rsms ?? []).filter((r) => regionSet.size === 0 || regionSet.has(String(r.region_id))).map((r) => ({ value: String(r.id), label: r.name })),
     [o, filters.region.join()], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  const asmOpts = useMemo(
+    () =>
+      (o?.asms ?? [])
+        .filter((a) => (rsmSet.size ? rsmSet.has(String(a.rsm_id)) : regionSet.size === 0 || regionSet.has(String(a.region_id))))
+        .map((a) => ({ value: String(a.id), label: a.name })),
+    [o, filters.region.join(), filters.rsm.join()], // eslint-disable-line react-hooks/exhaustive-deps
   );
   const distOpts = useMemo(() => {
     const allowedStates = stateSet.size ? stateSet : regionSet.size ? new Set(stateOpts.map((s) => s.value)) : null;
@@ -73,6 +83,7 @@ export function FilterBar({ visible = ALL_TOP_FILTERS }: { visible?: TopFilter[]
   const active =
     (show.has('date') && filters.preset !== 'mtd') ||
     (show.has('region') && filters.region.length > 0) ||
+    (show.has('rsm') && filters.rsm.length > 0) ||
     (show.has('state') && filters.state.length > 0) ||
     (show.has('asm') && filters.asm.length > 0) ||
     (show.has('distributor') && filters.distributor.length > 0) ||
@@ -124,6 +135,7 @@ export function FilterBar({ visible = ALL_TOP_FILTERS }: { visible?: TopFilter[]
         </>
       )}
       {show.has('region') && <MultiSelect label="Region" options={regionOpts} value={filters.region} onChange={(v) => update({ region: v })} disabled={opts.isLoading} width="w-36" />}
+      {show.has('rsm') && <MultiSelect label="RSM" options={rsmOpts} value={filters.rsm} onChange={(v) => update({ rsm: v })} disabled={opts.isLoading} width="w-36" />}
       {show.has('state') && <MultiSelect label="State" options={stateOpts} value={filters.state} onChange={(v) => update({ state: v })} disabled={opts.isLoading} width="w-36" />}
       {show.has('asm') && <MultiSelect label="ASM" options={asmOpts} value={filters.asm} onChange={(v) => update({ asm: v })} disabled={opts.isLoading} width="w-36" />}
       {show.has('distributor') && <MultiSelect label="Distributor" options={distOpts} value={filters.distributor} onChange={(v) => update({ distributor: v })} disabled={opts.isLoading} width="w-44" />}

@@ -7,6 +7,7 @@ import { useChartTokens } from '@/charts/EChart';
 import { ChartCard } from '@/components/ChartCard';
 import { DataTable } from '@/components/DataTable';
 import { LeadersLaggards } from '@/components/LeadersLaggards';
+import { NetworkCoverage } from '@/components/NetworkCoverage';
 import { Sparkline } from '@/components/KpiTile';
 import { PageHeader } from '@/components/PageHeader';
 import { Badge, Card, Delta, Meter } from '@/components/ui';
@@ -193,6 +194,8 @@ export default function Distributors() {
           <ChartCard title="Multi-distributor retailers" subtitle="Share of each month's ordering retailers" option={multiOpt} loading={ins.isLoading} height={170} />
         </div>
       </div>
+
+      <NetworkCoverage />
     </div>
   );
 }

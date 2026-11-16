@@ -201,12 +201,24 @@ def resolve_ordering(raw, mapping, default):
     return [F(e[1:]).desc(nulls_last=True) if e.startswith("-") else F(e).asc(nulls_last=True) for e in out]
 
 
-def retailer_row(r, can_pii, today):
+def rsm_context():
+    """(rsm names, region -> rsm) for labelling retailer rows with their RSM without per-row queries."""
+    from warehouse.models import Rsm
+
+    from ..rsm import region_rsm_map
+
+    return dict(Rsm.objects.values_list("id", "name")), region_rsm_map()
+
+
+def retailer_row(r, can_pii, today, rsm_ctx=None):
+    names, reg = rsm_ctx or rsm_context()
+    rsm_id = r.asm.rsm_id if r.asm_id and r.asm.rsm_id else reg.get(r.region_id)
     return {
         "id": r.id, "name": r.name, "phone": mask_phone(r.phone, can_pii),
         "state": r.state.name if r.state_id else None,
         "distributor": r.distributor.name if r.distributor_id else None,
         "asm": r.asm.name if r.asm_id else None,
+        "rsm": names.get(rsm_id),
         "kyc_status": r.kyc_status,
         "first_order_date": r.first_order_date, "last_order_date": r.last_order_date,
         "days_since_last_order": (today - r.last_order_date).days if r.last_order_date else None,
@@ -260,7 +272,8 @@ class _RowSerializer:
         can = request.user.has_code("view_pii")
         today = parse_filters(request).today
         items = instance if many else [instance]
-        self.data = [retailer_row(r, can, today) for r in items]
+        ctx = rsm_context()
+        self.data = [retailer_row(r, can, today, ctx) for r in items]
         if not many:
             self.data = self.data[0]
 

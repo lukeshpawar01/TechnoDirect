@@ -8,7 +8,7 @@ import re
 from collections import defaultdict
 
 from django.db import transaction
-from django.db.models import Count, Max, Min, Sum
+from django.db.models import Count, Max, Min, Q, Sum
 from django.db.models.functions import TruncMonth
 from django.utils import timezone
 
@@ -225,13 +225,31 @@ def run_data_quality_checks():
 
 
 def attribute_orders_to_distributor_asm():
-    """An order counts for the ASM who manages its distributor (as in the ASM performance tracker).
-    Orders from distributors without an ASM keep the retailer-area (pincode) ASM."""
+    """An order counts for the ASM who managed its distributor on the order date (AsmAssignment history; the
+    current distributor ASM when there is no history). Orders from distributors without an ASM keep the
+    retailer-area (pincode) ASM."""
     from warehouse.models import Distributor
 
+    from warehouse.models import AsmAssignment
+
     n = 0
-    for did, asm_id in Distributor.objects.filter(asm__isnull=False).values_list("id", "asm_id"):
+    with_history = set(AsmAssignment.objects.values_list("distributor_id", flat=True))
+    for did, asm_id in Distributor.objects.filter(asm__isnull=False).exclude(id__in=with_history).values_list(
+            "id", "asm_id"):
         n += Order.objects.filter(distributor_id=did).exclude(asm_id=asm_id).update(asm_id=asm_id)
+    # handovers: each order goes to the ASM in charge on its date (dates outside any window: current ASM)
+    current = dict(Distributor.objects.filter(id__in=with_history).values_list("id", "asm_id"))
+    for did in with_history:
+        qs = Order.objects.filter(distributor_id=did)
+        covered = Q(pk__in=[])
+        for a in AsmAssignment.objects.filter(distributor_id=did):
+            window = Q(placed_date__gte=a.start) & (Q(placed_date__lte=a.end) if a.end else Q())
+            covered |= window
+            w = qs.filter(window)
+            n += (w.exclude(asm_id=a.asm_id).update(asm_id=a.asm_id) if a.asm_id
+                  else w.exclude(asm__isnull=True).update(asm_id=None))
+        if current.get(did):
+            n += qs.exclude(covered).exclude(asm_id=current[did]).update(asm_id=current[did])
     for did, region_id in Distributor.objects.filter(region__isnull=False).values_list("id", "region_id"):
         Order.objects.filter(distributor_id=did, region__isnull=True).update(region_id=region_id)
     return n

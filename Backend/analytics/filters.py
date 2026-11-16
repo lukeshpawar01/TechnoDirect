@@ -232,6 +232,7 @@ class Filters:
     regions: list = field(default_factory=list)
     states: list = field(default_factory=list)
     asms: list = field(default_factory=list)
+    rsms: list = field(default_factory=list)
     distributors: list = field(default_factory=list)
     retailers: list = field(default_factory=list)
     categories: list = field(default_factory=list)
@@ -258,13 +259,13 @@ class Filters:
         return get_scope(self.user)
 
     def has_dim_filters(self):
-        return bool(self.regions or self.states or self.asms or self.distributors)
+        return bool(self.regions or self.rsms or self.states or self.asms or self.distributors)
 
     def cache_signature(self):
         p = self.period
         return "|".join(str(x) for x in [
             p.start, p.end, p.cmp_start, p.cmp_end, p.preset, sorted(self.regions), sorted(self.states),
-            sorted(self.asms), sorted(self.distributors), sorted(self.retailers), sorted(self.categories),
+            sorted(self.asms), sorted(self.rsms), sorted(self.distributors), sorted(self.retailers), sorted(self.categories),
             sorted(self.articles), self.segment, sorted(self.order_status), sorted(self.payment_status), self.today,
             sorted(self.platforms), sorted(self.payment_modes), self.split_only, sorted(self.cat_l1),
             sorted(self.cat_l2), sorted(self.cat_l3), sorted(self.sizes), self.has_account, sorted(self.event_types),
@@ -279,6 +280,10 @@ class Filters:
             f = mapping.get(dim)
             if ids and f:
                 q &= Q(**{f"{f}__in": ids})
+        if self.rsms and (mapping.get("asm") or mapping.get("region")):
+            from .rsm import rsm_q
+
+            q &= rsm_q(self.rsms, mapping)
         if self.retailers and retailer_field:
             q &= Q(**{f"{retailer_field}__in": self.retailers})
         if include_scope:
@@ -365,7 +370,7 @@ class Filters:
 
 
 def parse_filters(request, default_preset="mtd", today=None):
-    from warehouse.models import Asm, Distributor, Region, State
+    from warehouse.models import Asm, Distributor, Region, Rsm, State
 
     p = request.query_params if hasattr(request, "query_params") else request.GET
     period = resolve_period(p.get("preset") or default_preset, today=today, date_from=p.get("date_from"),
@@ -379,6 +384,7 @@ def parse_filters(request, default_preset="mtd", today=None):
         regions=_resolve_ids(_csv(p.get("region")), Region),
         states=_resolve_ids(_csv(p.get("state")), State),
         asms=_resolve_ids(_csv(p.get("asm")), Asm),
+        rsms=_resolve_ids(_csv(p.get("rsm")), Rsm),
         distributors=_resolve_ids(_csv(p.get("distributor")), Distributor),
         retailers=[int(x) for x in _csv(p.get("retailer")) if x.isdigit()],
         categories=[c.lower() for c in _csv(p.get("category"))],

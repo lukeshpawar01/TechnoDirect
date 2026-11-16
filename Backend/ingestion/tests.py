@@ -183,3 +183,95 @@ class MergeDistributorTests(TestCase):
         self.assertEqual(Target.objects.get(scope_type="distributor").value, Decimal("150"))
         keep.refresh_from_db()
         self.assertIn("Heera Main", keep.aliases)
+
+
+class TdExportImportTests(TestCase):
+    """End-to-end import of a tiny version of the ID-keyed TD export (TD_Data/DATA)."""
+
+    FILES = {
+        "Distributor_Data.csv": (
+            "distributor_id,distributor_name,gst_number,city,state,pincode,is_active,created_at,deleted_at\n"
+            "9,HEERA EXPORTS INC,,BANGALORE,Karnataka,560053,true,2024-11-14T11:35:22.155866Z,\n"
+            "6,Ankit Jain,,DELHI,Delhi,110001,true,2025-01-01T00:00:00Z,\n"
+            "32,Ankit Jain,,DELHI,Delhi,110001,true,2025-02-01T00:00:00Z,\n"),
+        "Customer_Data.csv": (
+            "customer_id,email,first_name,last_name,business_name,phone,has_account,kyc,gst_number,udyam_number,"
+            "ts_pincode,city,province,distributor_name,is_test,created_at,updated_at,deleted_at\n"
+            "cus_1,,Ravi,K,RAVI SPORTS,9000000001,true,true,,,560064,Bengaluru,Karnataka,HEERA EXPORTS INC,false,"
+            "2025-03-01T10:00:00.000000Z,,\n"
+            "cus_t,,Test,,TEST,9000000009,true,true,,,888888,Bengaluru,Karnataka,HEERA EXPORTS INC,true,"
+            "2023-09-25T14:29:47.417162Z,,\n"),
+        "Product_Data.csv": (
+            "variant_id,product_id,sku,style,product_title,size,price,pcs_per_unit,category_level_1,category_level_2,"
+            "category_level_3,fabric,gsm,usp1,usp2,usp3,usp4,usp5,usp6,product_status,is_deleted,launch_date\n"
+            "var_1,prod_1,SKU-OR67-M,OR67,OR67 Tee,M,3594,6,men,topwear,t-shirts,,0,,,,,,,published,false,"
+            "2025-09-23T09:20:20.58316Z\n"),
+        "Order_Data.csv": (
+            "order_id,display_id,customer_id,distributor_id,ts_order_status,settlement_status,order_date,"
+            "dispatch_date,delivered_date,units,line_total,payu_amount,points_redeemed,total_amount,pg_charges,mode,"
+            "platform,city,province,updated_at\n"
+            "order_A,500,cus_1,9,delivered,pending,2026-11-10,2026-11-11,2026-11-13,2,4312.00,3000.00,1312.00,"
+            "4312.00,0,UPI,android,bengaluru,Karnataka,2026-11-13T08:00:00Z\n"
+            "order_B,501,cus_1,9,packed,pending,2026-11-12,,,1,2156.00,2156.00,0,2156.00,0,CC,web,,,"
+            "2026-11-12T08:00:00Z\n"
+            "order_P,4,cus_1,9,delivered,pending,2023-11-27,,,1,20.00,0.00,0.00,0.00,0,,android,,,"
+            "2023-11-29T10:26:40Z\n"),
+        "Sales_Data.csv": (
+            "sales_id,order_key,order_id,order_date,customer_id,distributor_id,ts_order_status,variant_id,product_id,"
+            "size,quantity,pieces,unit_price,line_amount\n"
+            "item_1,order_A,500,2026-11-10,cus_1,9,delivered,var_1,prod_1,M,2,12,2156,4312\n"
+            "item_2,order_B,501,2026-11-12,cus_1,9,packed,var_1,prod_1,M,1,6,2156,2156\n"
+            "item_3,order_P,4,2023-11-27,cus_1,9,delivered,var_1,prod_1,M,1,6,20,20\n"),
+        "Inventory_Data.csv": (
+            "inventory_pk,snapshot_date,variant_id,location_id,stock_location,distributor_id,stock,reserved,available\n"
+            "k1,2026-11-17,var_1,sloc_1,heera-exports-inc,9,10,2,8\n"
+            "k2,2026-11-17,var_1,sloc_2,heera-exports-incc,,4,0,4\n"),
+        "Loyality_Data.csv": (
+            "ledger_id,customer_id,order_id,event,total_points,signed_points,discount_value,event_date\n"
+            "lpoint_1,cus_1,,New Customer,100,100,0,2026-01-01\n"
+            "lpoint_2,cus_1,500,Points Redeemed,1312,-1312,0,2026-11-10\n"),
+    }
+
+    def setUp(self):
+        import tempfile
+        from pathlib import Path
+
+        self.tmp = tempfile.TemporaryDirectory()
+        for name, body in self.FILES.items():
+            Path(self.tmp.name, name).write_text(body, encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_import(self):
+        from decimal import Decimal
+
+        from ingestion.td_export_import import TdExportImporter, is_td_export
+        from warehouse.models import Distributor, InventorySnapshot, LoyaltyEvent, Order, Retailer
+
+        self.assertTrue(is_td_export(self.tmp.name))
+        TdExportImporter(self.tmp.name).run()
+        heera = Distributor.objects.get(source_id="td:9")
+        self.assertEqual(heera.state.name, "Karnataka")
+        self.assertEqual(Distributor.objects.filter(name="Ankit Jain").count(), 2)  # same name, two ids
+        self.assertFalse(Retailer.objects.filter(source_id="cus_t").exists())  # test customer skipped
+
+        a = Order.objects.get(source_id="order_A")
+        # sales = line total (points redeemed are not extra sales); units = pieces
+        self.assertEqual((a.display_id, a.status, a.is_qualifying, a.gross_value, a.units),
+                         ("500", "delivered", True, Decimal("4312"), 12))
+        self.assertEqual((a.distributor_id, a.platform, a.payment_mode), (heera.id, "android", "UPI"))
+        self.assertTrue(a.placed_at <= a.shipped_at <= a.delivered_at)
+        b = Order.objects.get(source_id="order_B")
+        self.assertEqual((b.status, b.ts_order_status, b.shipped_at), ("confirmed", "packed", None))
+        pilot = Order.objects.get(source_id="order_P")
+        self.assertFalse(pilot.is_qualifying)  # pre-launch order without payment
+
+        # stock = available, summed over the distributor's locations (typo'd location name still matches)
+        self.assertEqual(InventorySnapshot.objects.get(distributor=heera).quantity, 12)
+        pts = dict(LoyaltyEvent.objects.values_list("event_type", "points"))
+        self.assertEqual(pts, {"new_customer": 100, "redeemed": -1312})
+        self.assertEqual(LoyaltyEvent.objects.get(event_type="redeemed").order_id, a.id)
+
+        TdExportImporter(self.tmp.name).run()  # re-import is idempotent
+        self.assertEqual((Order.objects.count(), a.lines.count(), LoyaltyEvent.objects.count()), (3, 1, 2))

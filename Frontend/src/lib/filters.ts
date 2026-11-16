@@ -37,7 +37,7 @@ export const SEGMENTS = [
 ];
 
 /** Keys of the global filter bar — kept in the URL and carried to every page (and drill-down link). */
-export const GLOBAL_KEYS = ['preset', 'date_from', 'date_to', 'region', 'state', 'asm', 'distributor', 'category'] as const;
+export const GLOBAL_KEYS = ['preset', 'date_from', 'date_to', 'region', 'rsm', 'state', 'asm', 'distributor', 'category'] as const;
 /**
  * Module filters — URL params owned by one page's filter row. They are sent to the API with every request
  * from that page but are NOT carried when navigating, so another page never inherits them.
@@ -48,7 +48,7 @@ export const MODULE_KEYS = [
 ] as const;
 export type ModuleKey = (typeof MODULE_KEYS)[number];
 export type GlobalKey = (typeof GLOBAL_KEYS)[number];
-export const MULTI_KEYS = ['region', 'state', 'asm', 'distributor', 'category'] as const;
+export const MULTI_KEYS = ['region', 'rsm', 'state', 'asm', 'distributor', 'category'] as const;
 export type MultiKey = (typeof MULTI_KEYS)[number];
 
 export interface GlobalFilters {
@@ -56,6 +56,7 @@ export interface GlobalFilters {
   date_from?: string;
   date_to?: string;
   region: string[];
+  rsm: string[];
   state: string[];
   asm: string[];
   distributor: string[];
@@ -73,6 +74,7 @@ export function parseFilters(sp: URLSearchParams): GlobalFilters {
     date_from: sp.get('date_from') ?? undefined,
     date_to: sp.get('date_to') ?? undefined,
     region: split(sp.get('region')),
+    rsm: split(sp.get('rsm')),
     state: split(sp.get('state')),
     asm: split(sp.get('asm')),
     distributor: split(sp.get('distributor')),

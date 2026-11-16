@@ -18,6 +18,7 @@ from django.utils import timezone
 from accounts.models import User
 from analytics.derivations import run_all_derivations
 from ingestion.csv_import import CsvImporter
+from ingestion.td_export_import import TdExportImporter, is_td_export
 from ingestion.models import SyncRun, SyncWatermark
 from ingestion.schedule import REFRESH_SOURCE
 from masters.models import ReconciliationRef, ensure_default_metrics
@@ -70,7 +71,9 @@ class Command(BaseCommand):
         run = SyncRun.objects.create(source=IMPORT_SOURCE, status="running", started_at=started,
                                      triggered_by="import_csv_data")
         try:
-            result = CsvImporter(o["dir"], o["source_tz"], snap, stdout=self.stdout).run()
+            importer = TdExportImporter if is_td_export(o["dir"]) else CsvImporter
+            self.stdout.write(f"[import] format: {'ID-keyed TD export' if importer is TdExportImporter else 'sample export'}")
+            result = importer(o["dir"], o["source_tz"], snap, stdout=self.stdout).run()
         except Exception as exc:
             run.status, run.error, run.finished_at = "failed", str(exc)[:2000], timezone.now()
             run.save()
