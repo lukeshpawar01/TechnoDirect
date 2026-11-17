@@ -9,6 +9,7 @@ import { useChartTokens } from '@/charts/EChart';
 import { ChartCard } from '@/components/ChartCard';
 import { DataTable } from '@/components/DataTable';
 import { PageHeader } from '@/components/PageHeader';
+import { BlueOriginCard } from '@/components/BlueOriginCard';
 import { Badge, Card, ErrorState, LoadingBlock, Stat, StatusBadge } from '@/components/ui';
 import { linkWithFilters } from '@/lib/filters';
 import { date, dateTime, inr, monthLabel, num, titleCase } from '@/lib/format';
@@ -137,6 +138,8 @@ export default function RetailerDetail() {
           </div>
         )}
       </Card>
+
+      <BlueOriginCard records={d.blueorigin} appMonthly={monthly} />
 
       <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-5">
         <ChartCard

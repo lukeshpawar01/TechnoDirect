@@ -105,7 +105,7 @@ export interface FilterOptions {
   states: (IdName & { region_id: number })[];
   rsms?: (IdName & { region_id: number | null })[];
   asms: (IdName & { region_id: number; rsm_id?: number | null })[];
-  distributors: (IdName & { state_id: number })[];
+  distributors: (IdName & { state_id: number; bo_only?: boolean })[];
   categories: { code: string; name: string }[];
   order_statuses: string[];
   payment_statuses: string[];
@@ -114,6 +114,10 @@ export interface FilterOptions {
   platforms?: string[];
   category_tree?: { l1: string; l2: string; l3: string }[];
   sizes?: string[];
+  /** base style codes (OR99 covers OR99/B11, "OR35 Black" ...) */
+  styles?: { code: string; name: string; l1: string; l2: string; l3: string }[];
+  /** BlueOrigin tiers, best first */
+  tiers?: string[];
 }
 
 // ---------------------------------------------------------------- overview
@@ -201,6 +205,8 @@ export interface RetailerRow {
   rfm_segment?: string | null;
   rfm_label?: string | null;
   warm_match: boolean | null;
+  /** BlueOrigin tier (latest sheet); null = not found in BlueOrigin */
+  tier?: string | null;
 }
 
 // ---------------------------------------------------------------- RFM segmentation
@@ -271,6 +277,84 @@ export interface RetailerDetail {
   rfm?: RetailerRfm;
   monthly: { month: string; sales: number; orders: number }[];
   recent_orders: OrderRow[];
+  /** offline records phone-matched to this app retailer */
+  blueorigin?: BoRecord[];
+}
+
+export interface BoRecord {
+  bo_id: string;
+  name: string;
+  distributor: string | null;
+  district: string | null;
+  tier: string;
+  quarters: { quarter: string; tier: string; purchase: number; deliverables: string | null }[];
+  monthly: { month: string; value: number }[];
+}
+
+// ---------------------------------------------------------------- BlueOrigin (offline)
+export interface BoWindow {
+  from: string;
+  to: string;
+  label: string;
+  months: number;
+  /** the selected period is after the BO data: the latest BO quarter is shown */
+  shifted: boolean;
+  /** the selected period runs past the BO data: cut at data_until */
+  clipped: boolean;
+  data_from: string;
+  data_until: string;
+  tier_quarter: string | null;
+  prev_tier_quarter: string | null;
+  prev_label: string | null;
+}
+export interface BoAgg {
+  purchase: number;
+  prev_purchase: number;
+  delta_pct: number | null;
+  retailers: number;
+  active: number;
+  on_app: number;
+  on_app_pct: number | null;
+  app_buyers: number;
+  app_buyers_pct: number | null;
+  app_sales: number;
+  tiered: number;
+  tiers: Record<string, number>;
+}
+export interface BoSummary {
+  available: boolean;
+  window: BoWindow;
+  kpis: BoAgg;
+  by_tier: (BoAgg & { tier: string; avg_purchase: number | null })[];
+  tier_mix: { quarter: string; label: string; tiers: Record<string, { retailers: number; purchase: number }> }[];
+  movement: { from_quarter: string | null; to_quarter: string; cells: { from: string; to: string; retailers: number }[]; upgraded: number; downgraded: number; same: number; new: number; dropped: number };
+  monthly: { month: string; offline: number; app: number }[];
+}
+export interface BoHierarchy {
+  available: boolean;
+  window: BoWindow;
+  group_by: string;
+  rows: (BoAgg & { id: number | null; name: string; offline_only: boolean })[];
+  total: BoAgg;
+}
+export interface BoRetailerRow {
+  id: number;
+  bo_id: string;
+  retailer: string;
+  phone: string;
+  district: string | null;
+  state: string | null;
+  distributor: string | null;
+  offline_only_distributor: boolean;
+  asm: string | null;
+  rsm: string | null;
+  tier: string;
+  tier_history: { quarter: string; tier: string }[];
+  purchase: number;
+  on_app: boolean;
+  td_retailer_id: number | null;
+  td_retailer: string | null;
+  app_orders: number | null;
 }
 
 // ---------------------------------------------------------------- distributors
@@ -307,6 +391,8 @@ export interface DistributorRow {
 
 export interface ArticleRow {
   style: string;
+  /** base style code (OR99 for OR99/B11) - the Style filter value */
+  code?: string;
   name: string;
   category: string;
   sales: number;
@@ -465,6 +551,27 @@ export interface Products {
   category_mix?: { l1: string; l2: string; sales: number; units: number; orders: number; share: number; realisation: number | null; units_per_order: number | null }[];
   category_mix_monthly_l1l2?: { month: string; l1: string; l2: string; sales: number }[];
   new_articles_6m?: { since: string; articles: number; sales: number; share: number };
+  /** Style filter on: each selected style this period (line values) vs the comparison period */
+  selected_styles?: SelectedStyle[] | null;
+  style_monthly?: { month: string; code: string; sales: number; units: number }[] | null;
+}
+
+export interface SelectedStyle {
+  code: string;
+  name: string;
+  l1: string;
+  l2: string;
+  l3: string;
+  known: boolean;
+  sales: number;
+  units: number;
+  orders: number;
+  retailers: number;
+  share: number;
+  realisation: number | null;
+  units_per_order: number | null;
+  prev_sales: number | null;
+  prev_units: number | null;
 }
 
 /** GET /products/tree/ — one row per style; the client rolls rows up Category I > II > III > Style. */

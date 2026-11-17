@@ -43,7 +43,7 @@ export const GLOBAL_KEYS = ['preset', 'date_from', 'date_to', 'region', 'rsm', '
  * from that page but are NOT carried when navigating, so another page never inherits them.
  */
 export const MODULE_KEYS = [
-  'segment', 'order_status', 'payment_status', 'platform', 'payment_mode', 'is_split', 'cat_l1', 'cat_l2', 'cat_l3', 'size',
+  'segment', 'order_status', 'payment_status', 'platform', 'payment_mode', 'is_split', 'cat_l1', 'cat_l2', 'cat_l3', 'size', 'article', 'tier',
   'kyc_status', 'kyc_verified', 'event_type', 'stock_sync',
 ] as const;
 export type ModuleKey = (typeof MODULE_KEYS)[number];

@@ -14,6 +14,7 @@ from warehouse.models import Distributor, InventorySnapshot, OrderLine, Product,
 
 from ..export import ExportListMixin
 from ..filters import add_months, month_start, parse_filters
+from ..styles import base_style, expand
 from ..metrics import mkey, num, ratio, share, spark_months
 from .base import AnalyticsView
 from .funnel import resolve_ordering
@@ -52,7 +53,7 @@ class ProductsView(AnalyticsView):
             r=Count("order__retailer_id", distinct=True)).order_by("-s"))
 
         def art(r):
-            return {"style": r["style"], "name": r["product__name"], "category": r["product__category__name"],
+            return {"style": r["style"], "code": base_style(r["style"]), "name": r["product__name"], "category": r["product__category__name"],
                     "sales": num(r["s"]), "units": r["u"] or 0, "orders": r["o"], "retailers": r["r"],
                     "share": share(r["s"], total), "realisation": ratio(r["s"], r["u"]),
                     "units_per_order": ratio(r["u"], r["o"])}
@@ -87,7 +88,9 @@ class ProductsView(AnalyticsView):
 
         # New articles: first ever sold in the last 6 months (deck slide 61)
         six_start = add_months(month_start(p.end), -5)
-        first_sold = OrderLine.objects.filter(order__in=f.orders(end=p.end)).exclude(style="").values(
+        # lines filtered like the rest of the page (category / style), not "every line of a matching order"
+        first_sold = OrderLine.objects.filter(order__in=f.orders(end=p.end, line_match=False)).filter(
+            f.lines_q()).exclude(style="").values(
             "style").annotate(first=Min("order__placed_date"))
         new_styles = [r["style"] for r in first_sold if r["first"] >= six_start]
         win = line_qs(f, six_start, p.end)
@@ -98,6 +101,7 @@ class ProductsView(AnalyticsView):
 
         sales_sorted = [float(a["s"] or 0) for a in sold]
         return {
+            **style_view(f, months12),
             "categories": cats, "category_mix_monthly": mix,
             "top_articles": [art(a) for a in sold[:20]],
             "bottom_articles": [art(a) for a in sorted(sold, key=lambda a: a["s"])[:20]],
@@ -107,6 +111,60 @@ class ProductsView(AnalyticsView):
                               "top12_share": share(sum(sales_sorted[:12]), total),
                               "distinct_articles": len(sold)},
         }
+
+
+def style_view(f, months12):
+    """Style filter on: each selected style this period vs the comparison period, and its last 12 months.
+
+    Line values, so an order with several styles counts only the selected style's lines. Orders and retailers are
+    distinct per style (a retailer buying two selected styles counts once for each)."""
+    if not f.articles:
+        return {"selected_styles": None, "style_monthly": None}
+    from ..styles import catalog
+
+    p = f.period
+    cat = catalog()
+
+    def period_rows(start, end):
+        out = {}
+        for r in line_qs(f, start, end).values("style").annotate(
+                sales=Sum("total"), units=Sum("quantity")):
+            e = out.setdefault(base_style(r["style"]), {"sales": 0.0, "units": 0})
+            e["sales"] += float(r["sales"] or 0)
+            e["units"] += r["units"] or 0
+        # distinct orders / retailers need the base code in the query: count over all variants of each code
+        for code in out:
+            agg = line_qs(f, start, end).filter(style__in=expand([code])).aggregate(
+                o=Count("order_id", distinct=True), r=Count("order__retailer_id", distinct=True))
+            out[code].update(orders=agg["o"], retailers=agg["r"])
+        return out
+
+    cur = period_rows(p.start, p.end)
+    prev = period_rows(p.cmp_start, p.cmp_end) if p.cmp_start and p.cmp_end else {}
+    total = float(line_qs(f, p.start, p.end).aggregate(s=Sum("total"))["s"] or 0)
+    selected = []
+    for code in f.articles:
+        c, pv, meta = cur.get(code, {}), prev.get(code), cat.get(code, {})
+        sales = c.get("sales", 0.0)
+        selected.append({
+            "code": code, "name": meta.get("name", ""), "l1": meta.get("l1", ""), "l2": meta.get("l2", ""),
+            "l3": meta.get("l3", ""), "known": code in cat,
+            "sales": num(sales), "units": c.get("units", 0), "orders": c.get("orders", 0),
+            "retailers": c.get("retailers", 0), "share": share(sales, total),
+            "realisation": ratio(sales, c.get("units")), "units_per_order": ratio(c.get("units"), c.get("orders")),
+            "prev_sales": num(pv["sales"]) if pv else (0 if p.cmp_start else None),
+            "prev_units": pv["units"] if pv else (0 if p.cmp_start else None),
+        })
+    monthly = defaultdict(lambda: {"sales": 0.0, "units": 0})
+    for r in line_qs(f, months12[0], p.end).annotate(m=TruncMonth("order__placed_date")).values(
+            "m", "style").annotate(s=Sum("total"), u=Sum("quantity")):
+        e = monthly[(mkey(r["m"]), base_style(r["style"]))]
+        e["sales"] += float(r["s"] or 0)
+        e["units"] += r["u"] or 0
+    style_monthly = [{"month": mkey(m), "code": code, "sales": num(monthly[(mkey(m), code)]["sales"]),
+                      "units": monthly[(mkey(m), code)]["units"]}
+                     for m in months12 for code in f.articles]
+    return {"selected_styles": selected, "style_monthly": style_monthly}
 
 
 TREE_LEVELS = ["category_l1", "category_l2", "category_l3", "style"]
@@ -148,7 +206,7 @@ class ProductTreeView(AnalyticsView):
 def latest_inventory(f):
     qs = primary_inventory().filter(is_latest=True).filter(f.dims_q(INVENTORY_DIMS, retailer_field=None))
     if f.articles:
-        qs = qs.filter(style__in=f.articles)
+        qs = qs.filter(style__in=expand(f.articles))
     if f.categories:
         qs = qs.filter(product__category_l1__in=f.categories)
     for lvl, vals in ((1, f.cat_l1), (2, f.cat_l2), (3, f.cat_l3)):
@@ -173,7 +231,8 @@ class InventoryView(AnalyticsView):
 
     def compute(self, f, request, **kw):
         low = settings.LOW_STOCK_THRESHOLD
-        dists = Distributor.objects.filter(f.dims_q(DISTRIBUTOR_DIMS, retailer_field=None), is_active=True)
+        dists = Distributor.objects.filter(f.dims_q(DISTRIBUTOR_DIMS, retailer_field=None), is_active=True,
+                                           bo_only=False)
         inv = latest_inventory(f)
         per = {r["distributor_id"]: r for r in inv.values("distributor_id").annotate(
             last=Max("synced_at"), skus=Count("id"), instock=Count("id", filter=Q(quantity__gt=0)))}

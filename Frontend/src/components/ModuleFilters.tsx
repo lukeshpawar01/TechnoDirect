@@ -44,6 +44,29 @@ const KYC_VERIFIED: FieldDef = { key: 'kyc_verified', label: 'KYC Verified', sin
 const CAT_L1: FieldDef = { key: 'category', label: 'Category I', options: catLevel(1), width: 'w-36' };
 const CAT_L2: FieldDef = { key: 'cat_l2', label: 'Category II', options: catLevel(2), width: 'w-36' };
 const CAT_L3: FieldDef = { key: 'cat_l3', label: 'Category III', options: catLevel(3), width: 'w-40' };
+/** Style (article) code, narrowed by the category choices; search matches code or name. */
+const STYLE: FieldDef = {
+  key: 'article',
+  label: 'Style',
+  width: 'w-40',
+  options: (o, sp) => {
+    const l1 = new Set(csv(sp.get('category')));
+    const l2 = new Set(csv(sp.get('cat_l2')));
+    const l3 = new Set(csv(sp.get('cat_l3')));
+    return (o?.styles ?? [])
+      .filter((s) => (!l1.size || l1.has(s.l1)) && (!l2.size || l2.has(s.l2)) && (!l3.size || l3.has(s.l3)))
+      .map((s) => {
+        // names usually repeat the code ("OR99 Solid woven ..."): show it once
+        const name = s.name.replace(new RegExp(`^${s.code}[\\s-]+`, 'i'), '').trim();
+        return { value: s.code, label: name ? `${s.code} · ${name}` : s.code };
+      });
+  },
+};
+
+/** BlueOrigin tier from the offline sheets (latest quarter). */
+const TIER: FieldDef = { key: 'tier', label: 'Tier', width: 'w-36', options: (o) => (o?.tiers ?? []).map((t) => ({ value: t, label: t })) };
+/** On the app's retailer pages a retailer can also be absent from BlueOrigin. */
+const TIER_TD: FieldDef = { ...TIER, options: (o, sp) => [...(TIER.options as (o: FilterOptions | undefined, sp: URLSearchParams) => Opt[])(o, sp), { value: 'None', label: 'Not in BlueOrigin' }] };
 
 /** Page-specific filters, keyed by the nav path that owns them. Sent to the API only from that page. */
 const MODULES: Record<string, FieldDef[]> = {
@@ -52,6 +75,7 @@ const MODULES: Record<string, FieldDef[]> = {
   '/retailers': [
     KYC_STATUS,
     KYC_VERIFIED,
+    TIER_TD,
     // segment has its own tabs on the Retailers page
   ],
   '/distributors': [
@@ -73,9 +97,10 @@ const MODULES: Record<string, FieldDef[]> = {
     { key: 'platform', label: 'Platform', options: (o) => (o?.platforms ?? []).map((s) => ({ value: s, label: PLATFORM_LABELS[s] ?? title(s) })) },
     { key: 'is_split', label: 'Cart type', single: true, options: [{ value: 'false', label: 'Single distributor' }, { value: 'true', label: 'Split cart' }] },
   ],
-  '/products': [CAT_L1, CAT_L2, CAT_L3],
-  '/inventory': [CAT_L1, CAT_L2, CAT_L3, { key: 'size', label: 'Size', options: (o) => (o?.sizes ?? []).map((s) => ({ value: s, label: s })), width: 'w-32' }],
+  '/products': [CAT_L1, CAT_L2, CAT_L3, STYLE],
+  '/inventory': [CAT_L1, CAT_L2, CAT_L3, STYLE, { key: 'size', label: 'Size', options: (o) => (o?.sizes ?? []).map((s) => ({ value: s, label: s })), width: 'w-32' }],
   '/retention': [SEGMENT],
+  '/blueorigin': [TIER],
   '/loyalty': [
     {
       key: 'event_type',

@@ -256,6 +256,7 @@ class Filters:
     kyc_verified: bool | None = None  # customer `kyc` TRUE (= KYC approved) / FALSE
     kyc_statuses: list = field(default_factory=list)  # approved / pending / rejected / not_submitted
     event_types: list = field(default_factory=list)
+    tiers: list = field(default_factory=list)  # BlueOrigin tier (Platinum ... Untiered)
     today: dt.date = field(default_factory=today_ist)
 
     @property
@@ -273,7 +274,7 @@ class Filters:
             sorted(self.articles), self.segment, sorted(self.order_status), sorted(self.payment_status), self.today,
             sorted(self.platforms), sorted(self.payment_modes), self.split_only, sorted(self.cat_l1),
             sorted(self.cat_l2), sorted(self.cat_l3), sorted(self.sizes), self.has_account, sorted(self.event_types),
-            self.kyc_verified, sorted(self.kyc_statuses),
+            self.kyc_verified, sorted(self.kyc_statuses), sorted(self.tiers),
         ])
 
     # -- dimension predicates ----------------------------------------------
@@ -372,8 +373,10 @@ class Filters:
         q = Q()
         if self.categories:  # global "Category" = Category I (men / women / kids / unisex)
             q &= Q(**{f"{prefix}category_l1__in": self.categories})
-        if self.articles:
-            q &= Q(style__in=self.articles)
+        if self.articles:  # base style codes (OR99) -> every stored variant (OR99/B11, "OR35 Black", ...)
+            from .styles import expand
+
+            q &= Q(style__in=expand(self.articles))
         for lvl, vals in ((1, self.cat_l1), (2, self.cat_l2), (3, self.cat_l3)):
             if vals:
                 q &= Q(**{f"{prefix}category_l{lvl}__in": vals})
@@ -381,6 +384,7 @@ class Filters:
 
 
 def parse_filters(request, default_preset="mtd", today=None):
+    from .styles import base_style
     from warehouse.models import Asm, Distributor, Region, Rsm, State
 
     p = request.query_params if hasattr(request, "query_params") else request.GET
@@ -399,7 +403,7 @@ def parse_filters(request, default_preset="mtd", today=None):
         distributors=_resolve_ids(_csv(p.get("distributor")), Distributor),
         retailers=[int(x) for x in _csv(p.get("retailer")) if x.isdigit()],
         categories=[c.lower() for c in _csv(p.get("category"))],
-        articles=[a.upper() for a in _csv(p.get("article"))],
+        articles=sorted({base_style(a) for a in _csv(p.get("article"))} - {""}),
         segment=seg,
         order_status=_csv(p.get("order_status")),
         payment_status=_csv(p.get("payment_status")),
@@ -414,6 +418,7 @@ def parse_filters(request, default_preset="mtd", today=None):
         kyc_statuses=[s.lower() for s in _csv(p.get("kyc_status"))],
         kyc_verified={"true": True, "1": True, "yes": True, "false": False, "0": False, "no": False}.get((p.get("kyc_verified") or "").lower()),
         event_types=_csv(p.get("event_type")),
+        tiers=[t.strip().title() for t in _csv(p.get("tier"))],
         today=today or today_ist(),
     )
 

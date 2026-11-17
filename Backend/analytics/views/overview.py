@@ -43,7 +43,7 @@ def open_sla_breaches(f):
 
 def stale_stock_distributors(f, hours=24):
     cutoff = timezone.now() - dt.timedelta(hours=hours)
-    dists = Distributor.objects.filter(f.dims_q(DISTRIBUTOR_DIMS, retailer_field=None), is_active=True)
+    dists = Distributor.objects.filter(f.dims_q(DISTRIBUTOR_DIMS, retailer_field=None), is_active=True, bo_only=False)
     last = dict(primary_inventory().filter(distributor__in=dists).values("distributor_id")
                 .annotate(m=Max("synced_at")).values_list("distributor_id", "m"))
     return [d for d in dists.values_list("id", flat=True) if not last.get(d) or last[d] < cutoff]

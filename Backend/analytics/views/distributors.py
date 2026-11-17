@@ -40,7 +40,8 @@ L3M_MIN_BASE = 50_000  # growth on a smaller base is noise
 
 
 def scoped_distributors(f):
-    return Distributor.objects.filter(f.dims_q(DISTRIBUTOR_DIMS, retailer_field=None))
+    # offline-only (BlueOrigin) distributors are not on the app: they appear on the BlueOrigin page only
+    return Distributor.objects.filter(f.dims_q(DISTRIBUTOR_DIMS, retailer_field=None), bo_only=False)
 
 
 def dispatch_stats(qs, group_field):
@@ -300,7 +301,7 @@ class TerritoryView(AnalyticsView):
             kyc=Count("id", filter=Q(kyc_status="approved")),
             ever=Count("id", filter=Q(first_order_date__isnull=False)))}
         dist_counts = dict(prep(Distributor.objects.filter(f.dims_q(DISTRIBUTOR_DIMS, retailer_field=None),
-                                                           is_active=True))
+                                                           is_active=True, bo_only=False))
                            .values(gfield).annotate(n=Count("id")).values_list(gfield, "n"))
         group_ids = set(cur) | set(kyc) | set(dist_counts)
         group_ids.discard(None)

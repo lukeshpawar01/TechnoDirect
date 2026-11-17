@@ -28,6 +28,12 @@ def retailer_base(f):
         qs = qs.filter(kyc_status__in=f.kyc_statuses)
     if f.kyc_verified is not None:  # "KYC Verified" module filter (Retailers, Funnel)
         qs = qs.filter(kyc_status="approved") if f.kyc_verified else qs.exclude(kyc_status="approved")
+    if f.tiers:  # BlueOrigin tier (latest sheet); "None" = not found in BlueOrigin
+        tiers = [t for t in f.tiers if t != "None"]
+        q = Q(tier__in=tiers)
+        if "None" in f.tiers:
+            q |= Q(tier="")
+        qs = qs.filter(q)
     return qs
 
 
@@ -255,6 +261,7 @@ def retailer_row(r, can_pii, today, rsm_ctx=None, rfm_rows=None):
         "rfm_segment": rfm_seg,
         "rfm_label": rfm.SEGMENTS[rfm_seg][0] if rfm_seg else None,
         "warm_match": r.warm_match,
+        "tier": r.tier or None,
     }
 
 
@@ -307,6 +314,28 @@ class _RowSerializer:
             self.data = self.data[0]
 
 
+def blueorigin_block(r):
+    """Offline (BlueOrigin) records phone-matched to this app retailer: tier per quarter, monthly purchase."""
+    from warehouse.models import BoRetailer
+
+    from ..filters import fy_quarter_label
+
+    from masters.blueorigin import phone10
+
+    ph = phone10(r.phone)
+    out = []
+    for b in BoRetailer.objects.filter(Q(td_retailer=r) | (Q(phone=ph) | Q(phone_alt=ph) if ph else Q(pk__in=[]))).select_related(
+            "distributor").prefetch_related("quarters", "months").distinct():
+        out.append({
+            "bo_id": b.bo_id, "name": b.name, "distributor": b.distributor.name if b.distributor_id else None,
+            "district": b.district or None, "tier": b.tier,
+            "quarters": [{"quarter": fy_quarter_label(q.quarter), "tier": q.tier, "purchase": num(q.purchase),
+                          "deliverables": q.deliverables or None} for q in b.quarters.all()],
+            "monthly": [{"month": mkey(m.month), "value": num(m.value)} for m in b.months.all()],
+        })
+    return out
+
+
 class RetailerDetailView(AnalyticsView):
     permission_code = "view_funnel"
     sources = ["medusa"]
@@ -345,7 +374,8 @@ class RetailerDetailView(AnalyticsView):
         rfm_block = rfm.describe(snap["rows"].get(r.id))
         rfm_block.update({"as_of": snap["as_of"].isoformat() if snap.get("as_of") else None,
                           "window_start": snap["window_start"].isoformat() if snap.get("window_start") else None})
-        return {"profile": profile, "rfm": rfm_block, "monthly": monthly, "recent_orders": recent_orders}
+        return {"profile": profile, "rfm": rfm_block, "monthly": monthly, "recent_orders": recent_orders,
+                "blueorigin": blueorigin_block(r)}
 
 
 class RfmView(AnalyticsView):

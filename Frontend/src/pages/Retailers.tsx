@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAnalytics, usePagedList } from '@/api/hooks';
 import type { RetailerRow, RfmData } from '@/api/types';
+import { TierChip } from '@/components/TierChip';
 import { RfmDot, RfmPanel } from '@/components/RfmPanel';
 import { SegmentTrend } from '@/components/SegmentTrend';
 import { DataTable } from '@/components/DataTable';
@@ -182,6 +183,12 @@ export default function Retailers() {
                   key: 'kyc_status',
                   header: 'KYC',
                   render: (r) => <StatusBadge status={r.kyc_status} />,
+                },
+                {
+                  key: 'tier',
+                  header: 'Tier',
+                  sortable: false,
+                  render: (r) => (r.tier ? <TierChip tier={r.tier} /> : <span className="text-xs text-muted" title="Not found in the BlueOrigin sheets">–</span>),
                 },
                 {
                   key: 'rfm_label',

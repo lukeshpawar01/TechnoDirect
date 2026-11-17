@@ -46,11 +46,13 @@ export function MultiSelect({
 
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
-    return s ? options.filter((o) => o.label.toLowerCase().includes(s)) : options;
-  }, [options, q]);
+    const list = s ? options.filter((o) => o.label.toLowerCase().includes(s)) : options;
+    // long lists (styles): what is picked stays on top
+    return options.length > 50 && value.length ? [...list.filter((o) => value.includes(o.value)), ...list.filter((o) => !value.includes(o.value))] : list;
+  }, [options, q, value]);
 
   const selectedLabels = options.filter((o) => value.includes(o.value)).map((o) => o.label);
-  const summary = value.length === 0 ? placeholder : value.length === 1 ? (selectedLabels[0] ?? '1 selected') : `${value.length} selected`;
+  const summary = value.length === 0 ? placeholder : value.length === 1 ? (selectedLabels[0] ?? value[0]) : `${value.length} selected`;
 
   function toggle(v: string) {
     if (single) {

@@ -9,6 +9,7 @@ import { ChartCard } from '@/components/ChartCard';
 import { DataTable, type Column } from '@/components/DataTable';
 import { MiniStat } from '@/components/KpiTile';
 import { PageHeader } from '@/components/PageHeader';
+import { StylePerformance } from '@/components/StylePerformance';
 import { Card, ErrorState, Segmented } from '@/components/ui';
 import { useFilters } from '@/lib/filters';
 import { asPct, date, inr, monthLabel, num, pct } from '@/lib/format';
@@ -32,7 +33,9 @@ export default function Products() {
   const q = useAnalytics<ProductsData>('/products/');
   const tree = useAnalytics<ProductTree>('/products/tree/');
   const t = useChartTokens();
-  const { apiParams } = useFilters();
+  const { apiParams, update } = useFilters();
+  // click an article row: look at that style alone (all its colours / batches)
+  const pickStyle = (code: string | undefined) => code && update({ article: [code] });
   const d = q.data?.data;
   const basis = q.data?.meta?.sales_basis;
   const [list, setList] = useState<'top' | 'bottom'>('top');
@@ -104,6 +107,8 @@ export default function Products() {
         />
       </div>
 
+      <StylePerformance data={d} period={q.data?.meta?.period} loading={q.isFetching} />
+
       <Card
         className="mt-4"
         title="Product decomposition"
@@ -134,6 +139,7 @@ export default function Products() {
         <Card
           className="xl:col-span-2"
           title={list === 'top' ? 'Top articles' : 'Bottom articles'}
+          subtitle="Click a row to see that style on its own"
           actions={<Segmented value={list} onChange={setList} options={[{ value: 'top', label: 'Top' }, { value: 'bottom', label: 'Bottom' }]} />}
         >
           <DataTable
@@ -147,6 +153,7 @@ export default function Products() {
             pageSize={15}
             dense
             columns={articleCols}
+            onRowClick={(r) => pickStyle(r.code)}
           />
         </Card>
         <ChartCard

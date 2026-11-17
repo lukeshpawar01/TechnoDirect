@@ -33,6 +33,14 @@ def refresh_all_inline(triggered_by="schedule"):
 
     umbrella = SyncRun.objects.create(source=REFRESH_SOURCE, status="running", triggered_by=triggered_by)
     steps = [_run_source(s, triggered_by) for s in CONNECTORS]
+    # BlueOrigin offline sheets: re-imported only when the files changed (before derivations re-tag retailers)
+    from masters.blueorigin import refresh_if_changed
+
+    try:
+        steps.append(refresh_if_changed(triggered_by=triggered_by))
+    except Exception as exc:  # noqa: BLE001
+        log.exception("blueorigin step failed")
+        steps.append({"source": "blueorigin", "status": "failed", "rows": 0, "run_id": None, "error": str(exc)[:200]})
 
     deriv = SyncRun.objects.create(source="derivations", status="running", triggered_by=triggered_by)
     try:

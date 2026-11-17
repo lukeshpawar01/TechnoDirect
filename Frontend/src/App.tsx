@@ -19,6 +19,7 @@ const Products = lazy(() => import('@/pages/Products'));
 const Inventory = lazy(() => import('@/pages/Inventory'));
 const Retention = lazy(() => import('@/pages/Retention'));
 const Loyalty = lazy(() => import('@/pages/Loyalty'));
+const BlueOrigin = lazy(() => import('@/pages/BlueOrigin'));
 const DataHealth = lazy(() => import('@/pages/DataHealth'));
 const Users = lazy(() => import('@/pages/admin/Users'));
 const Roles = lazy(() => import('@/pages/admin/Roles'));
@@ -109,6 +110,7 @@ export default function App() {
                 <Route path="inventory" element={g('/inventory', <Inventory />)} />
                 <Route path="retention" element={g('/retention', <Retention />)} />
                 <Route path="loyalty" element={g('/loyalty', <Loyalty />)} />
+                <Route path="blueorigin" element={g('/blueorigin', <BlueOrigin />)} />
                 <Route path="data-health" element={g('/data-health', <DataHealth />)} />
                 <Route path="admin/users" element={g('/admin/users', <Users />)} />
                 <Route path="admin/roles" element={g('/admin/roles', <Roles />)} />

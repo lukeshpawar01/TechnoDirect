@@ -30,6 +30,7 @@ from ..derivations import DQ_LABELS
 from ..envelope import source_state
 from ..filters import add_months, month_end, parse_filters
 from ..metrics import mkey, num, pct
+from ..styles import options as style_options
 from .base import AnalyticsView
 
 SEVERITY_ORDER = {"high": 0, "medium": 1, "low": 2}
@@ -160,7 +161,8 @@ class FilterOptionsView(APIView):
             "states": list(states.order_by("name").values("id", "name", "code", "region_id")),
             "rsms": list(rsms.order_by("name").values("id", "name", "code", "region_id")),
             "asms": list(asms.order_by("name").values("id", "name", "code", "region_id", "rsm_id")),
-            "distributors": list(dists.order_by("name").values("id", "name", "code", "state_id")),
+            # bo_only = offline-only (BlueOrigin sheets); shown on the BlueOrigin page
+            "distributors": list(dists.order_by("name").values("id", "name", "code", "state_id", "bo_only")),
             # top-bar Category = Category I of the product catalogue
             "categories": [{"code": c, "name": c.replace("-", " ").title()} for c in Product.objects.exclude(
                 category_l1="").values_list("category_l1", flat=True).distinct().order_by("category_l1")],
@@ -176,6 +178,9 @@ class FilterOptionsView(APIView):
                     "category_l1", "category_l2", "category_l3").distinct().order_by(
                     "category_l1", "category_l2", "category_l3")],
             "sizes": sorted({s for s in ProductVariant.objects.exclude(size="").values_list("size", flat=True)}),
+            # base style codes (OR99 covers OR99/B11 etc.) with the latest name and category, for the Style filter
+            "styles": style_options(),
+            "tiers": ["Platinum", "Gold", "Silver", "Green", "Yellow", "Untiered"],
         })
 
 

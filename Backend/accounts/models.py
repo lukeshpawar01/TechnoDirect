@@ -14,6 +14,7 @@ PERMISSIONS = [
     ("view_inventory", "View inventory", "Dashboards"),
     ("view_retention", "View retention & growth", "Dashboards"),
     ("view_loyalty", "View loyalty points", "Dashboards"),
+    ("view_blueorigin", "View BlueOrigin offline sales & tiers", "Dashboards"),
     ("view_data_health", "View data health", "Dashboards"),
     ("use_assistant", "Use Techno AI assistant", "Dashboards"),
     ("export_data", "Export data (CSV / Excel)", "Data"),

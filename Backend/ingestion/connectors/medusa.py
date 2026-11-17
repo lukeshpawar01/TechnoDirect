@@ -310,7 +310,8 @@ class MedusaConnector(BaseConnector):
                 "kyc_status": kyc if kyc in KYC_VALUES else "pending",
                 "signed_up_at": r.get("signed_up_at"), "kyc_submitted_at": r.get("kyc_submitted_at"),
                 "kyc_approved_at": approved_at if kyc == "approved" else None,
-                "warm_match": bool(r.get("warm_match")), "tier": (r.get("tier") or "")[:16],
+                # warm_match / tier are not in Medusa: they come from the BlueOrigin sheets
+                # (masters.blueorigin.tag_td_retailers) and must not be reset by this sync
             })
         n = 0
         for chunk in chunked(out, 2000):

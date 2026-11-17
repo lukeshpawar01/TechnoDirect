@@ -227,7 +227,7 @@ class EndpointShapeTests(TestCase):
         self.assertEqual(set(o), {"data", "meta"})
         self.assertTrue({"at", "status", "note", "actor"} <= set(o["data"]["timeline"][0]))
         r = self.c.get(f"/api/retailers/{self.w['ret1'].id}/").json()
-        self.assertEqual(set(r["data"]), {"profile", "rfm", "monthly", "recent_orders"})
+        self.assertEqual(set(r["data"]), {"profile", "rfm", "monthly", "recent_orders", "blueorigin"})
 
     def test_payment_block_null_without_payu(self):
         d = self.c.get("/api/orders/summary/").json()["data"]

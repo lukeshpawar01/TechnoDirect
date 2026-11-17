@@ -130,6 +130,7 @@ class Distributor(TimeStamped):
                                help_text="Other spellings of this distributor in source files (e.g. 'Heera')")
     is_active = models.BooleanField(default=True)
     onboarded_on = models.DateField(null=True, blank=True)
+    bo_only = models.BooleanField(default=False, help_text="Known only from BlueOrigin (offline) sheets, not on the app")
 
     class Meta:
         ordering = ["name"]
@@ -570,3 +571,76 @@ class TargetForecast(TimeStamped):
         constraints = [models.UniqueConstraint(fields=["month", "scope_type", "scope_id", "as_of"],
                                                name="uniq_target_forecast")]
         indexes = [models.Index(fields=["month", "scope_type"])]
+
+
+# ----------------------------------------------------------------------------- BlueOrigin (offline)
+TIERS = ["Platinum", "Gold", "Silver", "Green", "Yellow", "Untiered"]  # best first
+
+
+class BoRetailer(TimeStamped):
+    """A retailer in the BlueOrigin distributor sheets (offline purchase), deduped by BO's Retailer_ID.
+
+    Hierarchy follows the TechnoDirect rules: ASM = the distributor's ASM today, RSM derived from the ASM."""
+    bo_id = models.CharField(max_length=32, unique=True, help_text="BlueOrigin Retailer_ID, e.g. TIR-00615")
+    name = models.CharField(max_length=200)
+    distributor = models.ForeignKey(Distributor, null=True, blank=True, on_delete=models.SET_NULL,
+                                    related_name="bo_retailers")
+    region = models.ForeignKey(Region, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    state = models.ForeignKey(State, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    asm = models.ForeignKey(Asm, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    district = models.CharField(max_length=100, blank=True)
+    pincode = models.CharField(max_length=10, blank=True)
+    phone = models.CharField(max_length=20, blank=True, db_index=True)
+    phone_alt = models.CharField(max_length=20, blank=True)
+    td_retailer = models.ForeignKey(Retailer, null=True, blank=True, on_delete=models.SET_NULL,
+                                    related_name="bo_records", help_text="TechnoDirect app retailer (phone match)")
+    first_quarter = models.DateField(null=True, blank=True)
+    last_quarter = models.DateField(null=True, blank=True)
+    tier = models.CharField(max_length=16, blank=True, help_text="Sheet 'New Tier' in its latest quarter")
+    tier_quarter = models.DateField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["name"]
+        indexes = [models.Index(fields=["distributor"]), models.Index(fields=["asm"]), models.Index(fields=["state"]),
+                   models.Index(fields=["tier"])]
+
+    def __str__(self):
+        return f"{self.bo_id} {self.name}"
+
+
+class BoRetailerQuarter(TimeStamped):
+    """One BlueOrigin quarterly sheet row: purchase, tier (sheet 'New Tier', blank = Untiered), deliverables."""
+    bo_retailer = models.ForeignKey(BoRetailer, on_delete=models.CASCADE, related_name="quarters")
+    quarter = models.DateField(help_text="First day of the FY quarter")
+    label = models.CharField(max_length=12, help_text="e.g. Q2 FY27")
+    purchase = models.DecimalField(max_digits=14, decimal_places=2, default=0, help_text="Last 3 Months (Rs)")
+    tier = models.CharField(max_length=16, default="Untiered")
+    old_tier = models.CharField(max_length=16, blank=True)
+    deliverables = models.CharField(max_length=16, blank=True, help_text="yes / no / cancelled")
+    benefits = models.JSONField(default=dict, blank=True)
+    distributor = models.ForeignKey(Distributor, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    region = models.ForeignKey(Region, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    state = models.ForeignKey(State, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    asm = models.ForeignKey(Asm, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+
+    class Meta:
+        ordering = ["quarter"]
+        constraints = [models.UniqueConstraint(fields=["bo_retailer", "quarter"], name="uniq_bo_retailer_quarter")]
+        indexes = [models.Index(fields=["quarter", "tier"]), models.Index(fields=["asm"]),
+                   models.Index(fields=["distributor"])]
+
+
+class BoRetailerMonth(TimeStamped):
+    """Monthly offline purchase of a BlueOrigin retailer (from the quarter sheets' month columns; zeros skipped)."""
+    bo_retailer = models.ForeignKey(BoRetailer, on_delete=models.CASCADE, related_name="months")
+    month = models.DateField()
+    value = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    distributor = models.ForeignKey(Distributor, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    region = models.ForeignKey(Region, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    state = models.ForeignKey(State, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    asm = models.ForeignKey(Asm, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+
+    class Meta:
+        ordering = ["month"]
+        constraints = [models.UniqueConstraint(fields=["bo_retailer", "month"], name="uniq_bo_retailer_month")]
+        indexes = [models.Index(fields=["month"]), models.Index(fields=["asm"]), models.Index(fields=["distributor"])]

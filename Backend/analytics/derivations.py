@@ -267,6 +267,17 @@ def sync_retailer_asms():
     return stale.update(asm_id=Subquery(Distributor.objects.filter(id=OuterRef("distributor_id")).values("asm_id")[:1]))
 
 
+def _bo(fn):
+    """BlueOrigin step; a no-op until the offline sheets have been imported."""
+    from warehouse.models import BoRetailer
+
+    if not BoRetailer.objects.exists():
+        return None
+    from masters import blueorigin
+
+    return getattr(blueorigin, fn)()
+
+
 def run_all_derivations():
     from .cache import bump_cache_version
 
@@ -275,8 +286,11 @@ def run_all_derivations():
     details = {
         "payments_reconciled": reconcile_payments(),
         "retailers_asm_synced": sync_retailer_asms(),
+        "blueorigin_asm_synced": _bo("sync_bo_asms"),
         "orders_asm_from_distributor": attribute_orders_to_distributor_asm(),
         "retailers_updated": refresh_retailer_aggregates(),
+        # new sign-ups / phone changes: re-match app retailers to BlueOrigin (tier, warm)
+        "blueorigin_tagged": _bo("tag_td_retailers"),
         "retailer_months": rebuild_retailer_months(),
         "dq_issues": run_data_quality_checks(),
     }

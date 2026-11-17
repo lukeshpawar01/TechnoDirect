@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import {
   IconBook,
+  IconDatabase,
   IconBox,
   IconCart,
   IconFunnel,
@@ -46,6 +47,7 @@ export const MAIN_NAV: NavItem[] = [
   // stock is a current snapshot: no date range
   { to: '/inventory', label: 'Inventory', icon: <IconBox />, perms: ['view_inventory'], filters: ['region', 'rsm', 'state', 'asm', 'distributor', 'category'] },
   { to: '/retention', label: 'Retention & Growth', icon: <IconRepeat />, perms: ['view_retention'], filters: NO_CATEGORY },
+  { to: '/blueorigin', label: 'BlueOrigin (Offline)', icon: <IconDatabase />, perms: ['view_blueorigin'], filters: NO_CATEGORY },
   { to: '/loyalty', label: 'Loyalty Points', icon: <IconGift />, perms: ['view_loyalty'], filters: NO_CATEGORY },
   { to: '/data-health', label: 'Data Health', icon: <IconPulse />, perms: ['view_data_health'] },
 ];
