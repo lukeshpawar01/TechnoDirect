@@ -170,7 +170,7 @@ export interface Overview {
 export interface Funnel {
   stages: { key: string; label: string; count: number }[];
   kyc_status: { status: string; count: number }[];
-  never_ordered: { total: number; warm: number; cold: number; flagged: number };
+  never_ordered: { total: number; warm: number | null; cold: number | null; flagged: number; warm_available?: boolean };
   inactivity: { d30: number; d60: number; d90: number };
   /** by month of sign-up (customer created date): current KYC approval and first-order conversion */
   signup_cohorts: { month: string; signed_up: number; kyc_approved: number; first_order: number; kyc_rate: number | null; order_rate: number | null }[];
@@ -197,15 +197,78 @@ export interface RetailerRow {
   orders: number;
   sales: number;
   segment: string;
+  /** RFM segment key as of the end of the selected period (analytics/rfm.py) */
+  rfm_segment?: string | null;
+  rfm_label?: string | null;
   warm_match: boolean | null;
 }
 
-export interface RetailerDetail extends RetailerRow {
-  pincode?: string;
-  city?: string;
+// ---------------------------------------------------------------- RFM segmentation
+export interface RfmSegment {
+  segment: string;
+  label: string;
+  meaning: string;
+  action: string;
+  retailers: number;
+  pct_buyers: number | null;
+  value: number;
+  pct_value: number | null;
+  scored: boolean;
+}
+export interface RfmData {
+  as_of: string | null;
+  window_start: string | null;
+  window_months: number;
+  summary: { registered: number; buyers: number; active: number; value: number };
+  population: { median_gap: number; p90_gap: number; buyers: number; active: number } | null;
+  cutoffs: { measure: 'recency_ratio' | 'orders_per_month' | 'value_per_month'; p20: number; p40: number; p60: number; p80: number }[];
+  grid: { r: number; fm: number; segment: string; retailers: number }[];
+  segments: RfmSegment[];
+  params: { churn_ratio: number; new_days: number; min_tenure_months: number; shrink_k: number };
+  validation: { as_of: string; months: number; segments: { segment: string; label: string; retailers: number; returned_pct: number }[] } | null;
+}
+/** One retailer's RFM block (retailer detail) */
+export interface RetailerRfm {
+  segment: string;
+  label: string;
+  meaning: string;
+  action: string;
+  lifecycle?: string;
+  days_since?: number;
+  expected_gap?: number;
+  recency_ratio?: number;
+  orders?: number;
+  value?: number;
+  tenure_months?: number;
+  f?: number;
+  m?: number;
+  r_score?: number;
+  f_score?: number;
+  m_score?: number;
+  fm?: number;
+  as_of?: string | null;
+  window_start?: string | null;
+}
+
+/** /retailers/<id>/ profile: lifetime orders / sales (not the selected period) */
+export interface RetailerProfile extends RetailerRow {
+  owner_name?: string | null;
+  /** masked unless the user has PII access */
+  email?: string | null;
+  gstin?: string | null;
+  udyam_number?: string | null;
+  pincode?: string | null;
+  city?: string | null;
+  region?: string | null;
+  signed_up_at?: string | null;
+  kyc_submitted_at?: string | null;
   kyc_approved_at?: string | null;
   tier?: string | null;
-  aov?: number;
+  aov?: number | null;
+}
+export interface RetailerDetail {
+  profile: RetailerProfile;
+  rfm?: RetailerRfm;
   monthly: { month: string; sales: number; orders: number }[];
   recent_orders: OrderRow[];
 }
@@ -280,6 +343,7 @@ export interface DistributorDetail {
     last_order_date?: string | null;
     days_since_last_order?: number | null;
     segment?: string;
+    rfm_label?: string;
   }[];
 }
 
@@ -432,9 +496,10 @@ export interface InventoryItem {
   style: string;
   name?: string;
   size: string;
-  category?: string;
-  qty: number;
-  status?: string;
+  category?: string | null;
+  quantity: number;
+  stock_status: 'oos' | 'low_stock' | 'in_stock';
+  last_30d_units?: number;
   snapshot_date?: string;
   [k: string]: unknown;
 }

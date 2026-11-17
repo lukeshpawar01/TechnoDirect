@@ -11,6 +11,10 @@ export function TodayStrip() {
   const q = useAnalytics<Overview>('/overview/', { preset: 'today', date_from: undefined, date_to: undefined });
   const k = q.data?.data.kpis;
   const asOf = q.data?.meta?.last_refresh_at ?? q.data?.meta?.as_of;
+  // Data arrives with the scheduled refreshes: until today's first orders are in, "-100% vs yesterday" is noise.
+  const noneYet = !!k && !k.orders?.value;
+  const yOrders = k?.orders?.compare;
+  const ySales = k?.sales?.compare;
   const items = k
     ? [
         { label: 'Sales', v: inr(k.sales?.value), d: k.sales?.delta_pct },
@@ -27,6 +31,16 @@ export function TodayStrip() {
         <Spinner size={12} />
       ) : q.error && !q.data ? (
         <span className="text-xs text-bad">Unavailable</span>
+      ) : noneYet ? (
+        <span className="text-xs text-ink2">
+          No orders in the data for today yet.
+          {yOrders ? (
+            <>
+              {' '}
+              Yesterday: <span className="font-semibold text-ink">{inr(ySales)}</span> from <span className="font-semibold text-ink">{num(yOrders)}</span> orders.
+            </>
+          ) : null}
+        </span>
       ) : (
         items.map((i) => (
           <div key={i.label} className="flex items-baseline gap-1.5 text-xs text-ink2">

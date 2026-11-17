@@ -144,7 +144,7 @@ export function cartesian(t: ChartTokens, o: CartesianOpts): EChartsOption {
               silent: true,
               symbol: 'none',
               lineStyle: { color: t.target, width: 1.5, type: 'solid' as const },
-              label: { color: t.ink2, formatter: o.markLine.label, position: 'insideStartTop' as const, fontSize: 11 },
+              label: { show: !o.horizontal, color: t.ink2, formatter: o.markLine.label, position: 'insideStartTop' as const, fontSize: 11 },
               data: [o.horizontal ? { xAxis: o.markLine.value } : { yAxis: o.markLine.value }],
             }
           : undefined,
@@ -276,28 +276,40 @@ export function funnel(t: ChartTokens, stages: { label: string; count: number }[
 }
 
 /** Tiny sparkline: de-emphasis line, current (last) point in the accent. */
-export function sparkline(t: ChartTokens, data: number[], accent?: string): EChartsOption {
+/**
+ * Sparkline. Missing months stay gaps (never drawn as 0). With `partialLast` the last point is a period still in
+ * progress (e.g. month to date): its segment is dashed and its dot hollow, so a part-month never reads as a slump.
+ */
+export function sparkline(t: ChartTokens, data: (number | null)[], accent?: string, partialLast = false): EChartsOption {
   const last = data.length - 1;
+  const color = accent ?? t.series[0];
+  const dot = (v: number | null) => ({
+    value: v,
+    symbol: 'circle',
+    symbolSize: 7,
+    itemStyle: partialLast ? { color: t.surface, borderColor: color, borderWidth: 1.5 } : { color, borderColor: t.surface, borderWidth: 1.5 },
+  });
+  const solid = data.map((v, i) => (partialLast && i === last ? null : i === last ? dot(v) : v));
+  const series: Record<string, unknown>[] = [
+    { type: 'line', data: solid, showSymbol: true, symbol: 'none', connectNulls: false, lineStyle: { width: 1.5, color: t.deemph }, silent: true },
+  ];
+  if (partialLast && last >= 1) {
+    series.push({
+      type: 'line',
+      data: data.map((v, i) => (i === last ? dot(v) : i === last - 1 ? v : null)),
+      showSymbol: true,
+      symbol: 'none',
+      lineStyle: { width: 1.5, color: t.deemph, type: [3, 3] },
+      silent: true,
+    });
+  }
   return {
     animation: false,
     grid: { left: 2, right: 6, top: 4, bottom: 4 },
     xAxis: { type: 'category', show: false, data: data.map((_, i) => i) },
     yAxis: { type: 'value', show: false, scale: true },
     tooltip: { show: false },
-    series: [
-      {
-        type: 'line',
-        data: data.map((v, i) =>
-          i === last
-            ? { value: v, symbol: 'circle', symbolSize: 7, itemStyle: { color: accent ?? t.series[0], borderColor: t.surface, borderWidth: 1.5 } }
-            : v,
-        ),
-        showSymbol: true,
-        symbol: 'none',
-        lineStyle: { width: 1.5, color: t.deemph },
-        silent: true,
-      },
-    ],
+    series,
   } as EChartsOption;
 }
 

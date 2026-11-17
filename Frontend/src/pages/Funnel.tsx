@@ -10,7 +10,7 @@ import { MiniStat } from '@/components/KpiTile';
 import { PageHeader } from '@/components/PageHeader';
 import { Card, ErrorState, Meter } from '@/components/ui';
 import { linkWithFilters } from '@/lib/filters';
-import { asPct, monthLabel, num, pct, titleCase } from '@/lib/format';
+import { asPct, monthLabel, num, pct, titleCase, monthTick } from '@/lib/format';
 
 export default function Funnel() {
   const q = useAnalytics<FunnelData>('/funnel/');
@@ -44,7 +44,7 @@ export default function Funnel() {
     () =>
       d?.acquisition_monthly?.length
         ? cartesian(t, {
-            x: d.acquisition_monthly.map((m) => monthLabel(m.month)),
+            x: d.acquisition_monthly.map((m) => monthTick(m.month, q.data?.meta?.period?.to)),
             format: 'num',
             series: [{ name: 'New retailers (first order)', data: d.acquisition_monthly.map((m) => m.new_retailers) }],
             legend: false,
@@ -75,8 +75,17 @@ export default function Funnel() {
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
         <MiniStat label="Never ordered" value={num(d?.never_ordered.total)} sub="KYC approved, zero orders" to={linkWithFilters('/retailers', sp, { segment: 'never_ordered' })} />
-        <MiniStat label="· Warm (ledger match)" value={num(d?.never_ordered.warm)} sub="Existing BlueOrigin buyers" to={linkWithFilters('/retailers', sp, { segment: 'never_ordered', warm: 'true' })} />
-        <MiniStat label="· Cold" value={num(d?.never_ordered.cold)} to={linkWithFilters('/retailers', sp, { segment: 'never_ordered', warm: 'false' })} />
+        {d && d.never_ordered.warm_available === false ? (
+          <>
+            <MiniStat label="· Warm (ledger match)" value="–" sub="BlueOrigin ledger not loaded yet" />
+            <MiniStat label="· Cold" value="–" sub="Needs the ledger match" />
+          </>
+        ) : (
+          <>
+            <MiniStat label="· Warm (ledger match)" value={num(d?.never_ordered.warm)} sub="Existing BlueOrigin buyers" to={linkWithFilters('/retailers', sp, { segment: 'never_ordered', warm: 'true' })} />
+            <MiniStat label="· Cold" value={num(d?.never_ordered.cold)} to={linkWithFilters('/retailers', sp, { segment: 'never_ordered', warm: 'false' })} />
+          </>
+        )}
         <MiniStat label="· Flagged" value={num(d?.never_ordered.flagged)} sub="Data issues to fix" tone={d?.never_ordered.flagged ? 'warn' : undefined} />
         <MiniStat label="Inactive 30+ days" value={num(d?.inactivity.d30)} to={linkWithFilters('/retailers', sp, { segment: 'inactive_30' })} />
         <MiniStat label="Inactive 60+ days" value={num(d?.inactivity.d60)} to={linkWithFilters('/retailers', sp, { segment: 'inactive_60' })} />
@@ -149,7 +158,7 @@ export default function Funnel() {
       <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
         <ChartCard
           title="Sign-up → KYC → first order conversion"
-          subtitle="By month of sign-up (customer created date) · status as of today"
+          subtitle="By month of sign-up (customer created date) · status as of today · the latest months are still maturing: those retailers have had less time to order"
           option={convOpt}
           loading={q.isLoading}
           empty={!cohorts.length}
@@ -160,7 +169,7 @@ export default function Funnel() {
         />
         <ChartCard
           title="Retailer acquisition"
-          subtitle={`New ordering retailers per month${lastCum !== undefined ? ` · ${num(lastCum)} cumulative` : ''}`}
+          subtitle={`New ordering retailers per month · current month to date${lastCum !== undefined ? ` · ${num(lastCum)} cumulative` : ''}`}
           option={acqOpt}
           loading={q.isLoading}
           table={d ? { columns: ['Month', 'New retailers', 'Cumulative'], rows: d.acquisition_monthly.map((m) => [monthLabel(m.month), num(m.new_retailers), num(m.cumulative)]) } : undefined}

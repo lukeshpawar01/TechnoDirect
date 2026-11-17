@@ -221,10 +221,13 @@ export function Delta({ value, higherIsBetter = true, suffix = 'vs prev', classN
   const good = flat ? null : (value > 0) === higherIsBetter;
   const cls = good === null ? 'text-muted' : good ? 'text-good' : 'text-bad';
   const Arrow = value > 0 ? IconArrowUp : IconArrowDown;
+  // a rise of 900%+ comes from a tiny base: a multiple ("111×") reads truer than "+11,025.4%"
+  const big = value >= 900;
+  const text = big ? `${(1 + value / 100).toFixed(value >= 9900 ? 0 : 1)}×` : signedPct(value);
   return (
-    <span className={cx('inline-flex items-center gap-0.5 text-xs font-medium', cls, className)}>
+    <span className={cx('inline-flex items-center gap-0.5 text-xs font-medium', cls, className)} title={big ? `${signedPct(value)} — grown from a small base` : undefined}>
       {!flat && <Arrow size={12} />}
-      {signedPct(value)}
+      {text}
       {suffix && <span className="ml-1 font-normal text-muted">{suffix}</span>}
     </span>
   );

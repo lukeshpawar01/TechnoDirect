@@ -7,13 +7,13 @@ import { useChartTokens } from '@/charts/EChart';
 import { STATUS } from '@/charts/palette';
 import { ChartCard } from '@/components/ChartCard';
 import { MomTrend } from '@/components/MomTrend';
-import { KpiTile } from '@/components/KpiTile';
+import { KpiTile, endsMidMonth } from '@/components/KpiTile';
 import { PageHeader } from '@/components/PageHeader';
 import { TargetBullet } from '@/components/TargetBullet';
 import { TodayStrip } from '@/components/TodayStrip';
 import { Badge, Card, Delta, EmptyState, ErrorState, Meter, Skeleton } from '@/components/ui';
 import { IconCheck, IconChevron } from '@/components/Icons';
-import { date, inr, monthLabel, num, pct, asPct } from '@/lib/format';
+import { date, inr, monthLabel, num, pct, asPct, sharePct } from '@/lib/format';
 import { linkWithFilters } from '@/lib/filters';
 
 const KPI_DEFS: { key: KpiKey; label: string; fmt: (n: number | null | undefined) => string; money?: boolean; to: string; extra?: Record<string, string> }[] = [
@@ -66,6 +66,14 @@ export default function Overview() {
     });
   }, [d, t]);
 
+  // order pipeline: each bar counts the orders that REACHED that stage (later stages included), not current status
+  const STAGE: Record<string, { label: string; statuses?: string }> = {
+    received: { label: 'Placed' },
+    confirmed: { label: 'Confirmed', statuses: 'confirmed,shipped,delivered' },
+    shipped: { label: 'Shipped', statuses: 'shipped,delivered' },
+    delivered: { label: 'Delivered', statuses: 'delivered' },
+    cancelled: { label: 'Cancelled', statuses: 'cancelled' },
+  };
   const funnelRows = useMemo(() => {
     if (!d?.order_funnel) return [];
     return [...d.order_funnel].sort((a, b) => FUNNEL_ORDER.indexOf(a.status) - FUNNEL_ORDER.indexOf(b.status));
@@ -74,7 +82,7 @@ export default function Overview() {
   const funnelOpt = useMemo(() => {
     if (!funnelRows.length) return null;
     return cartesian(t, {
-      x: funnelRows.map((r) => r.status[0].toUpperCase() + r.status.slice(1)),
+      x: funnelRows.map((r) => STAGE[r.status]?.label ?? r.status),
       horizontal: true,
       format: 'num',
       legend: false,
@@ -112,6 +120,7 @@ export default function Overview() {
                 loading={q.isLoading}
                 basis={k.money ? basis : undefined}
                 to={linkWithFilters(k.to, sp, k.extra)}
+                partialMonth={endsMidMonth(q.data?.meta?.period?.to)}
               />
             ))}
           </div>
@@ -121,7 +130,11 @@ export default function Overview() {
           </div>
 
           <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-5">
-            <Card title="Month target" subtitle="Required vs current daily run-rate and month-end projection" className="xl:col-span-2">
+            <Card
+              title={meta?.period?.label && !/^MTD|month/i.test(meta.period.label) ? `Target · ${meta.period.label}` : 'Month target'}
+              subtitle="Required vs current daily run-rate and projection to the end of the period"
+              className="xl:col-span-2"
+            >
               {q.isLoading ? (
                 <Skeleton className="h-40" />
               ) : d?.target ? (
@@ -174,16 +187,16 @@ export default function Overview() {
               }
             />
             <ChartCard
-              title="Order status"
-              subtitle="Orders in period by current status"
+              title="Order pipeline"
+              subtitle="Orders placed in the period that reached each stage (any payment state) · click a bar for those orders"
               option={funnelOpt}
               loading={q.isLoading}
               height={280}
               onClick={(p) => {
                 const r = funnelRows[p.dataIndex];
-                if (r) nav(linkWithFilters('/orders', sp, { order_status: r.status }));
+                if (r) nav(linkWithFilters('/orders', sp, { order_status: STAGE[r.status]?.statuses }));
               }}
-              table={{ columns: ['Status', 'Orders', 'Value'], rows: funnelRows.map((r) => [r.status, num(r.count), inr(r.value)]) }}
+              table={{ columns: ['Stage reached', 'Orders', 'Value'], rows: funnelRows.map((r) => [STAGE[r.status]?.label ?? r.status, num(r.count), inr(r.value)]) }}
             />
           </div>
 
@@ -227,7 +240,7 @@ export default function Overview() {
                         <div className="flex items-baseline justify-between gap-2 text-xs">
                           <span className="truncate font-medium group-hover:underline">{x.name}</span>
                           <span className="shrink-0 tabular">
-                            {inr(x.sales)} <span className="text-muted">· {pct(asPct(x.share), 0)}</span>
+                            {inr(x.sales)} <span className="text-muted">· {sharePct(asPct(x.share))}</span>
                           </span>
                         </div>
                         <div className="mt-1 flex items-center gap-2">
@@ -254,7 +267,7 @@ export default function Overview() {
                         <div className="flex items-baseline justify-between text-xs">
                           <span className="truncate font-medium group-hover:underline">{x.name}</span>
                           <span className="tabular">
-                            {inr(x.sales)} <span className="text-muted">· {pct(asPct(x.share), 0)}</span>
+                            {inr(x.sales)} <span className="text-muted">· {sharePct(asPct(x.share))}</span>
                           </span>
                         </div>
                         <div className="mt-1">

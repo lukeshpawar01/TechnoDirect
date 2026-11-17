@@ -3,10 +3,10 @@ from django.urls import path
 from .views.distributors import (DistributorDetailView, DistributorInsightsView, DistributorNetworkView,
                                  DistributorsView, TerritoryView)
 from .views.growth import GrowthView
-from .views.funnel import FunnelView, RetailerDetailView, RetailerListView
+from .views.funnel import FunnelView, RetailerDetailView, RetailerListView, RfmView, SegmentTrendView
 from .views.loyalty import LoyaltyView
 from .views.health import DataHealthView, DataVersionView, FilterOptionsView, SyncTriggerView
-from .views.orders import OrderDetailView, OrderListView, OrdersSummaryView
+from .views.orders import OrderDetailView, OrderListView, OrderRetailersView, OrdersSummaryView
 from .views.overview import OverviewView
 from .views.products import InventoryItemsView, InventoryView, ProductsView, ProductTreeView
 from .views.retention import RetentionView
@@ -19,6 +19,8 @@ urlpatterns = [
     path("trends/mom/", MomTrendView.as_view()),
     path("funnel/", FunnelView.as_view()),
     path("retailers/", RetailerListView.as_view()),
+    path("retailers/rfm/", RfmView.as_view()),
+    path("retailers/segment-trend/", SegmentTrendView.as_view()),
     path("retailers/<int:pk>/", RetailerDetailView.as_view()),
     path("distributors/", DistributorsView.as_view()),
     path("distributors/insights/", DistributorInsightsView.as_view()),
@@ -27,6 +29,7 @@ urlpatterns = [
     path("territory/", TerritoryView.as_view()),
     path("orders/summary/", OrdersSummaryView.as_view()),
     path("orders/", OrderListView.as_view()),
+    path("orders/retailers/", OrderRetailersView.as_view()),
     path("orders/<int:pk>/", OrderDetailView.as_view()),
     path("products/", ProductsView.as_view()),
     path("products/tree/", ProductTreeView.as_view()),

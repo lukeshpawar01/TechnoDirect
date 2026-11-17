@@ -255,6 +255,18 @@ def attribute_orders_to_distributor_asm():
     return n
 
 
+def sync_retailer_asms():
+    """A retailer's ASM is its distributor's ASM today (handovers included). Returns retailers changed."""
+    from django.db.models import F, OuterRef, Subquery
+
+    from warehouse.models import Distributor, Retailer
+
+    stale = (Retailer.objects.filter(distributor__isnull=False)
+             .exclude(asm_id=F("distributor__asm_id"))
+             .exclude(asm__isnull=True, distributor__asm__isnull=True))
+    return stale.update(asm_id=Subquery(Distributor.objects.filter(id=OuterRef("distributor_id")).values("asm_id")[:1]))
+
+
 def run_all_derivations():
     from .cache import bump_cache_version
 
@@ -262,6 +274,7 @@ def run_all_derivations():
 
     details = {
         "payments_reconciled": reconcile_payments(),
+        "retailers_asm_synced": sync_retailer_asms(),
         "orders_asm_from_distributor": attribute_orders_to_distributor_asm(),
         "retailers_updated": refresh_retailer_aggregates(),
         "retailer_months": rebuild_retailer_months(),

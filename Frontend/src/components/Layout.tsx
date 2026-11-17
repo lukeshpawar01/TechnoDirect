@@ -289,7 +289,8 @@ export function Layout() {
             <UserMenu />
           </div>
         </header>
-        <main className="min-w-0 flex-1 overflow-y-auto px-3 py-4 md:px-6 md:py-5">
+        {/* bottom padding: the last row / pager can always scroll clear of the floating Techno AI button */}
+        <main className="min-w-0 flex-1 overflow-y-auto px-3 pb-24 pt-4 md:px-6 md:pb-24 md:pt-5">
           <Outlet />
         </main>
       </div>

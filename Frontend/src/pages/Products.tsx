@@ -71,7 +71,13 @@ export default function Products() {
   const sizeOpt = useMemo(() => {
     const s = d?.size_mix ?? [];
     if (!s.length) return null;
-    return cartesian(t, { x: s.map((x) => x.size), format: 'pct', legend: false, showBarLabels: true, series: [{ name: 'Share of units', data: s.map((x) => Math.round((asPct(x.share) ?? 0) * 10) / 10) }] });
+    // ~20 sizes: horizontal bars so every size is named; the long tail folds into "Other sizes"
+    const sorted = [...s].sort((a, b) => (b.share ?? 0) - (a.share ?? 0));
+    const top = sorted.slice(0, 9);
+    const rest = sorted.slice(9).reduce((acc, x) => acc + (asPct(x.share) ?? 0), 0);
+    const rows = top.map((x) => ({ label: x.size, v: asPct(x.share) ?? 0 }));
+    if (rest > 0) rows.push({ label: `Other sizes (${sorted.length - 9})`, v: rest });
+    return cartesian(t, { x: rows.map((r) => r.label), horizontal: true, format: 'pct', legend: false, showBarLabels: true, series: [{ name: 'Share of units', data: rows.map((r) => Math.round(r.v * 10) / 10) }] });
   }, [d, t]);
 
   if (q.error && !q.data)
@@ -145,7 +151,7 @@ export default function Products() {
         </Card>
         <ChartCard
           title="Size mix"
-          subtitle="Share of units sold"
+          subtitle="Share of units sold · top 9 sizes"
           option={sizeOpt}
           loading={q.isLoading}
           table={d ? { columns: ['Size', 'Units', 'Share'], rows: d.size_mix.map((s) => [s.size, num(s.units), pct(asPct(s.share))]) } : undefined}

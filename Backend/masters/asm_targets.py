@@ -24,6 +24,8 @@ from decimal import Decimal
 
 from warehouse.models import Asm, Distributor, Target
 
+# Oct-26 and Nov-26 tabs are deliberately absent: those months come from the Order Tracking Sheet10 trackers
+# (import_asm_tracker --targets-only), which are the approved distributor-level targets.
 TAB_MONTH = {
     "may": "2025-05", "june": "2025-06", "july": "2025-07", "aug": "2025-08", "sept": "2025-09",
     "oct 25": "2025-10", "nov 25": "2025-11", "dec 25": "2025-12", "jan 26": "2026-01", "feb 26": "2026-02",

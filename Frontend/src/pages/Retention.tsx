@@ -10,7 +10,8 @@ import { ChartCard } from '@/components/ChartCard';
 import { MiniStat } from '@/components/KpiTile';
 import { PageHeader } from '@/components/PageHeader';
 import { Card, ErrorState, Tabs } from '@/components/ui';
-import { asPct, inr, monthLabel, num, pct } from '@/lib/format';
+import { endsMidMonth } from '@/components/KpiTile';
+import { asPct, inr, monthLabel, monthTick, num, pct } from '@/lib/format';
 
 export default function Retention() {
   const q = useAnalytics<RetentionData>('/retention/');
@@ -27,13 +28,18 @@ export default function Retention() {
   const t = useChartTokens();
   const d = q.data?.data;
   const basis = q.data?.meta?.sales_basis;
-  const last = d?.movement?.[d.movement.length - 1];
+  // A month still in progress has an incomplete "lost" count (October buyers who may yet order in November), so the
+  // headline uses the last complete month; charts label the running month "· MTD".
+  const pto = q.data?.meta?.period?.to;
+  const mv = d?.movement ?? [];
+  const runningLast = mv.length > 1 && endsMidMonth(pto) && !!pto && mv[mv.length - 1].month.slice(0, 7) === pto.slice(0, 7);
+  const last = runningLast ? mv[mv.length - 2] : mv[mv.length - 1];
 
   const movementOpt = useMemo(() => {
     const m = d?.movement ?? [];
     if (!m.length) return null;
     return cartesian(t, {
-      x: m.map((r) => monthLabel(r.month)),
+      x: m.map((r) => monthTick(r.month, pto)),
       series: [
         { name: 'Retained', data: m.map((r) => r.retained), stack: 'mv', color: t.series[0] },
         { name: 'New', data: m.map((r) => r.new), stack: 'mv', color: t.series[1] },
@@ -42,19 +48,19 @@ export default function Retention() {
         { name: 'Net change', type: 'line', data: m.map((r) => r.net), color: t.target, ghost: true },
       ],
     });
-  }, [d, t]);
+  }, [d, t, pto]);
 
   const momOpt = useMemo(() => {
     const m = (d?.movement ?? []).filter((r) => r.mom_retention !== null);
     if (!m.length) return null;
-    return cartesian(t, { x: m.map((r) => monthLabel(r.month)), format: 'pct', legend: false, series: [{ name: 'MoM retention', type: 'line', data: m.map((r) => asPct(r.mom_retention)), area: true, endLabel: true }] });
-  }, [d, t]);
+    return cartesian(t, { x: m.map((r) => monthTick(r.month, pto)), format: 'pct', legend: false, series: [{ name: 'MoM retention', type: 'line', data: m.map((r) => asPct(r.mom_retention)), area: true, endLabel: true }] });
+  }, [d, t, pto]);
 
   const qOpt = useMemo(() => {
     const qr = d?.quarterly_retention ?? [];
     if (!qr.length) return null;
     return cartesian(t, { x: qr.map((r) => r.quarter), format: 'pct', legend: false, showBarLabels: true, series: [{ name: 'Quarterly retention', data: qr.map((r) => Math.round((asPct(r.rate) ?? 0) * 10) / 10) }] });
-  }, [d, t]);
+  }, [d, t, pto]);
 
   const cohortOpt = useMemo(() => {
     const c = d?.cohorts ?? [];
@@ -64,13 +70,13 @@ export default function Retention() {
     const data: [number, number, number | null][] = [];
     c.forEach((r, yi) => r.values.forEach((v, xi) => data.push([xi, yi, v === null ? null : asPct(v)])));
     return heatmap(t, { x, y: c.map((r) => `${monthLabel(r.cohort)} (${num(r.size)})`), data, format: 'pct', min: 0, max: 100, labels: true });
-  }, [d, t]);
+  }, [d, t, pto]);
 
   const contribOpt = useMemo(() => {
     const c = d?.contribution ?? [];
     if (!c.length) return null;
     return cartesian(t, {
-      x: c.map((r) => monthLabel(r.month)),
+      x: c.map((r) => monthTick(r.month, pto)),
       format: 'inr',
       series: [
         { name: 'Repeat', data: c.map((r) => r.repeat_sales), stack: 'c', color: t.series[0] },
@@ -78,28 +84,28 @@ export default function Retention() {
         { name: 'Reactivated', data: c.map((r) => r.reactivated_sales), stack: 'c', color: t.series[2] },
       ],
     });
-  }, [d, t]);
+  }, [d, t, pto]);
 
   // gained vs lost (deck slide 41): net change as bars, lost and won-back as lines, one count axis
   const gainLossOpt = useMemo(() => {
     const m = (d?.movement ?? []).slice(1);
     if (!m.length) return null;
     return cartesian(t, {
-      x: m.map((r) => monthLabel(r.month)),
+      x: m.map((r) => monthTick(r.month, pto)),
       series: [
         { name: 'Net change', data: m.map((r) => r.net), colors: m.map((r) => (r.net >= 0 ? t.series[0] : t.series[7])) },
         { name: 'Lost vs previous month', type: 'line', data: m.map((r) => r.lost), color: t.series[7] },
         { name: 'Reactivated', type: 'line', data: m.map((r) => r.reactivated), color: t.series[2] },
       ],
     });
-  }, [d, t]);
+  }, [d, t, pto]);
 
   // month +1 retention by cohort (deck slide 43)
   const m1Opt = useMemo(() => {
     const c = (d?.cohorts ?? []).filter((r) => r.values.length > 1);
     if (!c.length) return null;
     return cartesian(t, { x: c.map((r) => monthLabel(r.cohort)), format: 'pct', legend: false, series: [{ name: 'Month +1 retention', data: c.map((r) => r.values[1]) }] });
-  }, [d, t]);
+  }, [d, t, pto]);
 
   // sales mix as % (deck slide 38): repeat / new / reactivated
   const mixPctOpt = useMemo(() => {
@@ -108,7 +114,7 @@ export default function Retention() {
     const tot = c.map((r) => r.repeat_sales + r.new_sales + r.reactivated_sales);
     const p = (v: number, i: number) => (tot[i] ? Math.round((v / tot[i]) * 1000) / 10 : null);
     return cartesian(t, {
-      x: c.map((r) => monthLabel(r.month)),
+      x: c.map((r) => monthTick(r.month, pto)),
       format: 'pct',
       yMax: 100,
       series: [
@@ -117,7 +123,7 @@ export default function Retention() {
         { name: 'Reactivated', data: c.map((r, i) => p(r.reactivated_sales, i)), stack: 'p', color: t.series[2] },
       ],
     });
-  }, [d, t]);
+  }, [d, t, pto]);
 
   const bandsOpt = useMemo(() => {
     const b = d?.order_bands ?? [];
@@ -132,7 +138,7 @@ export default function Retention() {
         { name: 'Share of sales', data: b.map((x) => Math.round((x.sales / ts) * 1000) / 10), color: t.series[1] },
       ],
     });
-  }, [d, t]);
+  }, [d, t, pto]);
 
   const paretoOpt = useMemo(() => {
     const p = d?.pareto ?? [];
@@ -146,13 +152,13 @@ export default function Retention() {
       markLine: { value: 80, label: '80%' },
       series: [{ name: 'Cumulative share of sales', data: p.map((x) => Math.round((asPct(x.share) ?? 0) * 10) / 10) }],
     });
-  }, [d, t]);
+  }, [d, t, pto]);
 
   const opaOpt = useMemo(() => {
     const o = d?.orders_per_active_retailer ?? [];
     if (!o.length) return null;
-    return cartesian(t, { x: o.map((r) => monthLabel(r.month)), format: 'dec', legend: false, series: [{ name: 'Orders per active retailer', type: 'line', data: o.map((r) => r.value), endLabel: true }] });
-  }, [d, t]);
+    return cartesian(t, { x: o.map((r) => monthTick(r.month, pto)), format: 'dec', legend: false, series: [{ name: 'Orders per active retailer', type: 'line', data: o.map((r) => r.value), endLabel: true }] });
+  }, [d, t, pto]);
 
   if (q.error && !q.data)
     return (
@@ -174,7 +180,11 @@ export default function Retention() {
       {view === 'value' && <RetailerValue d={g.data?.data} loading={g.isLoading} />}
       {view === 'retention' && (<>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-        <MiniStat label="Active retailers (latest month)" value={num(last?.active)} sub={last ? monthLabel(last.month) : undefined} />
+        <MiniStat
+          label={runningLast ? 'Active retailers (last full month)' : 'Active retailers (latest month)'}
+          value={num(last?.active)}
+          sub={last ? `${monthLabel(last.month)}${runningLast ? ` · ${monthLabel(mv[mv.length - 1].month)} still running` : ''}` : undefined}
+        />
         <MiniStat label="Retained" value={num(last?.retained)} />
         <MiniStat label="New" value={num(last?.new)} />
         <MiniStat label="Reactivated" value={num(last?.reactivated)} />

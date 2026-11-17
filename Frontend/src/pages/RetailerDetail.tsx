@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react';
-import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { IconChevron } from '@/components/Icons';
+import { RfmDot } from '@/components/RfmPanel';
 import { useAnalytics } from '@/api/hooks';
 import type { RetailerDetail as RD } from '@/api/types';
 import { cartesian } from '@/charts/builders';
@@ -17,19 +19,31 @@ export default function RetailerDetail() {
   const [sp] = useSearchParams();
   const t = useChartTokens();
   const q = useAnalytics<RD>(`/retailers/${id}/`, {}, { includeSegment: false });
-  const r = q.data?.data;
+  const d = q.data?.data;
+  const r = d?.profile;
+  const rf = d?.rfm;
+  const monthly = d?.monthly ?? [];
   const [order, setOrder] = useState<string | number | null>(null);
+  const loc = useLocation();
+  const nav = useNavigate();
+  const from = loc.state as { from?: string; fromLabel?: string } | null;
+  // Back to the exact list the user came from (segment, search, page, sort); opened directly -> the Retailers list.
+  const goBack = () => {
+    if (from?.from) nav(from.from);
+    else if (loc.key !== 'default') nav(-1);
+    else nav(linkWithFilters('/retailers', sp));
+  };
 
   const opt = useMemo(
     () =>
-      r?.monthly?.length
-        ? cartesian(t, { x: r.monthly.map((m) => monthLabel(m.month)), format: 'inr', legend: false, series: [{ name: 'Sales', data: r.monthly.map((m) => m.sales) }] })
+      monthly.length
+        ? cartesian(t, { x: monthly.map((m) => monthLabel(m.month)), format: 'inr', legend: false, series: [{ name: 'Sales', data: monthly.map((m) => m.sales) }] })
         : null,
-    [r, t],
+    [monthly, t],
   );
 
   if (q.isLoading) return <LoadingBlock height={400} />;
-  if (q.error || !r)
+  if (q.error || !d || !r)
     return (
       <Card>
         <ErrorState error={q.error ?? new Error('Retailer not found')} onRetry={() => q.refetch()} />
@@ -38,25 +52,90 @@ export default function RetailerDetail() {
 
   return (
     <div>
-      <div className="mb-2 text-xs text-muted">
-        <Link to={linkWithFilters('/retailers', sp)} className="hover:text-ink">
-          Retailers
-        </Link>{' '}
-        / {r.name}
+      <div className="mb-2 flex items-center gap-3 text-xs text-muted">
+        <button
+          type="button"
+          onClick={goBack}
+          className="inline-flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-1 font-medium text-ink2 hover:bg-sunken hover:text-ink"
+        >
+          <IconChevron size={12} className="rotate-180" aria-hidden />
+          Back{from?.fromLabel ? ` to ${from.fromLabel}` : ''}
+        </button>
+        <span>
+          <Link to={from?.from?.startsWith('/retailers') ? from.from : linkWithFilters('/retailers', sp)} className="hover:text-ink">
+            {from?.from?.startsWith('/retailers') && from.fromLabel ? from.fromLabel : 'Retailers'}
+          </Link>{' '}
+          / {r.name}
+        </span>
       </div>
-      <PageHeader title={r.name} subtitle={[r.city, r.state].filter(Boolean).join(', ')} meta={q.data?.meta} />
+      <PageHeader
+        title={r.name}
+        subtitle={[r.owner_name && r.owner_name !== r.name ? r.owner_name : null, [r.city, r.state].filter(Boolean).join(', ')].filter(Boolean).join(' · ')}
+        meta={q.data?.meta}
+      />
 
       <Card>
         <div className="grid grid-cols-2 gap-4 md:grid-cols-4 xl:grid-cols-8">
-          <Stat label="KYC" value={<StatusBadge status={r.kyc_status} />} sub={r.kyc_approved_at ? `Approved ${date(r.kyc_approved_at)}` : undefined} />
-          <Stat label="Segment" value={titleCase(r.segment)} sub={r.warm_match ? <Badge tone="brand">Warm ledger match</Badge> : undefined} />
-          <Stat label="Phone" value={r.phone || '–'} />
-          <Stat label="Distributor" value={r.distributor} />
-          <Stat label="ASM" value={r.asm} />
-          <Stat label="Pincode" value={r.pincode ?? '–'} />
-          <Stat label="First / last order" value={`${date(r.first_order_date, 'DD MMM YY')} → ${date(r.last_order_date, 'DD MMM YY')}`} sub={r.days_since_last_order !== null ? `${num(r.days_since_last_order)} days since last order` : undefined} />
+          <Stat
+            label="KYC"
+            value={<StatusBadge status={r.kyc_status} />}
+            sub={r.kyc_approved_at ? `Approved ${date(r.kyc_approved_at)}` : r.kyc_submitted_at ? `Submitted ${date(r.kyc_submitted_at)}` : undefined}
+          />
+          <Stat
+            label="RFM segment"
+            value={
+              rf ? (
+                <span className="flex items-center gap-1.5" title={rf.meaning}>
+                  <RfmDot segment={rf.segment} />
+                  {rf.label}
+                </span>
+              ) : (
+                titleCase(r.segment)
+              )
+            }
+            sub={r.warm_match ? <Badge tone="brand">Warm ledger match</Badge> : titleCase(r.segment)}
+          />
+          <Stat
+            label="Last order"
+            value={r.last_order_date ? `${date(r.last_order_date, 'DD MMM YY')}${r.days_since_last_order !== null ? ` · ${num(r.days_since_last_order)}d ago` : ''}` : '–'}
+            sub={r.first_order_date ? `First ${date(r.first_order_date, 'DD MMM YY')}` : undefined}
+          />
           <Stat label="Lifetime" value={`${inr(r.sales)} · ${num(r.orders)} orders`} sub={r.aov ? `AOV ${inr(r.aov)}` : undefined} />
+          <Stat label="Distributor" value={r.distributor || '–'} />
+          <Stat label="ASM" value={r.asm || '–'} sub={r.rsm ? `RSM ${r.rsm}` : undefined} />
+          <Stat label="Region" value={r.region || '–'} sub={r.state || undefined} />
+          <Stat label="Signed up" value={date(r.signed_up_at)} sub={r.tier ? `Tier ${r.tier}` : undefined} />
         </div>
+        <div className="mt-4 grid grid-cols-2 gap-4 border-t border-line pt-4 md:grid-cols-4 xl:grid-cols-8">
+          <Stat label="Owner" value={r.owner_name || '–'} />
+          <Stat label="Phone" value={r.phone || '–'} />
+          <div className="col-span-2">
+            <Stat label="Email" value={<span title={r.email ?? undefined}>{r.email || '–'}</span>} />
+          </div>
+          <Stat label="GSTIN" value={r.gstin || '–'} />
+          <Stat label="Udyam no." value={r.udyam_number || '–'} />
+          <Stat label="City" value={r.city || '–'} />
+          <Stat label="Pincode" value={r.pincode || '–'} />
+        </div>
+        {rf && rf.segment !== 'prospect' && (
+          <div className="mt-4 grid grid-cols-2 gap-4 border-t border-line pt-4 md:grid-cols-4 xl:grid-cols-8">
+            <Stat
+              label="Silent vs usual gap"
+              value={rf.days_since !== undefined ? `${num(rf.days_since)}d vs ${num(rf.expected_gap ?? 0)}d` : '–'}
+              sub={rf.recency_ratio !== undefined ? `${rf.recency_ratio.toFixed(2)}× their rhythm` : undefined}
+            />
+            <Stat label="R · F · M scores" value={rf.r_score ? `${rf.r_score} · ${rf.f_score} · ${rf.m_score}` : '–'} sub={rf.r_score ? `FM ${rf.fm} (1 low – 5 high)` : titleCase(rf.lifecycle ?? '')} />
+            <Stat label="Orders / month" value={rf.f !== undefined ? rf.f.toFixed(2) : '–'} sub={rf.tenure_months ? `over ${rf.tenure_months.toFixed(1)} months` : undefined} />
+            <Stat label="Value / month" value={rf.m !== undefined ? inr(rf.m) : '–'} sub={rf.window_start ? `since ${date(rf.window_start, 'MMM YY')}` : undefined} />
+            <div className="col-span-2 md:col-span-4">
+              <Stat
+                label={`What to do · as of ${date(rf.as_of)}`}
+                value={<span className="whitespace-normal font-medium">{rf.action}</span>}
+                sub={<span className="whitespace-normal">{rf.meaning}</span>}
+              />
+            </div>
+          </div>
+        )}
       </Card>
 
       <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-5">
@@ -65,12 +144,12 @@ export default function RetailerDetail() {
           title="Monthly sales"
           subtitle={q.data?.meta?.sales_basis}
           option={opt}
-          empty={!r.monthly?.length}
-          table={{ columns: ['Month', 'Sales', 'Orders'], rows: (r.monthly ?? []).map((m) => [monthLabel(m.month), inr(m.sales), num(m.orders)]) }}
+          empty={!monthly.length}
+          table={{ columns: ['Month', 'Sales', 'Orders'], rows: monthly.map((m) => [monthLabel(m.month), inr(m.sales), num(m.orders)]) }}
         />
         <Card title="Recent orders" className="xl:col-span-3">
           <DataTable
-            rows={r.recent_orders}
+            rows={d.recent_orders}
             rowKey={(o) => o.id}
             exportName={`retailer_${r.id}_orders`}
             onRowClick={(o) => setOrder(o.id)}

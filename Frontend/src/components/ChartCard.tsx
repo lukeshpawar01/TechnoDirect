@@ -26,6 +26,7 @@ export function ChartCard({
   actions,
   className,
   onClick,
+  clickAxis,
   footer,
   dim,
 }: {
@@ -42,6 +43,8 @@ export function ChartCard({
   actions?: ReactNode;
   className?: string;
   onClick?: Parameters<typeof EChart>[0]['onClick'];
+  /** pass to EChart: a click anywhere in a category column counts (line charts) */
+  clickAxis?: boolean;
   footer?: ReactNode;
   dim?: boolean;
 }) {
@@ -88,7 +91,7 @@ export function ChartCard({
         </table>
       </div>
     );
-  else body = <EChart option={option} height={height} onClick={onClick} ariaLabel={typeof title === 'string' ? title : undefined} />;
+  else body = <EChart option={option} height={height} onClick={onClick} clickAxis={clickAxis} ariaLabel={typeof title === 'string' ? title : undefined} />;
 
   return (
     <Card

@@ -7,7 +7,9 @@ import { PageHeader } from '@/components/PageHeader';
 import { Card, ErrorState, Meter, StatusBadge } from '@/components/ui';
 import { IconSearch } from '@/components/Icons';
 import { useFilters } from '@/lib/filters';
-import { date, num, pct } from '@/lib/format';
+import { date, num, pct, titleCase } from '@/lib/format';
+
+const STOCK_LABEL: Record<string, string> = { oos: 'out of stock', low_stock: 'low stock', in_stock: 'in stock' };
 import { StalenessBadge } from './Distributors';
 
 export default function Inventory() {
@@ -129,9 +131,9 @@ export default function Inventory() {
             { key: 'style', header: 'Style' },
             { key: 'name', header: 'Article', render: (r) => r.name ?? '–' },
             { key: 'size', header: 'Size' },
-            { key: 'category', header: 'Category', render: (r) => r.category ?? '–' },
-            { key: 'qty', header: 'Qty', align: 'right', render: (r) => <span className={r.qty <= 0 ? 'font-semibold text-bad' : ''}>{num(r.qty)}</span> },
-            { key: 'status', header: 'Status', render: (r) => <StatusBadge status={r.status ?? (r.qty <= 0 ? 'oos' : 'in_stock')} /> },
+            { key: 'category', header: 'Category', sortable: false, render: (r) => (r.category ? titleCase(r.category) : '–') },
+            { key: 'quantity', header: 'Qty', align: 'right', render: (r) => <span className={r.quantity <= 0 ? 'font-semibold text-bad' : ''}>{num(r.quantity)}</span> },
+            { key: 'stock_status', header: 'Status', render: (r) => <StatusBadge status={r.stock_status} label={STOCK_LABEL[r.stock_status]} /> },
             { key: 'snapshot_date', header: 'Snapshot', render: (r) => date(r.snapshot_date ?? null) },
           ]}
         />

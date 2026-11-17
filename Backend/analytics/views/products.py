@@ -20,7 +20,8 @@ from .funnel import resolve_ordering
 
 
 def line_qs(f, start, end):
-    orders = f.orders(start=start, end=end)
+    # the lines are filtered by category / article here, so the orders need not be pre-filtered the same way
+    orders = f.orders(start=start, end=end, line_match=False)
     return OrderLine.objects.filter(order__in=orders).filter(f.lines_q())
 
 
@@ -213,6 +214,8 @@ class _InvRows:
         self.data = [{
             "id": i.id, "distributor_id": i.distributor_id, "distributor": i.distributor.name,
             "style": i.style, "name": i.product.name if i.product_id else None, "size": i.size, "sku": i.sku,
+            "category": (" · ".join(x for x in (i.product.category_l1, i.product.category_l3 or i.product.category_l2) if x)
+                         or None) if i.product_id else None,
             "quantity": i.quantity,
             "stock_status": "oos" if i.quantity <= 0 else ("low_stock" if i.quantity <= low else "in_stock"),
             "last_30d_units": sold.get((i.distributor_id, i.sku), 0),

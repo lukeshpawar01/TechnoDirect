@@ -103,6 +103,10 @@ def current_asm_id(distributor, today=None, save=False):
     if a is None:
         return distributor.asm_id
     if save and distributor.asm_id != a.asm_id:
+        from warehouse.models import Retailer
+
         distributor.asm_id = a.asm_id
         distributor.save(update_fields=["asm", "updated_at"])
+        # the distributor's retailers move with it
+        Retailer.objects.filter(distributor=distributor).update(asm_id=a.asm_id)
     return a.asm_id

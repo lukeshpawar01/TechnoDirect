@@ -8,13 +8,14 @@ import { useChartTokens } from '@/charts/EChart';
 import { STATUS } from '@/charts/palette';
 import { ChartCard } from '@/components/ChartCard';
 import { DataTable } from '@/components/DataTable';
+import { OrdersDrill, type OrdersDrillSpec } from '@/components/OrdersDrill';
 import { MiniStat } from '@/components/KpiTile';
 import { MODE_LABELS } from '@/lib/format';
 import { PageHeader } from '@/components/PageHeader';
 import { Badge, Card, Drawer, ErrorState, LoadingBlock, Segmented, Stat, StatusBadge, cx } from '@/components/ui';
 import { IconSearch } from '@/components/Icons';
 import { getEnvelope } from '@/lib/api';
-import { linkWithFilters, useFilters } from '@/lib/filters';
+import { describePreset, linkWithFilters, parseFilters, useFilters } from '@/lib/filters';
 import { dateTime, hours, inr, monthLabel, num, pct, asPct, titleCase } from '@/lib/format';
 
 const STATUS_ORDER = ['received', 'confirmed', 'shipped', 'delivered', 'cancelled'];
@@ -181,15 +182,18 @@ export default function Orders() {
     [statusRows, t, orderStatus],
   );
 
-  const ageingOpt = useMemo(() => {
+  const ageing = useMemo(() => {
     const a = d?.ageing ?? [];
     if (!a.length) return null;
     const statuses = STATUS_ORDER.filter((s) => a.some((x) => x.status === s)).concat([...new Set(a.map((x) => x.status))].filter((s) => !STATUS_ORDER.includes(s)));
     const buckets = AGE_BUCKETS.filter((b) => a.some((x) => x.bucket === b)).concat([...new Set(a.map((x) => x.bucket))].filter((b) => !AGE_BUCKETS.includes(b)));
     const data: [number, number, number | null][] = [];
     buckets.forEach((b, xi) => statuses.forEach((s, yi) => data.push([xi, yi, a.find((x) => x.bucket === b && x.status === s)?.count ?? 0])));
-    return heatmap(t, { x: buckets, y: statuses.map(titleCase), data, labels: true });
+    return { opt: heatmap(t, { x: buckets, y: statuses.map(titleCase), data, labels: true }), buckets, statuses };
   }, [d, t]);
+  const ageingOpt = ageing?.opt ?? null;
+  const [drill, setDrill] = useState<OrdersDrillSpec | null>(null);
+  const periodLabel = describePreset(parseFilters(sp));
 
   const [tatView, setTatView] = useState<'tat' | 'rate'>('tat');
   const rateOpt = useMemo(
@@ -259,34 +263,71 @@ export default function Orders() {
           <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-3">
             <ChartCard
               title="Order status"
-              subtitle="Click a bar to filter the page by status"
+              subtitle="Click a bar to list its retailers and orders"
               option={statusOpt}
               loading={q.isLoading}
               height={240}
               onClick={(p) => {
                 const r = statusRows[p.dataIndex];
-                if (r) {
-                  const next = selectedStatuses.includes(r.status) ? selectedStatuses.filter((x) => x !== r.status) : [...selectedStatuses, r.status];
-                  update({ order_status: next.length ? next : undefined });
-                }
+                if (!r) return;
+                const on = selectedStatuses.includes(r.status);
+                setDrill({
+                  title: `${titleCase(r.status)} orders`,
+                  subtitle: `${num(r.count)} orders · ${inr(r.value)} · placed in ${periodLabel}`,
+                  params: { order_status: r.status },
+                  actions: (
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      onClick={() => {
+                        const next = on ? selectedStatuses.filter((x) => x !== r.status) : [...selectedStatuses, r.status];
+                        update({ order_status: next.length ? next : undefined });
+                        setDrill(null);
+                      }}
+                    >
+                      {on ? 'Remove page filter' : 'Filter whole page'}
+                    </button>
+                  ),
+                });
               }}
               table={{ columns: ['Status', 'Orders', 'Value'], rows: statusRows.map((r) => [titleCase(r.status), num(r.count), inr(r.value)]) }}
             />
             <ChartCard
               title="Open order ageing"
-              subtitle="Orders by time in current status"
+              subtitle="Orders by time since placed · click a cell to list them"
               option={ageingOpt}
               loading={q.isLoading}
               height={240}
+              onClick={(p) => {
+                const v = p.value as [number, number, number] | undefined;
+                const b = v && ageing?.buckets[v[0]];
+                const st = v && ageing?.statuses[v[1]];
+                if (!b || !st || !v[2]) return;
+                setDrill({
+                  title: `${titleCase(st)} · open for ${b}`,
+                  subtitle: `${num(v[2])} open orders still ${titleCase(st).toLowerCase()}, placed ${b} ago (any date)`,
+                  params: { order_status: st, age_bucket: b },
+                });
+              }}
               table={d ? { columns: ['Bucket', 'Status', 'Orders'], rows: d.ageing.map((a) => [a.bucket, titleCase(a.status), num(a.count)]) } : undefined}
             />
             <ChartCard
               title={tatView === 'tat' ? 'Turnaround time trend' : 'Dispatch rate trend'}
-              subtitle={tatView === 'tat' ? 'Monthly median, hours' : 'Share of non-cancelled orders dispatched, by order month'}
+              subtitle={tatView === 'tat' ? 'Monthly median, hours · click a month to list its orders' : 'Share of non-cancelled orders dispatched, by order month · click a month'}
               option={tatView === 'tat' ? tatOpt : rateOpt}
               loading={q.isLoading}
               height={240}
               actions={<Segmented value={tatView} onChange={setTatView} size="xs" options={[{ value: 'tat', label: 'TAT' }, { value: 'rate', label: 'Dispatch %' }]} />}
+              clickAxis
+              onClick={(p) => {
+                const m = d?.tat.trend[p.dataIndex];
+                if (!m) return;
+                setDrill({
+                  title: `Orders placed in ${monthLabel(m.month)}`,
+                  subtitle: `Cancelled excluded · median dispatch ${hours(m.dispatch_h)}, delivery ${hours(m.delivery_h)}, dispatched ${pct(m.dispatch_pct)}`,
+                  params: { month: m.month.slice(0, 7) },
+                });
+              }}
               table={d ? { columns: ['Month', 'Dispatch (h)', 'Delivery (h)', 'Dispatch rate'], rows: d.tat.trend.map((m) => [monthLabel(m.month), hours(m.dispatch_h), hours(m.delivery_h), pct(m.dispatch_pct)]) } : undefined}
             />
           </div>
@@ -294,18 +335,28 @@ export default function Orders() {
           <div className={cx('mt-4 grid grid-cols-1 gap-4', [true, true, !!pay, crmOn].filter(Boolean).length > 2 ? 'xl:grid-cols-3' : 'xl:grid-cols-2')}>
             <ChartCard
               title="Payment mode mix"
-              subtitle="Value of paid orders by payment mode"
+              subtitle="Value of paid orders by payment mode · click a bar to list them"
               option={modeOpt}
               loading={q.isLoading}
               height={200}
+              onClick={(p) => {
+                const m = modeRows[p.dataIndex];
+                if (!m) return;
+                setDrill({ title: `Paid by ${m.label}`, subtitle: `${num(m.orders)} paid orders · ${inr(m.value)} · ${periodLabel}`, params: { paid: '1', mode: m.key } });
+              }}
               table={{ columns: ['Mode', 'Orders', 'Value', 'Share'], rows: modeRows.map((m) => [m.label, num(m.orders), inr(m.value), pct(m.share)]) }}
             />
             <ChartCard
               title="Ordering platform"
-              subtitle="Value of paid orders by app / web"
+              subtitle="Value of paid orders by app / web · click a bar to list them"
               option={platformOpt}
               loading={q.isLoading}
               height={200}
+              onClick={(p) => {
+                const m = platformRows[p.dataIndex];
+                if (!m || m.key === 'Unknown') return;
+                setDrill({ title: `Ordered on ${m.label}`, subtitle: `${num(m.orders)} paid orders · ${inr(m.value)} · ${periodLabel}`, params: { paid: '1', platform: m.key } });
+              }}
               table={{ columns: ['Platform', 'Orders', 'Value', 'Share'], rows: platformRows.map((m) => [m.label, num(m.orders), inr(m.value), pct(m.share)]) }}
             />
             {/* PayU gateway view: only once the PayU integration is connected (settlement is out of scope) */}
@@ -382,6 +433,7 @@ export default function Orders() {
           Split carts count once in totals and once per distributor in distributor views. <Link to="/admin/metrics" className="underline">Definitions</Link>
         </p>
       </Card>
+      <OrdersDrill spec={drill} onClose={() => setDrill(null)} onOpenOrder={setOpenId} />
       <OrderDrawer id={openId} onClose={() => setOpenId(null)} />
     </div>
   );

@@ -103,6 +103,22 @@ export function monthLabel(m: string): string {
   return x.isValid() ? x.format('MMM-YY') : m;
 }
 
+/** Month tick for a monthly chart: the period's own month gets "· MTD" while it is still running (period ends mid-month). */
+export function monthTick(m: string, periodTo: string | null | undefined): string {
+  const label = monthLabel(m);
+  if (!periodTo) return label;
+  const end = dayjs(periodTo);
+  const x = dayjs(m.length === 7 ? `${m}-01` : m);
+  return x.isValid() && x.isSame(end, 'month') && end.date() < end.daysInMonth() ? `${label} · MTD` : label;
+}
+
+/** Share of a total (0-100): small shares keep a decimal, so 0.4% never shows as 0%. */
+export function sharePct(n: number | null | undefined): string {
+  if (!isNum(n)) return '–';
+  if (n > 0 && n < 0.1) return '<0.1%';
+  return `${n.toFixed(n < 10 ? 1 : 0)}%`;
+}
+
 export function relTime(d: string | null | undefined): string {
   if (!d) return 'never';
   const mins = dayjs().diff(dayjs(d), 'minute');

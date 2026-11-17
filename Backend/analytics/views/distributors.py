@@ -212,13 +212,25 @@ class DistributorDetailView(AnalyticsView):
                     "orders": mrows.get(m, {}).get("orders", 0),
                     "active_retailers": mrows.get(m, {}).get("retailers", 0)} for m in months]
         lines = OrderLine.objects.filter(order__in=cur_qs).filter(f.lines_q())
-        top_articles = [{"style": r["style"], "name": r["product__name"], "sales": num(r["s"]), "units": r["u"]}
-                        for r in lines.values("style", "product__name").annotate(
-                            s=Sum("total"), u=Sum("quantity")).order_by("-s")[:20]]
-        rets = cur_qs.values("retailer_id", "retailer__name").annotate(
+        line_total = float(lines.aggregate(s=Sum("total"))["s"] or 0)
+        top_articles = [{"style": r["style"], "name": r["product__name"],
+                         "category": r["product__category_l3"] or r["product__category_l2"] or None,
+                         "sales": num(r["s"]), "units": r["u"], "share": share(r["s"], line_total)}
+                        for r in lines.values("style", "product__name", "product__category_l2", "product__category_l3")
+                        .annotate(s=Sum("total"), u=Sum("quantity")).order_by("-s")[:20]]
+        rets = cur_qs.values("retailer_id", "retailer__name", "retailer__state__name").annotate(
             s=Sum("gross_value"), n=Count("id"), last=Max("placed_date")).order_by("-s")[:50]
-        retailers = [{"id": r["retailer_id"], "name": r["retailer__name"], "sales": num(r["s"]), "orders": r["n"],
-                      "last_order_date": _iso(r["last"])} for r in rets]
+        from .. import rfm
+
+        seg = rfm.snapshot(rfm.as_of_for(f))["rows"]
+        retailers = []
+        for r in rets:
+            key = (seg.get(r["retailer_id"]) or {}).get("segment", "prospect")
+            retailers.append({
+                "id": r["retailer_id"], "name": r["retailer__name"], "state": r["retailer__state__name"],
+                "segment": key, "rfm_label": rfm.SEGMENTS[key][0], "sales": num(r["s"]), "orders": r["n"],
+                "last_order_date": _iso(r["last"]),
+                "days_since_last_order": (f.today - r["last"]).days if r["last"] else None})
         profile = {
             "id": d.id, "code": d.code, "name": d.name, "state": d.state.name if d.state_id else None,
             "region": d.region.name if d.region_id else None, "asm": d.asm.name if d.asm_id else None,

@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import ReactEChartsCore from 'echarts-for-react/lib/core';
 import * as echarts from 'echarts/core';
 import { BarChart, FunnelChart, HeatmapChart, LineChart } from 'echarts/charts';
@@ -82,19 +82,36 @@ interface Props {
   onClick?: (params: { name: string; dataIndex: number; seriesName?: string; value?: unknown; data?: unknown }) => void;
   /** Charts sharing a group get one linked crosshair / tooltip (small multiples on a common x-axis). */
   group?: string;
+  /** Line charts: a click anywhere in a category's column counts (not only on the small data dots). */
+  clickAxis?: boolean;
 }
 
-export function EChart({ option, height = 280, ariaLabel, onClick, group }: Props) {
-  const events = useMemo(() => (onClick ? { click: onClick } : undefined), [onClick]);
+export function EChart({ option, height = 280, ariaLabel, onClick, group, clickAxis }: Props) {
+  const clickRef = useRef(onClick);
+  clickRef.current = onClick;
+  const events = useMemo(() => (onClick && !clickAxis ? { click: onClick } : undefined), [onClick, clickAxis]);
   const onReady = useMemo(
     () =>
-      group
+      group || clickAxis
         ? (inst: echarts.ECharts) => {
-            inst.group = group;
-            echarts.connect(group);
+            if (group) {
+              inst.group = group;
+              echarts.connect(group);
+            }
+            if (clickAxis) {
+              inst.getZr().on('click', (e: { offsetX: number; offsetY: number }) => {
+                const pt = [e.offsetX, e.offsetY];
+                if (!clickRef.current || !inst.containPixel({ gridIndex: 0 }, pt)) return;
+                const xi = inst.convertFromPixel({ gridIndex: 0 }, pt) as unknown as number | number[] | null;
+                if (xi == null) return;
+                const idx = Math.round(Array.isArray(xi) ? xi[0] : xi);
+                const cats = ((inst.getOption().xAxis as { data?: unknown[] }[] | undefined)?.[0]?.data ?? []) as unknown[];
+                if (idx >= 0 && idx < cats.length) clickRef.current({ name: String(cats[idx]), dataIndex: idx });
+              });
+            }
           }
         : undefined,
-    [group],
+    [group, clickAxis],
   );
   return (
     <div role="img" aria-label={ariaLabel} style={{ height }} className={onClick ? 'cursor-pointer' : undefined}>

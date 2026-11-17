@@ -8,11 +8,11 @@ import { ChartCard } from '@/components/ChartCard';
 import { DataTable } from '@/components/DataTable';
 import { LeadersLaggards } from '@/components/LeadersLaggards';
 import { NetworkCoverage } from '@/components/NetworkCoverage';
-import { Sparkline } from '@/components/KpiTile';
+import { Sparkline, endsMidMonth } from '@/components/KpiTile';
 import { PageHeader } from '@/components/PageHeader';
 import { Badge, Card, Delta, Meter } from '@/components/ui';
 import { linkWithFilters, useFilters } from '@/lib/filters';
-import { asPct, inr, monthLabel, num, pct, relTime } from '@/lib/format';
+import { asPct, inr, monthLabel, num, pct, relTime, sharePct, monthTick } from '@/lib/format';
 import { MiniStat } from '@/components/KpiTile';
 
 export function StalenessBadge({ at }: { at: string | null | undefined }) {
@@ -39,13 +39,13 @@ export default function Distributors() {
   const trendOpt = useMemo(() => {
     if (!di?.trend.series.length) return null;
     return cartesian(t, {
-      x: di.trend.months.map(monthLabel),
+      x: di.trend.months.map((m) => monthTick(m, ins.data?.meta?.period?.to)),
       format: 'inr',
       series: di.trend.series.map((s, i) => ({ name: s.name, type: 'line' as const, data: s.data, color: s.name === 'Other' ? t.deemph : t.series[i], endLabel: s.name !== 'Other' })),
     });
-  }, [di, t]);
+  }, [di, t, ins.data?.meta?.period?.to]);
   const transOpt = useMemo(
-    () => (di?.transacting_monthly.length ? cartesian(t, { x: di.transacting_monthly.map((r) => monthLabel(r.month)), legend: false, showBarLabels: true, series: [{ name: 'Distributors transacting', data: di.transacting_monthly.map((r) => r.distributors) }] }) : null),
+    () => (di?.transacting_monthly.length ? cartesian(t, { x: di.transacting_monthly.map((r) => monthTick(r.month, ins.data?.meta?.period?.to)), legend: false, showBarLabels: true, series: [{ name: 'Distributors transacting', data: di.transacting_monthly.map((r) => r.distributors) }] }) : null),
     [di, t],
   );
   const multiOpt = useMemo(
@@ -118,11 +118,11 @@ export default function Distributors() {
                 render: (r) => (
                   <div className="flex items-center justify-end gap-1.5">
                     <div className="w-12"><Meter value={asPct(r.share)} /></div>
-                    <span className="w-10">{pct(asPct(r.share), 0)}</span>
+                    <span className="w-10">{sharePct(asPct(r.share))}</span>
                   </div>
                 ),
               },
-              { key: 'spark', header: '12-mo trend', sortable: false, noExport: true, render: (r) => <div className="w-24"><Sparkline data={r.spark} height={24} /></div> },
+              { key: 'spark', header: '12-mo trend', sortable: false, noExport: true, render: (r) => <div className="w-24"><Sparkline data={r.spark} height={24} partialLast={endsMidMonth(q.data?.meta?.period?.to)} /></div> },
               { key: 'growth_pct', header: 'Growth', align: 'right', render: (r) => <Delta value={r.growth_pct} suffix="" /> },
               { key: 'orders', header: 'Orders', align: 'right', render: (r) => num(r.orders) },
               { key: 'aov', header: 'AOV', align: 'right', render: (r) => inr(r.aov) },

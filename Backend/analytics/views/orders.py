@@ -6,16 +6,17 @@ from django.db.models import Count, Q, Sum
 from django.http import Http404
 from django.utils import timezone
 from rest_framework import generics
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.permissions import HasPerm
 from accounts.scope import CRM_DIMS, LINE_DIMS
-from warehouse.models import CrmTicket, Order, Payment
+from warehouse.models import CrmTicket, Order, Payment, Retailer
 
 from ..export import ExportListMixin
-from ..filters import parse_filters
+from ..filters import add_months, parse_filters
 from ..metrics import as_date, median, mkey, num, pct, spark_months
 from ..envelope import envelope
 from .base import AnalyticsView
@@ -183,6 +184,40 @@ class _OrderRows:
             self.data = self.data[0]
 
 
+def drill_orders(f, q):
+    """Orders behind one mark of an Orders-page chart (same basis as OrdersSummaryView).
+
+    age_bucket=0-1d|1-2d|2-4d|4-7d|7d+  open orders by time since placed (any date, like the ageing heatmap)
+    month=YYYY-MM                         orders placed that month, cancelled excluded (TAT trend)
+    paid=1                                paid, non-cancelled orders only (payment mode / platform mix)
+    mode=<payment mode | Unknown>         payment mode as shown in the mix (Unknown = blank)
+    Returns None when no drill parameter is given."""
+    bucket, month = q.get("age_bucket"), q.get("month")
+    if bucket:
+        b = next((x for x in AGE_BUCKETS if x[0] == bucket), None)
+        if b is None:
+            raise ValidationError({"age_bucket": f"must be one of {[x[0] for x in AGE_BUCKETS]}"})
+        now = timezone.now()
+        qs = f.orders(qualifying=False).filter(status__in=OPEN_STATUSES, placed_at__lte=now - dt.timedelta(hours=b[1]))
+        if b[2] is not None:
+            qs = qs.filter(placed_at__gt=now - dt.timedelta(hours=b[2]))
+        return qs
+    if month:
+        try:
+            m0 = dt.date.fromisoformat(month + "-01")
+        except ValueError:
+            raise ValidationError({"month": "must be YYYY-MM"}) from None
+        return f.orders(start=m0, end=add_months(m0, 1) - dt.timedelta(days=1), qualifying=False).exclude(
+            status="cancelled")
+    if q.get("paid") in ("1", "true") or q.get("mode"):
+        qs = f.orders(start=f.period.start, end=f.period.end)
+        mode = q.get("mode")
+        if mode:
+            qs = qs.filter(payment_mode="" if mode.lower() == "unknown" else mode)
+        return qs
+    return None
+
+
 class OrderListView(ExportListMixin, generics.ListAPIView):
     permission_classes = [IsAuthenticated, HasPerm("view_orders")]
     export_filename = "orders"
@@ -190,8 +225,9 @@ class OrderListView(ExportListMixin, generics.ListAPIView):
     def get_queryset(self):
         f = parse_filters(self.request)
         q = self.request.query_params
-        qs = f.orders(start=f.period.start, end=f.period.end, qualifying=False).select_related(
-            "retailer", "distributor", "state")
+        drill = drill_orders(f, q)
+        qs = (drill if drill is not None else f.orders(start=f.period.start, end=f.period.end, qualifying=False)
+              ).select_related("retailer", "distributor", "state")
         if q.get("sla_breached") in ("1", "true"):
             cutoff = timezone.now() - dt.timedelta(hours=settings.ORDER_DISPATCH_SLA_HOURS)
             qs = f.orders(qualifying=False).select_related("retailer", "distributor", "state").filter(
@@ -204,6 +240,65 @@ class OrderListView(ExportListMixin, generics.ListAPIView):
 
     def get_serializer(self, *args, **kwargs):
         return _OrderRows(*args, **kwargs)
+
+
+class OrderRetailersView(ExportListMixin, generics.ListAPIView):
+    """Retailers behind a set of orders (same parameters as /orders/): one row per retailer."""
+
+    permission_classes = [IsAuthenticated, HasPerm("view_orders")]
+    export_filename = "retailers"
+
+    def get_queryset(self):
+        from django.db.models import Max
+
+        f = parse_filters(self.request)
+        q = self.request.query_params
+        drill = drill_orders(f, q)
+        qs = drill if drill is not None else f.orders(start=f.period.start, end=f.period.end, qualifying=False)
+        if q.get("sla_breached") in ("1", "true"):
+            cutoff = timezone.now() - dt.timedelta(hours=settings.ORDER_DISPATCH_SLA_HOURS)
+            qs = f.orders(qualifying=False).filter(status__in=["received", "confirmed"], placed_at__lt=cutoff)
+        if q.get("search"):
+            s = q["search"].strip()
+            qs = qs.filter(Q(retailer__name__icontains=s) | Q(retailer__phone__icontains=s))
+        rows = (qs.filter(retailer__isnull=False).values("retailer_id")
+                .annotate(orders=Count("id"), value=Sum("gross_value"), last_order=Max("placed_at")))
+        order = {"orders": "orders", "value": "value", "last_order": "last_order"}
+        key = (q.get("ordering") or "-value").strip()
+        field = order.get(key.lstrip("-"), "value")
+        return rows.order_by(("-" if key.startswith("-") or key.lstrip("-") not in order else "") + field,
+                             "retailer_id")
+
+    def get_serializer(self, *args, **kwargs):
+        return _RetailerRows(*args, request=self.request, **kwargs)
+
+
+class _RetailerRows:
+    def __init__(self, instance, many=False, request=None, **kw):
+        from .. import rfm
+        from .funnel import mask_phone
+
+        items = list(instance if many else [instance])
+        rs = {r.id: r for r in Retailer.objects.filter(id__in=[i["retailer_id"] for i in items]).select_related(
+            "state", "distributor", "asm")}
+        can = request.user.has_code("view_pii")
+        f = parse_filters(request)
+        seg = rfm.snapshot(rfm.as_of_for(f))["rows"]
+        out = []
+        for i in items:
+            r = rs.get(i["retailer_id"])
+            if r is None:
+                continue
+            key = (seg.get(r.id) or {}).get("segment", "prospect")
+            out.append({
+                "id": r.id, "retailer": r.name, "phone": mask_phone(r.phone, can), "city": r.city or None,
+                "state": r.state.name if r.state_id else None,
+                "distributor": r.distributor.name if r.distributor_id else None,
+                "asm": r.asm.name if r.asm_id else None, "rfm_segment": key, "rfm_label": rfm.SEGMENTS[key][0],
+                "orders": i["orders"], "value": num(i["value"]),
+                "last_order": timezone.localtime(i["last_order"]).isoformat() if i["last_order"] else None,
+            })
+        self.data = out if many else (out[0] if out else {})
 
 
 class OrderDetailView(APIView):

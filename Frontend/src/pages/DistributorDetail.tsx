@@ -6,11 +6,12 @@ import { cartesian } from '@/charts/builders';
 import { useChartTokens } from '@/charts/EChart';
 import { ChartCard } from '@/components/ChartCard';
 import { DataTable } from '@/components/DataTable';
-import { KpiTile } from '@/components/KpiTile';
+import { KpiTile, endsMidMonth } from '@/components/KpiTile';
+import { RfmDot } from '@/components/RfmPanel';
 import { PageHeader } from '@/components/PageHeader';
 import { Card, ErrorState, LoadingBlock, Stat } from '@/components/ui';
 import { linkWithFilters, useFilters } from '@/lib/filters';
-import { asPct, date, inr, monthLabel, num, pct, titleCase } from '@/lib/format';
+import { asPct, date, inr, monthLabel, num, sharePct, titleCase } from '@/lib/format';
 import { StalenessBadge } from './Distributors';
 
 const KPI_FMT: Record<string, { label: string; fmt: (n: number | null | undefined) => string; money?: boolean }> = {
@@ -75,7 +76,7 @@ export default function DistributorDetail() {
       <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
         {Object.entries(d.kpis).map(([k, v]) => {
           const def = KPI_FMT[k] ?? { label: titleCase(k), fmt: (n: number | null | undefined) => num(n) };
-          return <KpiTile key={k} label={def.label} kpi={v} format={def.fmt} basis={def.money ? basis : undefined} />;
+          return <KpiTile key={k} label={def.label} kpi={v} format={def.fmt} basis={def.money ? basis : undefined} partialMonth={endsMidMonth(q.data?.meta?.period?.to)} />;
         })}
       </div>
 
@@ -98,10 +99,10 @@ export default function DistributorDetail() {
             columns={[
               { key: 'style', header: 'Style' },
               { key: 'name', header: 'Article' },
-              { key: 'category', header: 'Category' },
+              { key: 'category', header: 'Category', render: (r) => (r.category ? titleCase(r.category) : '–') },
               { key: 'units', header: 'Units', align: 'right', render: (r) => num(r.units) },
               { key: 'sales', header: 'Sales', align: 'right', render: (r) => inr(r.sales) },
-              { key: 'share', header: 'Share', align: 'right', render: (r) => pct(asPct(r.share)) },
+              { key: 'share', header: 'Share', align: 'right', render: (r) => sharePct(asPct(r.share)) },
             ]}
           />
         </Card>
@@ -118,7 +119,7 @@ export default function DistributorDetail() {
           columns={[
             { key: 'name', header: 'Retailer', render: (r) => <span className="font-medium">{r.name}</span> },
             { key: 'state', header: 'State' },
-            { key: 'segment', header: 'Segment', render: (r) => titleCase(r.segment) },
+            { key: 'rfm_label', header: 'RFM segment', render: (r) => (r.rfm_label ? <span className="flex items-center gap-1.5 whitespace-nowrap"><RfmDot segment={r.segment} />{r.rfm_label}</span> : '–') },
             { key: 'orders', header: 'Orders', align: 'right', render: (r) => num(r.orders) },
             { key: 'sales', header: 'Sales', align: 'right', render: (r) => inr(r.sales) },
             { key: 'last_order_date', header: 'Last order', render: (r) => date(r.last_order_date ?? null) },

@@ -1,9 +1,10 @@
 import datetime as dt
 from collections import defaultdict
 
-from django.db.models import Count, DecimalField, F, IntegerField, OuterRef, Q, Subquery, Sum, Value
+from django.db.models import Case, Count, DecimalField, F, IntegerField, OuterRef, Q, Subquery, Sum, Value, When
 from django.db.models.functions import Coalesce, TruncMonth
 from django.http import Http404
+from django.utils import timezone
 from rest_framework import generics
 from rest_framework.permissions import IsAuthenticated
 
@@ -14,6 +15,7 @@ from warehouse.models import Order, Retailer, RetailerMonth, State
 from ..envelope import envelope
 from ..export import ExportListMixin
 from ..filters import add_months, month_start, parse_filters
+from .. import rfm
 from ..metrics import as_date, launch_month, median, mkey, num, pct, share
 from .base import AnalyticsView
 
@@ -34,6 +36,14 @@ def mask_phone(phone, can_see):
         return phone
     p = str(phone)
     return p[:2] + "X" * max(len(p) - 4, 0) + p[-2:] if len(p) > 4 else "XXXX"
+
+
+def mask_email(email):
+    """a****@domain.com for users without PII access."""
+    if not email or "@" not in email:
+        return None
+    user, _, domain = email.partition("@")
+    return f"{user[:1]}****@{domain}"
 
 
 def retailer_segment(r, today):
@@ -59,11 +69,15 @@ class FunnelView(AnalyticsView):
     def compute(self, f, request, **kw):
         p, t = f.period, f.today
         rb = retailer_base(f)
+        # IST day boundaries as aware datetimes: comparing the stored timestamp directly lets the database use it
+        # as-is (a __date lookup converts every one of ~2 lakh rows to an IST date in Python on SQLite)
+        day0 = lambda d: timezone.make_aware(dt.datetime.combine(d, dt.time.min))  # noqa: E731
+        end_excl = day0(p.end + dt.timedelta(days=1))
         cur_orders = f.orders(start=p.start, end=p.end)
         repeat = (f.orders(end=p.end).values("retailer_id").annotate(n=Count("split_group", distinct=True))
                   .filter(n__gte=2).count())
         agg = rb.aggregate(
-            signed=Count("id", filter=Q(signed_up_at__isnull=True) | Q(signed_up_at__date__lte=p.end)),
+            signed=Count("id", filter=Q(signed_up_at__isnull=True) | Q(signed_up_at__lt=end_excl)),
             submitted=Count("id", filter=Q(kyc_status__in=["pending", "approved", "rejected"])),
             approved=Count("id", filter=Q(kyc_status="approved")),
             first=Count("id", filter=Q(first_order_date__lte=p.end)),
@@ -80,6 +94,7 @@ class FunnelView(AnalyticsView):
             d90=Count("id", filter=Q(last_order_date__lte=t - dt.timedelta(days=90))),
         )
         active = cur_orders.values("retailer_id").distinct().count()
+        warm_ready = Retailer.objects.filter(warm_match=True).exists()
         stages = [
             {"key": "signed_up", "label": "Signed up", "count": agg["signed"]},
             {"key": "kyc_submitted", "label": "KYC submitted", "count": agg["submitted"]},
@@ -94,14 +109,22 @@ class FunnelView(AnalyticsView):
         # have placed a first order. Last 18 months up to the period end.
         last_m = month_start(p.end)
         first_m = add_months(last_m, -17)
-        cohort = {as_date(r["m"]): r for r in rb.filter(
-            signed_up_at__isnull=False, signed_up_at__date__gte=first_m, signed_up_at__date__lte=p.end,
-        ).annotate(m=TruncMonth("signed_up_at")).values("m").annotate(
+        months = []
+        m = first_m
+        while m <= last_m:
+            months.append(m)
+            m = add_months(m, 1)
+        # month bucket by IST month boundaries, evaluated in the database
+        bucket = Case(*[When(signed_up_at__gte=day0(mm), signed_up_at__lt=day0(add_months(mm, 1)), then=Value(i))
+                        for i, mm in enumerate(months)], default=Value(-1), output_field=IntegerField())
+        cohort = {months[r["mi"]]: r for r in rb.filter(
+            signed_up_at__gte=day0(first_m), signed_up_at__lt=end_excl,
+        ).annotate(mi=bucket).values("mi").annotate(
             n=Count("id"),
             kyc=Count("id", filter=Q(kyc_status="approved")),
             ordered=Count("id", filter=Q(kyc_status="approved", first_order_date__isnull=False,
                                          first_order_date__lte=p.end)),
-        )}
+        ) if r["mi"] >= 0}
         signup_cohorts, m = [], first_m
         while m <= last_m:
             r = cohort.get(m) or {"n": 0, "kyc": 0, "ordered": 0}
@@ -113,7 +136,7 @@ class FunnelView(AnalyticsView):
 
         # KYC -> first order conversion. The source has no KYC approval date, so "time to first order" runs from
         # the customer's created date (sign-up), which is when KYC is submitted in the app.
-        conv_days = [(fo - su.date()).days for su, fo in rb.filter(
+        conv_days = [(fo - timezone.localtime(su).date()).days for su, fo in rb.filter(
             kyc_status="approved", signed_up_at__isnull=False, first_order_date__isnull=False,
             first_order_date__lte=p.end).values_list("signed_up_at", "first_order_date")]
         conv_days = [d for d in conv_days if d >= 0]
@@ -152,8 +175,10 @@ class FunnelView(AnalyticsView):
             "kyc_status": [{"status": "pending", "count": agg["pending"]},
                            {"status": "approved", "count": agg["approved"]},
                            {"status": "rejected", "count": agg["rejected"]}],
-            "never_ordered": {"total": agg["never"], "warm": agg["never_warm"],
-                              "cold": agg["never"] - agg["never_warm"], "flagged": agg["never_flagged"]},
+            # warm / cold needs the BlueOrigin ledger match; until a ledger is loaded both are unknown (not 0)
+            "never_ordered": {"total": agg["never"], "warm": agg["never_warm"] if warm_ready else None,
+                              "cold": agg["never"] - agg["never_warm"] if warm_ready else None,
+                              "flagged": agg["never_flagged"], "warm_available": warm_ready},
             "inactivity": {"d30": agg["d30"], "d60": agg["d60"], "d90": agg["d90"]},
             "signup_cohorts": signup_cohorts,
             "kyc_conversion": kyc_conversion,
@@ -210,8 +235,9 @@ def rsm_context():
     return dict(Rsm.objects.values_list("id", "name")), region_rsm_map()
 
 
-def retailer_row(r, can_pii, today, rsm_ctx=None):
+def retailer_row(r, can_pii, today, rsm_ctx=None, rfm_rows=None):
     names, reg = rsm_ctx or rsm_context()
+    rfm_seg = (rfm_rows.get(r.id) or {}).get("segment", "prospect") if rfm_rows is not None else None
     rsm_id = r.asm.rsm_id if r.asm_id and r.asm.rsm_id else reg.get(r.region_id)
     return {
         "id": r.id, "name": r.name, "phone": mask_phone(r.phone, can_pii),
@@ -226,6 +252,8 @@ def retailer_row(r, can_pii, today, rsm_ctx=None):
         "sales": num(getattr(r, "period_sales", 0)),
         "lifetime_orders": r.orders_count, "lifetime_sales": num(r.total_sales),
         "segment": retailer_segment(r, today),
+        "rfm_segment": rfm_seg,
+        "rfm_label": rfm.SEGMENTS[rfm_seg][0] if rfm_seg else None,
         "warm_match": r.warm_match,
     }
 
@@ -270,10 +298,11 @@ class _RowSerializer:
 
     def __init__(self, instance, many=False, request=None, **kw):
         can = request.user.has_code("view_pii")
-        today = parse_filters(request).today
+        f = parse_filters(request)
         items = instance if many else [instance]
         ctx = rsm_context()
-        self.data = [retailer_row(r, can, today, ctx) for r in items]
+        rows = rfm.snapshot(rfm.as_of_for(f))["rows"]
+        self.data = [retailer_row(r, can, f.today, ctx, rows) for r in items]
         if not many:
             self.data = self.data[0]
 
@@ -289,16 +318,20 @@ class RetailerDetailView(AnalyticsView):
         if r is None:
             raise Http404
         can = request.user.has_code("view_pii")
-        profile = retailer_row(r, can, f.today)
+        snap = rfm.snapshot(rfm.as_of_for(f))
+        profile = retailer_row(r, can, f.today, rfm_rows=snap["rows"])
         profile.update({
-            "owner_name": r.owner_name, "email": r.email if can else None, "gstin": r.gstin,
+            "owner_name": r.owner_name, "email": (r.email if can else mask_email(r.email)) or None,
+            "gstin": r.gstin or None, "udyam_number": r.udyam_number or None,
             "pincode": r.pincode, "city": r.city, "region": r.region.name if r.region_id else None,
-            "signed_up_at": r.signed_up_at, "kyc_approved_at": r.kyc_approved_at, "tier": r.tier,
+            "signed_up_at": r.signed_up_at, "kyc_submitted_at": r.kyc_submitted_at,
+            "kyc_approved_at": r.kyc_approved_at, "tier": r.tier or None,
             "orders": r.orders_count, "sales": num(r.total_sales),
+            "aov": num(r.total_sales / r.orders_count) if r.orders_count else None,
             "first_order_date": r.first_order_date.isoformat() if r.first_order_date else None,
             "last_order_date": r.last_order_date.isoformat() if r.last_order_date else None,
         })
-        for k in ("signed_up_at", "kyc_approved_at"):
+        for k in ("signed_up_at", "kyc_submitted_at", "kyc_approved_at"):
             profile[k] = profile[k].isoformat() if profile[k] else None
         months = RetailerMonth.objects.filter(retailer=r).order_by("month")
         monthly = [{"month": mkey(m.month), "sales": num(m.sales), "orders": m.orders, "status": m.status}
@@ -309,7 +342,83 @@ class RetailerDetailView(AnalyticsView):
             "distributor": o.distributor.name if o.distributor_id else None, "status": o.status,
             "payment_status": o.payment_status, "value": num(o.gross_value), "units": o.units,
         } for o in recent]
-        return {"profile": profile, "monthly": monthly, "recent_orders": recent_orders}
+        rfm_block = rfm.describe(snap["rows"].get(r.id))
+        rfm_block.update({"as_of": snap["as_of"].isoformat() if snap.get("as_of") else None,
+                          "window_start": snap["window_start"].isoformat() if snap.get("window_start") else None})
+        return {"profile": profile, "rfm": rfm_block, "monthly": monthly, "recent_orders": recent_orders}
+
+
+class RfmView(AnalyticsView):
+    """RFM segments of the retailers in scope, as of the end of the selected period (analytics/rfm.py).
+
+    Cut-offs are ranked against ALL active buyers; region / ASM / distributor filters only choose who is counted."""
+
+    permission_code = "view_funnel"
+    sources = ["medusa"]
+    export_key = "segments"
+
+    def compute(self, f, request, **kw):
+        as_of = rfm.as_of_for(f)
+        snap = rfm.snapshot(as_of)
+        in_scope = set(retailer_base(f).filter(id__in=list(snap["rows"])).values_list("id", flat=True))
+        rows = {rid: r for rid, r in snap["rows"].items() if rid in in_scope}
+        prospects = retailer_base(f).exclude(id__in=list(snap["rows"])).count()
+        buyers = len(rows)
+        total_value = sum(r["value"] for r in rows.values()) or 0.0
+        agg = defaultdict(lambda: {"retailers": 0, "value": 0.0})
+        grid = defaultdict(int)
+        for r in rows.values():
+            a = agg[r["segment"]]
+            a["retailers"] += 1
+            a["value"] += r["value"]
+            if r.get("r_score"):
+                grid[(r["r_score"], r["fm"])] += 1
+        segments = []
+        for key, (label, meaning, action) in rfm.SEGMENTS.items():
+            if key == "prospect":
+                n, v = prospects, 0.0
+            else:
+                n, v = agg[key]["retailers"], agg[key]["value"]
+            segments.append({
+                "segment": key, "label": label, "meaning": meaning, "action": action, "retailers": n,
+                "pct_buyers": pct(n, buyers) if key != "prospect" else None,
+                "value": round(v, 2), "pct_value": pct(v, total_value) if key != "prospect" else None,
+                "scored": key in rfm.SCORED,
+            })
+        cut = snap.get("cutoffs") or {}
+        return {
+            "as_of": snap["as_of"].isoformat() if snap.get("as_of") else None,
+            "window_start": snap["window_start"].isoformat() if snap.get("window_start") else None,
+            "window_months": rfm.WINDOW_MONTHS,
+            "summary": {"registered": buyers + prospects, "buyers": buyers,
+                        "active": sum(1 for r in rows.values() if r["lifecycle"] == "active"),
+                        "value": round(total_value, 2)},
+            "population": snap.get("population"),
+            "cutoffs": [{"measure": k, "p20": c[0], "p40": c[1], "p60": c[2], "p80": c[3]} for k, c in cut.items()],
+            "grid": [{"r": r_, "fm": fm, "segment": rfm.GRID[r_][fm - 1], "retailers": grid[(r_, fm)]}
+                     for r_ in (5, 4, 3, 2, 1) for fm in (1, 2, 3, 4, 5)],
+            "segments": segments,
+            "params": {"churn_ratio": rfm.CHURN_RATIO, "new_days": rfm.NEW_DAYS, "min_tenure_months": rfm.MIN_TENURE_M,
+                       "shrink_k": rfm.SHRINK_K},
+            "validation": rfm.backtest(snap["as_of"]) if snap.get("as_of") else None,
+        }
 
 
 __all__ = ["defaultdict", "envelope"]
+
+
+class SegmentTrendView(AnalyticsView):
+    """Retailer segments over time - see analytics/segment_trend.py. ?kind=rfm|lifecycle&grain=day|week|month|quarter"""
+
+    permission_code = "view_funnel"
+    sources = ["medusa"]
+
+    def cache_extra(self, request, **kwargs):
+        q = request.query_params
+        return f"{q.get('kind', 'rfm')}|{q.get('grain', '')}|{q.get('count', '')}"
+
+    def compute(self, f, request, **kw):
+        from ..segment_trend import trend
+
+        q = request.query_params
+        return trend(f, grain=q.get("grain"), count=q.get("count"), kind=q.get("kind", "rfm"))

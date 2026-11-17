@@ -11,7 +11,7 @@ import { PageHeader } from '@/components/PageHeader';
 import { SalesTeam } from '@/components/SalesTeam';
 import { Card, Delta, Meter, Segmented } from '@/components/ui';
 import { useFilters } from '@/lib/filters';
-import { asPct, inr, monthLabel, num, pct } from '@/lib/format';
+import { asPct, inr, monthLabel, monthTick, num, pct } from '@/lib/format';
 
 type GroupBy = 'region' | 'rsm' | 'state' | 'asm';
 
@@ -52,7 +52,7 @@ export default function Territory() {
     const val = (g: string, m: string) =>
       g === 'Other' ? mb.filter((x) => x.month === m && !top.includes(x.group)).reduce((s, x) => s + x.sales, 0) : (mb.find((x) => x.month === m && x.group === g)?.sales ?? null);
     return cartesian(t, {
-      x: months.map(monthLabel),
+      x: months.map((m) => monthTick(m, q.data?.meta?.period?.to)),
       format: 'inr',
       series: groups.map((g) => ({ name: g, type: 'line' as const, data: months.map((m) => val(g, m)), color: colors[g], endLabel: groups.length <= 4 })),
     });

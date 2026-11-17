@@ -18,8 +18,12 @@ PRESETS = ["today", "yesterday", "wtd", "last_week", "mtd", "prev_month", "q1", 
 QUARTER_MONTHS = {"q1": (4, "Apr–Jun"), "q2": (7, "Jul–Sep"), "q3": (10, "Oct–Dec"), "q4": (1, "Jan–Mar")}
 ROLLING_DAYS = {"last_7d": 7, "last_30d": 30, "last_90d": 90}
 ALL_TIME_FALLBACK = dt.date(2023, 9, 1)
-SEGMENTS = ["new", "retained", "reactivated", "inactive", "one_time", "repeat",
-            "never_ordered", "inactive_30", "inactive_60", "inactive_90"]
+LIFECYCLE_SEGMENTS = ["new", "retained", "reactivated", "inactive", "one_time", "repeat",
+                      "never_ordered", "inactive_30", "inactive_60", "inactive_90"]
+# RFM segments (analytics/rfm.py), as of the end of the selected period
+RFM_SEGMENTS = ["champions", "loyal", "potential_loyalists", "new_customers", "promising", "needs_attention",
+                "about_to_sleep", "cant_lose", "at_risk", "hibernating", "no_orders_in_range", "churned", "prospect"]
+SEGMENTS = LIFECYCLE_SEGMENTS + RFM_SEGMENTS
 
 
 # ----------------------------------------------------------------------------- date math
@@ -303,6 +307,10 @@ class Filters:
         if not seg:
             return None
         t = self.today
+        if seg in RFM_SEGMENTS:
+            from .rfm import as_of_for, retailer_ids
+
+            return retailer_ids(seg, as_of_for(self))
         if seg in ("new", "retained", "reactivated"):
             return RetailerMonth.objects.filter(
                 month__gte=month_start(self.period.start), month__lte=month_start(self.period.end), status=seg
@@ -325,8 +333,11 @@ class Filters:
         return r.values("id")
 
     # -- orders --------------------------------------------------------------
-    def orders(self, start=None, end=None, qualifying=True, statuses=True):
-        """Scoped + filtered Order queryset. start/end default to no date restriction."""
+    def orders(self, start=None, end=None, qualifying=True, statuses=True, line_match=True):
+        """Scoped + filtered Order queryset. start/end default to no date restriction.
+
+        line_match=False skips "orders containing a line in the selected category / article": for callers that filter
+        the lines themselves with lines_q() (same result, without a slow nested scan of every order line)."""
         from warehouse.models import Order, OrderLine
 
         qs = Order.objects.filter(self.dims_q())
@@ -346,7 +357,7 @@ class Filters:
             qs = qs.filter(payment_mode__in=self.payment_modes)
         if self.split_only is not None:
             qs = qs.filter(is_split=self.split_only)
-        if self.has_line_filters():
+        if line_match and self.has_line_filters():
             qs = qs.filter(id__in=OrderLine.objects.filter(self.lines_q()).values("order_id"))
         seg = self.segment_retailers()
         if seg is not None:
