@@ -25,6 +25,7 @@ from ..metrics import (
     spark_months,
     target_values,
 )
+from .. import stocksync
 from .base import AnalyticsView
 
 
@@ -56,7 +57,6 @@ def dispatch_stats(qs, group_field):
     return {g: (pct(shipped[g], tot[g]), median(durations[g])) for g in tot}
 
 
-STOCK_SYNC_DAYS = 3  # Stock sync filter: synced within 3 days / more than 3 days / never
 
 
 class DistributorsView(AnalyticsView):
@@ -100,8 +100,7 @@ class DistributorsView(AnalyticsView):
         for (sid, _), v in tv.items():
             targets[sid] += float(v)
         tsales = targeted_sales(cur_qs, "distributor_id", tv)
-        stock = dict(primary_inventory().filter(distributor_id__in=ids).values("distributor_id")
-                     .annotate(m=Max("synced_at")).values_list("distributor_id", "m"))
+        stock = stocksync.last_sync(ids)  # sheet "Inventory Updated" date, else inventory import time
         total = sum(float(r["sales"] or 0) for r in cur.values())
         rows = []
         for d in dists:
@@ -126,19 +125,14 @@ class DistributorsView(AnalyticsView):
                 "target": num(t) if t else None,
                 "achievement_pct": share(tsales.get(d.id, 0.0), t) if t else None,
                 "last_stock_sync": _iso(stock.get(d.id)),
+                "stock_sync_status": stocksync.bucket(stock.get(d.id), f.today), **stocksync.info(d),
                 "spark": [num(sp[d.id].get(m, 0)) for m in months12],
             })
         rows.sort(key=lambda r: -r["sales"])
         sync = request.query_params.get("stock_sync")
         if sync in ("fresh", "stale", "never"):
-            # within 3 days = current ("fresh"), older = "stale", no sync at all = "never"
-            cutoff = timezone.now() - dt.timedelta(days=STOCK_SYNC_DAYS)
-
-            def bucket(r):
-                at = stock.get(r["id"])
-                return "never" if not at else ("fresh" if at >= cutoff else "stale")
-
-            rows = [r for r in rows if bucket(r) == sync]
+            # within 3 days = current ("fresh"), older = "stale", no date at all = "never"
+            rows = [r for r in rows if r["stock_sync_status"] == sync]
         return {"rows": rows}
 
 
@@ -176,7 +170,7 @@ class DistributorDetailView(AnalyticsView):
                                 "distributor_id").get(d.id, (None, None)) if p.cmp_start else (None, None)
         tv = target_values("distributor", [d.id], months_between(p.start, p.end), "sales", f.today)
         tgt = float(sum(tv.values())) if tv else None
-        last_sync = primary_inventory().filter(distributor=d).aggregate(m=Max("synced_at"))["m"]
+        last_sync = stocksync.last_sync([d.id]).get(d.id)
 
         months = spark_months(p.end)
         mrows = {as_date(r["m"]): r for r in base.filter(placed_date__gte=months[0], placed_date__lte=p.end)
@@ -240,7 +234,7 @@ class DistributorDetailView(AnalyticsView):
             "id": d.id, "code": d.code, "name": d.name, "state": d.state.name if d.state_id else None,
             "region": d.region.name if d.region_id else None, "asm": d.asm.name if d.asm_id else None,
             "city": d.city, "gstin": d.gstin, "is_active": d.is_active, "onboarded_on": _iso(d.onboarded_on),
-            "last_stock_sync": _iso(last_sync),
+            "last_stock_sync": _iso(last_sync), **stocksync.info(d),
             "mapped_retailers": Retailer.objects.filter(distributor=d).count(),
             "median_dispatch_days": disp[1],
         }

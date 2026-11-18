@@ -41,12 +41,14 @@ def open_sla_breaches(f):
         status__in=["received", "confirmed"], placed_at__lt=cutoff)
 
 
-def stale_stock_distributors(f, hours=24):
-    cutoff = timezone.now() - dt.timedelta(hours=hours)
-    dists = Distributor.objects.filter(f.dims_q(DISTRIBUTOR_DIMS, retailer_field=None), is_active=True, bo_only=False)
-    last = dict(primary_inventory().filter(distributor__in=dists).values("distributor_id")
-                .annotate(m=Max("synced_at")).values_list("distributor_id", "m"))
-    return [d for d in dists.values_list("id", flat=True) if not last.get(d) or last[d] < cutoff]
+def stale_stock_distributors(f):
+    """Distributors whose stock was not updated within STOCK_SYNC_DAYS days (sheet date, see analytics/stocksync.py)."""
+    from .. import stocksync
+
+    ids = list(Distributor.objects.filter(f.dims_q(DISTRIBUTOR_DIMS, retailer_field=None), is_active=True,
+                                          bo_only=False).values_list("id", flat=True))
+    last = stocksync.last_sync(ids)
+    return [d for d in ids if stocksync.bucket(last.get(d), f.today) != "fresh"]
 
 
 class OverviewView(AnalyticsView):

@@ -41,6 +41,15 @@ def refresh_all_inline(triggered_by="schedule"):
     except Exception as exc:  # noqa: BLE001
         log.exception("blueorigin step failed")
         steps.append({"source": "blueorigin", "status": "failed", "rows": 0, "run_id": None, "error": str(exc)[:200]})
+    # distributor stock-sync sheet ("Inventory Updated" dates): re-imported only when the file changed
+    from masters.distributor_sync import refresh_if_changed as refresh_dist_sync
+
+    try:
+        steps.append(refresh_dist_sync(triggered_by=triggered_by))
+    except Exception as exc:  # noqa: BLE001
+        log.exception("distributor sync sheet step failed")
+        steps.append({"source": "distributor_sync", "status": "failed", "rows": 0, "run_id": None,
+                      "error": str(exc)[:200]})
     # finance team's distributor settlement tracker: re-imported only when the file changed
     from masters.settlement import refresh_if_changed as refresh_settlement
 

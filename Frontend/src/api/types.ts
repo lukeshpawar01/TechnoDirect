@@ -388,6 +388,11 @@ export interface DistributorRow {
   target: number | null;
   achievement_pct: number | null;
   last_stock_sync: string | null;
+  /** fresh = updated within 3 days, stale = older, never */
+  stock_sync_status?: 'fresh' | 'stale' | 'never';
+  inventory_status?: string | null;
+  stock_upload_mode?: string | null;
+  stock_update_frequency?: string | null;
   spark: number[];
 }
 
@@ -595,7 +600,7 @@ export interface ProductTree {
 
 // ---------------------------------------------------------------- inventory
 export interface Inventory {
-  sync: { distributor_id: number; distributor: string; last_sync_at: string | null; status: string; skus: number; in_stock_skus: number }[];
+  sync: { distributor_id: number; distributor: string; last_sync_at: string | null; status: string; skus: number; in_stock_skus: number; inventory_status?: string | null; stock_upload_mode?: string | null; stock_update_frequency?: string | null }[];
   summary: { live_styles: number; oos_skus: number; low_stock_skus: number };
   oos_top_sellers: { style: string; size: string; distributor: string; last_30d_units: number }[];
 }

@@ -12,20 +12,44 @@ import { Sparkline, endsMidMonth } from '@/components/KpiTile';
 import { PageHeader } from '@/components/PageHeader';
 import { Badge, Card, Delta, Meter } from '@/components/ui';
 import { linkWithFilters, useFilters } from '@/lib/filters';
-import { asPct, inr, monthLabel, num, pct, relTime, sharePct, monthTick } from '@/lib/format';
+import { asPct, inr, monthLabel, num, pct, sharePct, monthTick } from '@/lib/format';
 import { MiniStat } from '@/components/KpiTile';
 
 /** stock counts as current when synced within this many days (Stock sync filter, badges, Inventory) */
 export const STOCK_SYNC_DAYS = 3;
 
-export function StalenessBadge({ at }: { at: string | null | undefined }) {
-  if (!at) return <Badge tone="bad" icon>Never synced</Badge>;
-  const h = (Date.now() - new Date(at).getTime()) / 36e5;
-  // same 3-day rule as the Stock sync filter
-  const tone = h <= STOCK_SYNC_DAYS * 24 ? 'good' : 'warn';
+export interface SyncInfo {
+  inventory_status?: string | null;
+  stock_upload_mode?: string | null;
+  stock_update_frequency?: string | null;
+}
+
+/** Calendar days since the stock was last updated (the sheet gives a date, not a time). */
+export function syncDays(at: string | null | undefined): number | null {
+  if (!at) return null;
+  const a = new Date(at);
+  const today = new Date();
+  const d0 = Date.UTC(a.getFullYear(), a.getMonth(), a.getDate());
+  const d1 = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
+  return Math.max(0, Math.round((d1 - d0) / 864e5));
+}
+
+/** Stock sync badge: green within STOCK_SYNC_DAYS days, amber older, red never (same rule as the Stock sync filter). */
+export function StalenessBadge({ at, info }: { at: string | null | undefined; info?: SyncInfo }) {
+  const how = [info?.inventory_status, info?.stock_upload_mode && `updated ${info.stock_upload_mode}`, info?.stock_update_frequency].filter(Boolean).join(' · ');
+  if (!at)
+    return (
+      <Badge tone="bad" icon title={how || undefined}>
+        {info?.inventory_status && info.inventory_status !== 'Inventory Live' ? info.inventory_status : 'Never synced'}
+      </Badge>
+    );
+  const days = syncDays(at) ?? 0;
+  const tone = days <= STOCK_SYNC_DAYS ? 'good' : 'warn';
+  const label = days === 0 ? 'Today' : days === 1 ? 'Yesterday' : `${days} days ago`;
+  const when = new Date(at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
   return (
-    <Badge tone={tone} icon title={new Date(at).toLocaleString('en-IN')}>
-      {relTime(at)}
+    <Badge tone={tone} icon title={[`Stock updated ${when}`, how].filter(Boolean).join('\n')}>
+      {label}
     </Badge>
   );
 }
@@ -149,7 +173,7 @@ export default function Distributors() {
                   return a === null ? '–' : <span className={a >= 100 ? 'font-semibold text-good' : a < 70 ? 'text-bad' : ''}>{pct(a, 0)}</span>;
                 },
               },
-              { key: 'last_stock_sync', header: 'Stock sync', render: (r) => <StalenessBadge at={r.last_stock_sync} />, value: (r) => r.last_stock_sync },
+              { key: 'last_stock_sync', header: 'Stock sync', render: (r) => <StalenessBadge at={r.last_stock_sync} info={r} />, value: (r) => r.last_stock_sync },
             ]}
           />
         </Card>

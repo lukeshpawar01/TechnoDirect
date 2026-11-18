@@ -216,6 +216,8 @@ RECONCILIATION_TOLERANCE_PCT = 1.0
 BLUEORIGIN_DIR = env_str("BLUEORIGIN_DIR")
 # finance team's distributor settlement tracker (CSV export of the "Tracker" sheet)
 SETTLEMENT_TRACKER = env_str("SETTLEMENT_TRACKER")
+# "TechnoDirect Data - TechnoD Distributors" sheet (CSV): per-distributor "Inventory Updated" = stock sync date
+DISTRIBUTOR_SYNC_SHEET = env_str("DISTRIBUTOR_SYNC_SHEET")
 PAYU_MERCHANT_KEY = env_str("PAYU_MERCHANT_KEY")
 PAYU_MERCHANT_SALT = env_str("PAYU_MERCHANT_SALT")
 PAYU_BASE_URL = env_str("PAYU_BASE_URL", "https://info.payu.in")

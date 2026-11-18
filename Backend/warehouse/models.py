@@ -131,6 +131,11 @@ class Distributor(TimeStamped):
     is_active = models.BooleanField(default=True)
     onboarded_on = models.DateField(null=True, blank=True)
     bo_only = models.BooleanField(default=False, help_text="Known only from BlueOrigin (offline) sheets, not on the app")
+    # from the "TechnoD Distributors" sheet (masters/distributor_sync.py): when stock was last updated on the app
+    stock_updated_on = models.DateField(null=True, blank=True, help_text="Sheet 'Inventory Updated'")
+    inventory_status = models.CharField(max_length=32, blank=True, help_text="Inventory Live / Inventory Pending / Not onboarded")
+    stock_upload_mode = models.CharField(max_length=32, blank=True, help_text="Sheet 'Taken By': Manually / CK / ZOHO")
+    stock_update_frequency = models.CharField(max_length=32, blank=True, help_text="Daily / Twice a week / ...")
 
     class Meta:
         ordering = ["name"]

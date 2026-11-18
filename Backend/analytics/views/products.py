@@ -236,15 +236,19 @@ class InventoryView(AnalyticsView):
         inv = latest_inventory(f)
         per = {r["distributor_id"]: r for r in inv.values("distributor_id").annotate(
             last=Max("synced_at"), skus=Count("id"), instock=Count("id", filter=Q(quantity__gt=0)))}
-        stale_cut = timezone.now() - dt.timedelta(hours=24)
+        from .. import stocksync
+
+        dlist = list(dists.order_by("name"))
+        synced = stocksync.last_sync([d.id for d in dlist])  # sheet "Inventory Updated" date, else import time
         sync = []
-        for d in dists.order_by("name"):
+        for d in dlist:
             r = per.get(d.id)
-            last = r["last"] if r else None
+            last = synced.get(d.id)
+            b = stocksync.bucket(last, f.today)
             sync.append({
                 "distributor_id": d.id, "distributor": d.name,
-                "last_sync_at": timezone.localtime(last).isoformat() if last else None,
-                "status": "never" if not last else ("ok" if last >= stale_cut else "stale"),
+                "last_sync_at": stocksync.iso(last), **stocksync.info(d),
+                "status": {"fresh": "ok", "stale": "stale", "never": "never"}[b],
                 "skus": r["skus"] if r else 0, "in_stock_skus": r["instock"] if r else 0,
             })
         summary = {

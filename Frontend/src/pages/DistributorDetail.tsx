@@ -12,7 +12,7 @@ import { PageHeader } from '@/components/PageHeader';
 import { Card, ErrorState, LoadingBlock, Stat } from '@/components/ui';
 import { linkWithFilters, useFilters } from '@/lib/filters';
 import { asPct, date, inr, monthLabel, num, sharePct, titleCase } from '@/lib/format';
-import { StalenessBadge } from './Distributors';
+import { StalenessBadge, type SyncInfo } from './Distributors';
 
 const KPI_FMT: Record<string, { label: string; fmt: (n: number | null | undefined) => string; money?: boolean }> = {
   sales: { label: 'Sales', fmt: (n) => inr(n), money: true },
@@ -50,7 +50,7 @@ export default function DistributorDetail() {
     );
 
   const p = d.profile;
-  const extraProfile = Object.entries(p).filter(([k, v]) => !['id', 'name', 'state', 'region', 'asm', 'code', 'city', 'onboarded_on', 'last_stock_sync'].includes(k) && (typeof v === 'string' || typeof v === 'number'));
+  const extraProfile = Object.entries(p).filter(([k, v]) => !['id', 'name', 'state', 'region', 'asm', 'code', 'city', 'onboarded_on', 'last_stock_sync', 'inventory_status', 'stock_upload_mode', 'stock_update_frequency'].includes(k) && (typeof v === 'string' || typeof v === 'number'));
 
   return (
     <div>
@@ -66,7 +66,11 @@ export default function DistributorDetail() {
         <div className="grid grid-cols-2 gap-4 md:grid-cols-4 xl:grid-cols-6">
           <Stat label="ASM" value={p.asm ?? '–'} />
           <Stat label="Onboarded" value={date(p.onboarded_on ?? null)} />
-          <Stat label="Stock sync" value={<StalenessBadge at={p.last_stock_sync} />} />
+          <Stat
+            label="Stock sync"
+            value={<StalenessBadge at={p.last_stock_sync} info={p as SyncInfo} />}
+            sub={[p.stock_upload_mode ? `Updated ${String(p.stock_upload_mode).toLowerCase() === 'manually' ? 'manually' : 'via ' + p.stock_upload_mode}` : null, p.stock_update_frequency as string | null].filter(Boolean).join(' · ') || undefined}
+          />
           {extraProfile.slice(0, 3).map(([k, v]) => (
             <Stat key={k} label={titleCase(k)} value={String(v)} />
           ))}

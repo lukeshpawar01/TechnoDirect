@@ -29,7 +29,8 @@ export default function Inventory() {
   useEffect(() => setPage(1), [debounced, stock, apiParams]);
 
   const items = usePagedList<InventoryItem>('/inventory/items/', { page, page_size: 50, ordering, search: debounced || undefined, stock_status: stock || undefined });
-  const staleCount = (d?.sync ?? []).filter((s) => !s.last_sync_at || Date.now() - new Date(s.last_sync_at).getTime() > STOCK_SYNC_DAYS * 24 * 36e5).length;
+  // status comes from the server (sheet "Inventory Updated" date, 3-day rule)
+  const staleCount = (d?.sync ?? []).filter((s) => s.status !== 'ok').length;
 
   return (
     <div>
@@ -58,7 +59,7 @@ export default function Inventory() {
                 dense
                 columns={[
                   { key: 'distributor', header: 'Distributor', render: (r) => <span className="font-medium">{r.distributor}</span> },
-                  { key: 'last_sync_at', header: 'Last sync', render: (r) => <StalenessBadge at={r.last_sync_at} />, value: (r) => r.last_sync_at },
+                  { key: 'last_sync_at', header: 'Last sync', render: (r) => <StalenessBadge at={r.last_sync_at} info={r} />, value: (r) => r.last_sync_at },
                   { key: 'status', header: 'Status', render: (r) => <StatusBadge status={r.status} /> },
                   { key: 'skus', header: 'SKUs', align: 'right', render: (r) => num(r.skus) },
                   {
