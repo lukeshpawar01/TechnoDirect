@@ -101,24 +101,30 @@ else:  # local development fallback
         }
     }
 
-_medusa_url = env_str("MEDUSA_DATABASE_URL")
-if _medusa_url:
-    _medusa = env.db_url_config(_medusa_url)
-    _medusa["CONN_MAX_AGE"] = 0
-    _medusa.setdefault("OPTIONS", {})
-    # Belt and braces: the session itself is read-only and statements time out.
-    _medusa["OPTIONS"]["options"] = "-c default_transaction_read_only=on -c statement_timeout=120000"
-    _medusa["TEST"] = {"MIRROR": "default"}
-    DATABASES["medusa"] = _medusa
+# The TD tables on Supabase (orders, sales, customers, distributors, products, inventory, loyalty; in rupees). Read-only login
+# td_dashboard_ro (deploy/supabase_readonly.sql), through the Supabase Session pooler. Raw SQL only, never migrated
+# (technodirect/db_router.py); configured only when host, user and password are all filled in.
+_sb_host, _sb_user, _sb_pass = (env_str("SUPABASE_DB_HOST"), env_str("SUPABASE_DB_USER"),
+                                env_str("SUPABASE_DB_PASSWORD"))
+if _sb_host and _sb_user and _sb_pass:
+    DATABASES["supabase"] = {
+        "ENGINE": "django.db.backends.postgresql",
+        "HOST": _sb_host,
+        "PORT": env_int("SUPABASE_DB_PORT", 5432),
+        "NAME": env_str("SUPABASE_DB_NAME", "postgres") or "postgres",
+        "USER": _sb_user,
+        "PASSWORD": _sb_pass,
+        "CONN_MAX_AGE": 0,
+        # encrypted, and belt and braces: the session itself is read-only and statements time out
+        "OPTIONS": {"sslmode": env_str("SUPABASE_DB_SSLMODE", "require") or "require", "connect_timeout": 15,
+                    "options": "-c default_transaction_read_only=on -c statement_timeout=120000"},
+        "TEST": {"MIRROR": "default"},
+    }
 
-# Medusa stores money in minor units (paise) -> divide by 100. Set to 1 if TD stores whole rupees.
-MEDUSA_AMOUNT_DIVISOR = int(env_str("MEDUSA_AMOUNT_DIVISOR", "100") or 100)
-# Timezone of Medusa's `timestamp without time zone` columns ("order".shipped_at / delivered_at).
-MEDUSA_NAIVE_TZ = env_str("MEDUSA_NAIVE_TZ", "UTC") or "UTC"
-# Which stock the dashboard shows: 'td' = app stock (Medusa), 'ck' = Channel Konnect.
+# Which stock the dashboard shows: 'td' = app stock (TD database), 'ck' = Channel Konnect.
 INVENTORY_PRIMARY_SOURCE = env_str("INVENTORY_PRIMARY_SOURCE", "td") or "td"
 
-DATABASE_ROUTERS = ["technodirect.db_router.MedusaRouter"]
+DATABASE_ROUTERS = ["technodirect.db_router.ReadOnlySourceRouter"]
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 AUTH_USER_MODEL = "accounts.User"
@@ -224,8 +230,12 @@ CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 CELERY_TASK_SOFT_TIME_LIMIT = 60 * 20
 CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 # Data refreshes only at fixed IST times (default 10:00 and 18:00). One chained job:
-# Medusa -> PayU -> CRM sheet -> Channel Konnect -> derivations -> cache invalidation.
+# Supabase (TD data) -> PayU -> CRM sheet -> Channel Konnect -> BlueOrigin / settlement / stock sheets
+# -> derivations -> cache invalidation.
 SYNC_TIMES = parse_times(env_str("SYNC_TIMES", "10:00,18:00"))
+# The web server runs that refresh itself at SYNC_TIMES (ingestion/scheduler.py) - locally, on Windows or on Render,
+# catching up on start if a slot was missed. Set AUTO_REFRESH=false only for a second server on the same database.
+AUTO_REFRESH = env_bool("AUTO_REFRESH", True)
 CELERY_BEAT_SCHEDULE = {
     f"refresh-all-{h:02d}{m:02d}-ist": {"task": "ingestion.tasks.refresh_all", "schedule": crontab(hour=h, minute=m)}
     for h, m in SYNC_TIMES
@@ -262,9 +272,6 @@ DROPBOX_BO_MIRROR = env_str("DROPBOX_BO_MIRROR")  # local copy; default Backend/
 SETTLEMENT_TRACKER = env_str("SETTLEMENT_TRACKER")
 # "TechnoDirect Data - TechnoD Distributors" sheet (CSV): per-distributor "Inventory Updated" = stock sync date
 DISTRIBUTOR_SYNC_SHEET = env_str("DISTRIBUTOR_SYNC_SHEET")
-# folder the app exports (Order_Data.csv, Customer_Data.csv, ...) are dropped into; `scheduled_refresh` re-imports
-# them when they change
-TD_EXPORT_DIR = env_str("TD_EXPORT_DIR")
 PAYU_MERCHANT_KEY = env_str("PAYU_MERCHANT_KEY")
 PAYU_MERCHANT_SALT = env_str("PAYU_MERCHANT_SALT")
 PAYU_BASE_URL = env_str("PAYU_BASE_URL", "https://info.payu.in")

@@ -1,11 +1,11 @@
 from .channel_konnect import ChannelKonnectConnector
 from .google_sheets import GoogleSheetsConnector
-from .medusa import MedusaConnector
+from .supabase import SupabaseConnector
 from .payu import PayUConnector
 
 # Order matters: refresh_all runs them in this sequence.
 CONNECTORS = {
-    "medusa": MedusaConnector,
+    "supabase": SupabaseConnector,
     "payu": PayUConnector,
     "google_sheets": GoogleSheetsConnector,
     "channel_konnect": ChannelKonnectConnector,

@@ -4,11 +4,11 @@
  people (browser) ──https──▶ Cloudflare ◀──tunnel (outbound)── cloudflared ──▶ 127.0.0.1:8080  waitress (serve.py)
                                                                                        ├─ /api/*  Django API
                                                                                        └─ /*      Frontend/dist
- Task Scheduler: "TechnoDirect Dashboard" (at boot)   "TechnoDirect Refresh" (10:00, 18:00)
+ Task Scheduler: "TechnoDirect Dashboard" (at boot) - the server itself refreshes the data at 10:00 and 18:00 IST
 ```
 
-No router or firewall ports are opened. The data files stay where they are:
-- `Desktop\TD_Data\DATA`
+No router or firewall ports are opened. TD data comes from Supabase. The other data files stay where they are:
+- `Desktop\TD_Data\DATA` (settlement tracker, distributor stock sheet)
 - the Dropbox folders
 - `db.sqlite3`
 
@@ -47,10 +47,9 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 | Task | What to do |
 |---|---|
-| New app exports (Order_Data.csv …) | Save them into `Desktop\TD_Data\DATA` (same names). The next 10:00/18:00 refresh imports them. |
 | Refresh now | `deploy\windows\refresh.ps1`, or the **Refresh** button in the dashboard |
 | After a code / frontend change | `deploy\windows\build_frontend.ps1`, then `Restart-ScheduledTask "TechnoDirect Dashboard"` (or `Stop-` + `Start-ScheduledTask`) |
-| Logs | `Backend\data\logs\server.log`, `Backend\data\logs\refresh.log` |
+| Logs | `Backend\data\logs\server.log` (includes the automatic 10:00 / 18:00 refreshes), `Backend\data\logs\refresh.log` (manual `refresh.ps1`) |
 | Health check | http://127.0.0.1:8080/api/health/ |
 | Give someone access | Dashboard → Admin → Users (role + territory). ASMs/RSMs only see their own area. |
 
@@ -60,8 +59,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 wins. It holds only:
 - `DEBUG=False`, a generated secret key, and the allowed domain;
 - the frontend build folder;
-- the file cache folder;
-- `TD_EXPORT_DIR`.
+- the file cache folder.
 
 Everything else, such as data paths and email, stays in `.env`.
 
@@ -87,6 +85,23 @@ and is git-ignored. The Dropbox desktop app is no longer needed.
 
 If something fails (for example a revoked token), the run shows as failed on Data Health and the previous data stays on
 the dashboard.
+
+## Live TD data from Supabase (Postgres)
+
+TD data (orders, sales, customers, distributors, products, inventory and loyalty) comes from the Supabase project
+"technosport". It is the only source of TD data; there are no CSV exports to drop into a folder.
+
+1. In Supabase, open **SQL Editor** and paste `Backend\deploy\supabase_readonly.sql`. Put your own password (letters and
+   digits) in place of `CHANGE_ME_STRONG_PASSWORD`, then click **Run**. This creates `td_dashboard_ro`, a read-only login
+   that can read only those 8 tables.
+2. Open **Connect**, then **Session pooler**, then **View parameters**. Fill these in `Backend\.env`:
+   - `SUPABASE_DB_HOST`: the host shown there
+   - `SUPABASE_DB_USER`: `td_dashboard_ro.<project-ref>`
+   - `SUPABASE_DB_PASSWORD`: the password from step 1
+3. Run `python manage.py supabase_check`. Every line should show OK.
+4. Run `python manage.py supabase_live --force` for the first import.
+5. Restart the "TechnoDirect Dashboard" task. From then on, the server pulls from Supabase by itself at 10:00 and
+   18:00 IST, as part of the normal refresh.
 
 ## Notes
 

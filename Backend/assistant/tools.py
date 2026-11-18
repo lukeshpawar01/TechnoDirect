@@ -8,7 +8,7 @@ import logging
 from django.urls import resolve
 from rest_framework.test import APIRequestFactory, force_authenticate
 
-from ingestion.csv_import import norm
+from ingestion.normalize import norm
 from masters.models import MetricDefinition
 from warehouse.models import Asm, Distributor, Region, State
 

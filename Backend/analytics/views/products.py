@@ -226,7 +226,7 @@ def units_last_30d(f):
 
 class InventoryView(AnalyticsView):
     permission_code = "view_inventory"
-    sources = ["channel_konnect", "medusa"]
+    sources = ["channel_konnect", "supabase"]
     export_key = "oos_top_sellers"
 
     def compute(self, f, request, **kw):

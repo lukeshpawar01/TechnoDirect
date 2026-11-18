@@ -11,7 +11,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from analytics.cache import bump_cache_version
-from ingestion.csv_import import norm
+from ingestion.normalize import norm
 from warehouse.models import Distributor, InventorySnapshot, Target
 
 

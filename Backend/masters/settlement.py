@@ -117,7 +117,7 @@ def read_rows(path):
 
 def _payees(rows, orders):
     """Sheet distributor name -> Distributor (alias, then majority of its app orders)."""
-    from ingestion.csv_import import norm
+    from ingestion.normalize import norm
     from warehouse.models import Distributor
 
     index = {}

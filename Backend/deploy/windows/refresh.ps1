@@ -1,4 +1,4 @@
-# Scheduled data refresh (10:00 and 18:00 via the "TechnoDirect Refresh" task). Safe to run by hand any time.
+# Refresh the data now, by hand (the dashboard server also does it by itself at 10:00 and 18:00 IST).
 $backend = Resolve-Path (Join-Path $PSScriptRoot "..\..")
 $logs = Join-Path $backend "data\logs"
 New-Item -ItemType Directory -Force $logs | Out-Null

@@ -12,7 +12,7 @@ import { REFRESH_SCHEDULE, useRefreshAll } from '@/lib/refresh';
 import { dateTime, num, relTime, titleCase } from '@/lib/format';
 
 const SOURCE_LABEL: Record<string, string> = {
-  medusa: 'TD orders & retailers (Medusa)',
+  supabase: 'TD orders & retailers (Supabase)',
   payu: 'PayU payments',
   sheets_crm: 'CRM tracker (Google Sheets)',
   google_sheets: 'Google Sheets',

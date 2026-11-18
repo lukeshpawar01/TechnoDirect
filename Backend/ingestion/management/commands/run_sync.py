@@ -5,7 +5,7 @@ from ingestion.tasks import refresh_all_inline, run_single_inline
 
 
 class Command(BaseCommand):
-    help = "Run a sync inline: medusa | payu | google_sheets | channel_konnect | all (= refresh_all chain)"
+    help = "Run a sync inline: supabase | payu | google_sheets | channel_konnect | all (= refresh_all chain)"
 
     def add_arguments(self, parser):
         parser.add_argument("source", choices=sorted(CONNECTORS) + ["all"])

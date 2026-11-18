@@ -3,9 +3,10 @@
 #
 # 1. writes Backend\.env.production (secret key generated, DEBUG off, your domain allowed)
 # 2. builds the dashboard (Frontend\dist)
-# 3. registers two Windows scheduled tasks that run as SYSTEM, logged in or not:
-#      "TechnoDirect Dashboard" - starts at boot, restarted every minute if it stops
-#      "TechnoDirect Refresh"   - 10:00 and 18:00 every day
+# 3. registers the "TechnoDirect Dashboard" scheduled task (runs as SYSTEM, logged in or not): starts at boot,
+#    restarted every minute if it stops. The server refreshes the data itself at 10:00 and 18:00 IST
+#    (ingestion/scheduler.py), so there is no separate refresh task; older "TechnoDirect Refresh" / "Live Sync" tasks
+#    are removed.
 # 4. stops the PC sleeping while plugged in (the dashboard is offline while it sleeps)
 param([string]$Domain = "")
 
@@ -35,12 +36,12 @@ $serveSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStop
 Register-ScheduledTask -TaskName "TechnoDirect Dashboard" -Action $serveAction -Principal $principal `
     -Trigger (New-ScheduledTaskTrigger -AtStartup) -Settings $serveSettings -Force | Out-Null
 
-$refreshAction = New-ScheduledTaskAction -Execute $ps -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$here\refresh.ps1`""
-$refreshSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable `
-    -ExecutionTimeLimit (New-TimeSpan -Hours 2)
-$triggers = @((New-ScheduledTaskTrigger -Daily -At "10:00"), (New-ScheduledTaskTrigger -Daily -At "18:00"))
-Register-ScheduledTask -TaskName "TechnoDirect Refresh" -Action $refreshAction -Principal $principal `
-    -Trigger $triggers -Settings $refreshSettings -Force | Out-Null
+# the data refresh now runs inside the dashboard server: remove the old separate tasks if present
+foreach ($old in "TechnoDirect Refresh", "TechnoDirect Live Sync") {
+    if (Get-ScheduledTask -TaskName $old -ErrorAction SilentlyContinue) {
+        Unregister-ScheduledTask -TaskName $old -Confirm:$false
+    }
+}
 
 Start-ScheduledTask -TaskName "TechnoDirect Dashboard"
 

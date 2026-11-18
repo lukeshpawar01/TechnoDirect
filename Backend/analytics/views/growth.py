@@ -67,7 +67,7 @@ def _log_shares(prev, cur, keys, total_key):
 
 class GrowthView(AnalyticsView):
     permission_code = "view_retention"
-    sources = ["medusa", "payu"]
+    sources = ["supabase", "payu"]
     export_key = "monthly"
 
     def compute(self, f, request, **kw):

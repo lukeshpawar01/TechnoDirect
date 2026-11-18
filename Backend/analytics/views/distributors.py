@@ -61,7 +61,7 @@ def dispatch_stats(qs, group_field):
 
 class DistributorsView(AnalyticsView):
     permission_code = "view_distributors"
-    sources = ["medusa", "payu", "channel_konnect"]
+    sources = ["supabase", "payu", "channel_konnect"]
     export_key = "rows"
 
     def cache_extra(self, request, **kwargs):
@@ -138,7 +138,7 @@ class DistributorsView(AnalyticsView):
 
 class DistributorDetailView(AnalyticsView):
     permission_code = "view_distributors"
-    sources = ["medusa", "payu", "channel_konnect"]
+    sources = ["supabase", "payu", "channel_konnect"]
     export_key = "retailers"
 
     def compute(self, f, request, pk=None):
@@ -449,7 +449,7 @@ class DistributorInsightsView(AnalyticsView):
     retailers buying from more than one distributor."""
 
     permission_code = "view_distributors"
-    sources = ["medusa", "payu"]
+    sources = ["supabase", "payu"]
     export_key = "top_articles"
 
     def compute(self, f, request, **kw):

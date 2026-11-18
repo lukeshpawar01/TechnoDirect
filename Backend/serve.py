@@ -32,6 +32,10 @@ if not settings.FRONTEND_DIST:
 call_command("migrate", interactive=False, verbosity=0)
 call_command("collectstatic", interactive=False, verbosity=0)
 
+from ingestion.scheduler import start as start_auto_refresh  # noqa: E402
+
+start_auto_refresh()  # the 10:00 / 18:00 data refresh runs inside this server
+
 host = os.environ.get("SERVE_HOST", "127.0.0.1")
 port = int(os.environ.get("SERVE_PORT", "8080"))
 print(f"TechnoDirect dashboard on http://{host}:{port}  (frontend: {settings.FRONTEND_DIST})", flush=True)

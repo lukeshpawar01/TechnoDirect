@@ -119,7 +119,7 @@ class DataHealthView(AnalyticsView):
 
 
 class SyncTriggerView(APIView):
-    """POST {source: medusa|payu|google_sheets|channel_konnect|all}"""
+    """POST {source: supabase|payu|google_sheets|channel_konnect|all}"""
 
     permission_classes = [IsAuthenticated, HasPerm("trigger_sync")]
 

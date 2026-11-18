@@ -1,7 +1,7 @@
 from django.db import models
 from django.utils import timezone
 
-SOURCES = ["medusa", "payu", "google_sheets", "channel_konnect"]
+SOURCES = ["supabase", "payu", "google_sheets", "channel_konnect"]
 
 
 class SyncRun(models.Model):

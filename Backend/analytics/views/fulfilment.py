@@ -322,7 +322,7 @@ class FulfilmentFlowView(AnalyticsView):
     """GET /api/orders/flow/?group_by=distributor|state|asm|weekday|size|cart|payment_mode|platform"""
 
     permission_code = "view_orders"
-    sources = ["medusa"]
+    sources = ["supabase"]
     export_key = "hotspots.rows"
 
     def compute(self, f, request, **kw):

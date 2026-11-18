@@ -1,162 +1,49 @@
+import csv
 import datetime as dt
-import re
+import io
+from decimal import Decimal
 
 from django.test import SimpleTestCase, TestCase
 
-from ingestion.connectors import medusa_queries as Q
-from ingestion.connectors.medusa import STATE_TO_REGION, clean_state, map_order_status
-
-NOW = dt.datetime(2026, 11, 12, tzinfo=dt.timezone.utc)
+from ingestion.connectors import supabase_queries as Q
 
 
-class OrderStatusMappingTests(SimpleTestCase):
-    def test_cancelled_wins(self):
-        self.assertEqual(map_order_status("canceled", "not_fulfilled", None, None, None), "cancelled")
-        self.assertEqual(map_order_status("pending", "shipped", NOW, None, None, "CANCELLED"), "cancelled")
+class SupabaseTablesTests(SimpleTestCase):
+    """The Supabase tables are read with the expected columns; the login gets exactly those tables."""
 
-    def test_delivered_and_shipped(self):
-        self.assertEqual(map_order_status("completed", "shipped", NOW, NOW, NOW), "delivered")
-        self.assertEqual(map_order_status("pending", "not_fulfilled", None, None, None, "delivered"), "delivered")
-        self.assertEqual(map_order_status("pending", "not_fulfilled", NOW, None, None), "shipped")
-        self.assertEqual(map_order_status("pending", "not_fulfilled", None, None, None, "dispatched"), "shipped")
+    def test_columns_match_the_sample(self):
+        heads = {k: next(csv.reader(io.StringIO(body))) for k, body in (
+            ("distributor", TD_SAMPLE["Distributor_Data.csv"]),
+            ("customer", TD_SAMPLE["Customer_Data.csv"]),
+            ("product", TD_SAMPLE["Product_Data.csv"]),
+            ("order", TD_SAMPLE["Order_Data.csv"]),
+            ("sales", TD_SAMPLE["Sales_Data.csv"]),
+            ("inventory", TD_SAMPLE["Inventory_Data.csv"]),
+            ("loyalty", TD_SAMPLE["Loyality_Data.csv"]))}
+        for kind, cols in heads.items():
+            self.assertEqual(Q.TABLES[kind][1], cols, kind)
 
-    def test_confirmed_and_received(self):
-        self.assertEqual(map_order_status("pending", "fulfilled", None, None, None), "confirmed")
-        self.assertEqual(map_order_status("pending", "not_fulfilled", None, None, None, "packed"), "confirmed")
-        self.assertEqual(map_order_status("pending", "not_fulfilled", None, None, None, "placed"), "received")
+    def test_grant_sql(self):
+        from ingestion.management.commands.supabase_check import grant_sql
 
+        sql = grant_sql()
+        for t in ("orders", "sales", "customers", "distributors", "products", "inventory_snapshot", "loyalty_ledger",
+                  "etl_watermark"):
+            self.assertIn(f'grant select on "public"."{t}" to td_dashboard_ro;', sql)
+        self.assertIn("default_transaction_read_only = on", sql)
+        self.assertNotIn("grant insert", sql.lower())
 
-class GeographyTests(SimpleTestCase):
-    def test_state_cleaning(self):
-        self.assertEqual(clean_state("  KARNATAKA "), "Karnataka")
-        self.assertEqual(clean_state("ORISSA"), "Odisha")
-        self.assertEqual(clean_state("Jammu & Kashmir"), "Jammu And Kashmir")
-        self.assertEqual(clean_state(None), "")
+    def test_values_as_text(self):
+        from ingestion.connectors.supabase import as_text
 
-    def test_default_regions(self):
-        self.assertEqual(STATE_TO_REGION["karnataka"], "South")
-        self.assertEqual(STATE_TO_REGION["odisha"], "East & North-East")
-
-
-class MedusaSqlTests(SimpleTestCase):
-    """Static checks: the queries run with psycopg pyformat params, so every literal % must be doubled."""
-
-    QUERIES = {n: getattr(Q, n) for n in dir(Q) if n.endswith("_SQL")}
-
-    def test_placeholders_are_known(self):
-        allowed = {"since", "div", "naive_tz"}
-        for name, sql in self.QUERIES.items():
-            used = set(re.findall(r"%\((\w+)\)s", sql))
-            self.assertTrue(used <= allowed, f"{name} uses unknown params {used - allowed}")
-
-    def test_no_bare_percent(self):
-        for name, sql in self.QUERIES.items():
-            stripped = re.sub(r"%\(\w+\)s|%%", "", sql)
-            self.assertNotIn("%", stripped, f"{name} has an unescaped % sign")
-
-    def test_no_select_star(self):
-        """The read-only role has column-level grants on some tables, so `*` would be rejected."""
-        for name, sql in self.QUERIES.items():
-            self.assertIsNone(re.search(r"(\w+\.)?\*\s+FROM|SELECT\s+\*", sql, re.I), f"{name} uses SELECT *")
-
-    def test_never_selects_secrets(self):
-        secret = re.compile(r"password_hash|tc_api_token|\bsalt\b|merchant_id|razorpay_id|\"user\"", re.I)
-        for name, sql in self.QUERIES.items():
-            code = "\n".join(line.split("--")[0] for line in sql.splitlines())
-            self.assertIsNone(secret.search(code), f"{name} references a secret column")
-
-
-class CsvImportTests(TestCase):
-    """End-to-end import of tiny versions of the five TD_*.csv exports."""
-
-    FILES = {
-        "TD_Customer_Data.csv": (
-            "id,email,first_name,last_name,phone,has_account,created_at,updated_at,deleted_at,gst_number,"
-            "business_name,ts_pincode,ts_preferred,kyc,udyam_number,distributor_name\n"
-            "cus_1,a@x.in,Ravi,K,9000000001,TRUE,09/25/2023 14:29:34,09/24/2026 06:23:58,,29ABCDE1234F1Z5,"
-            "RAVI SPORTS,560064,FALSE,TRUE,,\"HEERA EXPORTS INC, Zealous Ventures\"\n"
-            "cus_2,,,,9000000002,FALSE,10/10/2023 09:05:26,10/11/2023 05:11:03,,,,888888,FALSE,FALSE,,\n"),
-        "TD_product data.csv": (
-            "product_id,style,product_title,launch_date,variant_id,size,price,category_level_1,category_level_2,"
-            "category_level_3\n"
-            "prod_1,OR67,OR67 Tee,09/23/2023 09:20:20,var_1,M,3594,men,topwear,t-shirts\n"
-            "prod_2,OR67,OR67 Tee relaunch,09/23/2026 09:20:20,var_2,M,3594,men,topwear,t-shirts\n"),
-        "TD_Inventory_Data.csv": (
-            "Style,Product_id,Size,SKU,Piece Per Unit,Distributor,Stock\n"
-            "OR67,prod_1,M,SKU-OR67-M,6,Heera,12\nOR67,prod_1,M,SKU-OR67-M,6,Zealous,0\n"),
-        "TD_Sales_Data.csv": (
-            "order_id,timestamp,Dispatch Date,Delivered Date,id,product_id,retailer_name,style,size,quantity,"
-            "distributor,line_item_amount,total_amount,mode,contact,city,country_code,province,ts_pincode,"
-            "gst_number,udyam_number,platform\n"
-            "500,2026-11-10 05:00:00.000,2026-11-10,,cus_1,prod_1,Ravi,OR67,M,2,HEERA EXPORTS INC,4312,4612,UPI,"
-            "9000000001,bengaluru,in,Karnataka,560064,,,android\n"),
-        "TD_Loyality_Point.csv": (
-            "customer_id,total_points,Event Date,first_name,business_name,phone,Order Id,Event\n"
-            "cus_1,100,05-12-2025,Ravi,RAVI SPORTS,9000000001,,New Customer\n"
-            "cus_1,43,10-11-2026,Ravi,RAVI SPORTS,9000000001,500,Points Earned\n"
-            "cus_1,50,11-11-2026,Ravi,RAVI SPORTS,9000000001,,Points Redeemed\n"),
-    }
-
-    def setUp(self):
-        import tempfile
-        from pathlib import Path
-
-        self.tmp = tempfile.TemporaryDirectory()
-        for name, body in self.FILES.items():
-            Path(self.tmp.name, name).write_text(body, encoding="utf-8")
-
-    def tearDown(self):
-        self.tmp.cleanup()
-
-    def test_import(self):
-        from decimal import Decimal
-
-        from ingestion.csv_import import CsvImporter
-        from warehouse.models import (Distributor, InventorySnapshot, LoyaltyEvent, Order, Product,
-                                      ProductVariant, Retailer)
-
-        result = CsvImporter(self.tmp.name).run()
-        self.assertEqual(result["warnings"], [])
-        heera = Distributor.objects.get(name="Heera Exports Inc")
-        self.assertIn("Heera", heera.aliases)
-        self.assertEqual(heera.state.name, "Karnataka")
-        self.assertEqual(InventorySnapshot.objects.get(distributor=heera).quantity, 12)
-
-        r1, r2 = Retailer.objects.get(source_id="cus_1"), Retailer.objects.get(source_id="cus_2")
-        self.assertEqual((r1.kyc_status, r1.distributor_id, r1.state.name), ("approved", heera.id, "Karnataka"))
-        self.assertEqual((r2.kyc_status, r2.state), ("not_submitted", None))
-
-        self.assertEqual(Product.objects.filter(style="OR67").count(), 2)  # relaunch reuses the style
-        v = ProductVariant.objects.get(source_id="var_1")
-        self.assertEqual((v.sku, v.mrp, v.price), ("SKU-OR67-M", Decimal("599.00"), Decimal("359.40")))
-
-        o = Order.objects.get(display_id="500")
-        self.assertEqual((o.status, o.is_qualifying, o.units, o.gross_value), ("shipped", True, 12, Decimal("4612")))
-        line = o.lines.get()
-        self.assertEqual((line.boxes, line.pieces_per_box, line.quantity, line.unit_price),
-                         (2, 6, 12, Decimal("359.33")))
-        self.assertGreaterEqual(o.shipped_at, o.placed_at)
-
-        pts = dict(LoyaltyEvent.objects.values_list("event_type", "points"))
-        self.assertEqual(pts, {"new_customer": 100, "earned": 43, "redeemed": -50})
-        self.assertEqual(LoyaltyEvent.objects.get(event_type="earned").order_id, o.id)
-
-        CsvImporter(self.tmp.name).run()  # re-import is idempotent
-        self.assertEqual((Order.objects.count(), LoyaltyEvent.objects.count(), Retailer.objects.count()), (1, 3, 2))
-
-
-class AdoptCsvDistributorTests(TestCase):
-    def test_medusa_sync_adopts_csv_distributor(self):
-        from ingestion.connectors.medusa import MedusaConnector
-        from warehouse.models import Distributor
-
-        d = Distributor.objects.create(code="HEERAEXPOR", name="Heera Exports Inc", source_id="name:heeraexportsinc",
-                                       aliases=["Heera"])
-        rows = [{"source_id": "tcd_1", "code": "TCD1", "name": "HEERA EXPORTS INC"},
-                {"source_id": "tcd_2", "code": "TCD2", "name": "New Distributor"}]
-        MedusaConnector._adopt_csv_distributors(rows)
-        d.refresh_from_db()
-        self.assertEqual((d.source_id, rows[0]["code"], rows[1]["code"]), ("tcd_1", "HEERAEXPOR", "TCD2"))
+        self.assertEqual(as_text(True), "true")
+        self.assertEqual(as_text(None), "")
+        self.assertEqual(as_text(Decimal("20.0000000000000000")), "20.0000000000000000")
+        self.assertEqual(as_text(Decimal("1E+2")), "100")
+        self.assertEqual(as_text(dt.date(2026, 11, 10)), "2026-11-10")
+        ist = dt.timezone(dt.timedelta(hours=5, minutes=30))
+        self.assertEqual(as_text(dt.datetime(2026, 11, 13, 13, 30, tzinfo=ist)), "2026-11-13T08:00:00.000000Z")
+        self.assertEqual(as_text(500), "500")
 
 
 class MergeDistributorTests(TestCase):
@@ -185,93 +72,218 @@ class MergeDistributorTests(TestCase):
         self.assertIn("Heera Main", keep.aliases)
 
 
-class TdExportImportTests(TestCase):
-    """End-to-end import of a tiny version of the ID-keyed TD export (TD_Data/DATA)."""
+# A tiny TD dataset: the Supabase tables' rows in text form, one CSV string per table.
+TD_SAMPLE = {
+    "Distributor_Data.csv": (
+        "distributor_id,distributor_name,gst_number,city,state,pincode,is_active,created_at,deleted_at\n"
+        "9,HEERA EXPORTS INC,,BANGALORE,Karnataka,560053,true,2024-11-14T11:35:22.155866Z,\n"
+        "6,Ankit Jain,,DELHI,Delhi,110001,true,2025-01-01T00:00:00Z,\n"
+        "32,Ankit Jain,,DELHI,Delhi,110001,true,2025-02-01T00:00:00Z,\n"),
+    "Customer_Data.csv": (
+        "customer_id,email,first_name,last_name,business_name,phone,has_account,kyc,gst_number,udyam_number,"
+        "ts_pincode,city,province,distributor_name,is_test,created_at,updated_at,deleted_at\n"
+        "cus_1,,Ravi,K,RAVI SPORTS,9000000001,true,true,,,560064,Bengaluru,Karnataka,HEERA EXPORTS INC,false,"
+        "2025-03-01T10:00:00.000000Z,,\n"
+        "cus_t,,Test,,TEST,9000000009,true,true,,,888888,Bengaluru,Karnataka,HEERA EXPORTS INC,true,"
+        "2023-09-25T14:29:47.417162Z,,\n"),
+    "Product_Data.csv": (
+        "variant_id,product_id,sku,style,product_title,size,price,pcs_per_unit,category_level_1,category_level_2,"
+        "category_level_3,fabric,gsm,usp1,usp2,usp3,usp4,usp5,usp6,product_status,is_deleted,launch_date\n"
+        "var_1,prod_1,SKU-OR67-M,OR67,OR67 Tee,M,3594,6,men,topwear,t-shirts,,0,,,,,,,published,false,"
+        "2025-09-23T09:20:20.58316Z\n"),
+    "Order_Data.csv": (
+        "order_id,display_id,customer_id,distributor_id,ts_order_status,settlement_status,order_date,"
+        "dispatch_date,delivered_date,units,line_total,payu_amount,points_redeemed,total_amount,pg_charges,mode,"
+        "platform,city,province,updated_at\n"
+        "order_A,500,cus_1,9,delivered,pending,2026-11-10,2026-11-11,2026-11-13,2,4312.00,3000.00,1312.00,"
+        "4312.00,0,UPI,android,bengaluru,Karnataka,2026-11-13T08:00:00Z\n"
+        "order_B,501,cus_1,9,packed,pending,2026-11-12,,,1,2156.00,2156.00,0,2156.00,0,CC,web,,,"
+        "2026-11-12T08:00:00Z\n"
+        "order_P,4,cus_1,9,delivered,pending,2023-11-27,,,1,20.00,0.00,0.00,0.00,0,,android,,,"
+        "2023-11-29T10:26:40Z\n"),
+    "Sales_Data.csv": (
+        "sales_id,order_key,order_id,order_date,customer_id,distributor_id,ts_order_status,variant_id,product_id,"
+        "size,quantity,pieces,unit_price,line_amount\n"
+        "item_1,order_A,500,2026-11-10,cus_1,9,delivered,var_1,prod_1,M,2,12,2156,4312\n"
+        "item_2,order_B,501,2026-11-12,cus_1,9,packed,var_1,prod_1,M,1,6,2156,2156\n"
+        "item_3,order_P,4,2023-11-27,cus_1,9,delivered,var_1,prod_1,M,1,6,20,20\n"),
+    "Inventory_Data.csv": (
+        "inventory_pk,snapshot_date,variant_id,location_id,stock_location,distributor_id,stock,reserved,available\n"
+        "k1,2026-11-17,var_1,sloc_1,heera-exports-inc,9,10,2,8\n"
+        "k2,2026-11-17,var_1,sloc_2,heera-exports-incc,,4,0,4\n"),
+    "Loyality_Data.csv": (
+        "ledger_id,customer_id,order_id,event,total_points,signed_points,discount_value,event_date\n"
+        "lpoint_1,cus_1,,New Customer,100,100,0,2026-01-01\n"
+        "lpoint_2,cus_1,500,Points Redeemed,1312,-1312,0,2026-11-10\n"),
+}
 
-    FILES = {
-        "Distributor_Data.csv": (
-            "distributor_id,distributor_name,gst_number,city,state,pincode,is_active,created_at,deleted_at\n"
-            "9,HEERA EXPORTS INC,,BANGALORE,Karnataka,560053,true,2024-11-14T11:35:22.155866Z,\n"
-            "6,Ankit Jain,,DELHI,Delhi,110001,true,2025-01-01T00:00:00Z,\n"
-            "32,Ankit Jain,,DELHI,Delhi,110001,true,2025-02-01T00:00:00Z,\n"),
-        "Customer_Data.csv": (
-            "customer_id,email,first_name,last_name,business_name,phone,has_account,kyc,gst_number,udyam_number,"
-            "ts_pincode,city,province,distributor_name,is_test,created_at,updated_at,deleted_at\n"
-            "cus_1,,Ravi,K,RAVI SPORTS,9000000001,true,true,,,560064,Bengaluru,Karnataka,HEERA EXPORTS INC,false,"
-            "2025-03-01T10:00:00.000000Z,,\n"
-            "cus_t,,Test,,TEST,9000000009,true,true,,,888888,Bengaluru,Karnataka,HEERA EXPORTS INC,true,"
-            "2023-09-25T14:29:47.417162Z,,\n"),
-        "Product_Data.csv": (
-            "variant_id,product_id,sku,style,product_title,size,price,pcs_per_unit,category_level_1,category_level_2,"
-            "category_level_3,fabric,gsm,usp1,usp2,usp3,usp4,usp5,usp6,product_status,is_deleted,launch_date\n"
-            "var_1,prod_1,SKU-OR67-M,OR67,OR67 Tee,M,3594,6,men,topwear,t-shirts,,0,,,,,,,published,false,"
-            "2025-09-23T09:20:20.58316Z\n"),
-        "Order_Data.csv": (
-            "order_id,display_id,customer_id,distributor_id,ts_order_status,settlement_status,order_date,"
-            "dispatch_date,delivered_date,units,line_total,payu_amount,points_redeemed,total_amount,pg_charges,mode,"
-            "platform,city,province,updated_at\n"
-            "order_A,500,cus_1,9,delivered,pending,2026-11-10,2026-11-11,2026-11-13,2,4312.00,3000.00,1312.00,"
-            "4312.00,0,UPI,android,bengaluru,Karnataka,2026-11-13T08:00:00Z\n"
-            "order_B,501,cus_1,9,packed,pending,2026-11-12,,,1,2156.00,2156.00,0,2156.00,0,CC,web,,,"
-            "2026-11-12T08:00:00Z\n"
-            "order_P,4,cus_1,9,delivered,pending,2023-11-27,,,1,20.00,0.00,0.00,0.00,0,,android,,,"
-            "2023-11-29T10:26:40Z\n"),
-        "Sales_Data.csv": (
-            "sales_id,order_key,order_id,order_date,customer_id,distributor_id,ts_order_status,variant_id,product_id,"
-            "size,quantity,pieces,unit_price,line_amount\n"
-            "item_1,order_A,500,2026-11-10,cus_1,9,delivered,var_1,prod_1,M,2,12,2156,4312\n"
-            "item_2,order_B,501,2026-11-12,cus_1,9,packed,var_1,prod_1,M,1,6,2156,2156\n"
-            "item_3,order_P,4,2023-11-27,cus_1,9,delivered,var_1,prod_1,M,1,6,20,20\n"),
-        "Inventory_Data.csv": (
-            "inventory_pk,snapshot_date,variant_id,location_id,stock_location,distributor_id,stock,reserved,available\n"
-            "k1,2026-11-17,var_1,sloc_1,heera-exports-inc,9,10,2,8\n"
-            "k2,2026-11-17,var_1,sloc_2,heera-exports-incc,,4,0,4\n"),
-        "Loyality_Data.csv": (
-            "ledger_id,customer_id,order_id,event,total_points,signed_points,discount_value,event_date\n"
-            "lpoint_1,cus_1,,New Customer,100,100,0,2026-01-01\n"
-            "lpoint_2,cus_1,500,Points Redeemed,1312,-1312,0,2026-11-10\n"),
-    }
 
-    def setUp(self):
-        import tempfile
-        from pathlib import Path
+def typed(kind, value):
+    """CSV text -> the Python value Postgres would return for that column (to simulate Supabase)."""
+    if value == "":
+        return None
+    if value in ("true", "false"):
+        return value == "true"
+    if kind == "date":
+        return dt.date.fromisoformat(value)
+    if kind == "ts":
+        return dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    try:
+        return Decimal(value)
+    except ArithmeticError:
+        return value
 
-        self.tmp = tempfile.TemporaryDirectory()
-        for name, body in self.FILES.items():
-            Path(self.tmp.name, name).write_text(body, encoding="utf-8")
 
-    def tearDown(self):
-        self.tmp.cleanup()
+class SupabaseImportTests(TestCase):
+    """The TD sample served as Supabase rows (typed Postgres values) maps into the warehouse correctly."""
+
+    TEXT = {"order_id", "customer_id", "variant_id", "product_id", "sku", "style", "size", "order_key", "sales_id",
+            "ledger_id", "inventory_pk", "location_id", "stock_location", "phone", "pincode", "ts_pincode",
+            "gst_number", "udyam_number", "display_id"}
+
+    def rows(self):
+        kinds = {"Distributor_Data.csv": "distributor", "Customer_Data.csv": "customer", "Product_Data.csv": "product",
+                 "Order_Data.csv": "order", "Sales_Data.csv": "sales", "Inventory_Data.csv": "inventory",
+                 "Loyality_Data.csv": "loyalty"}
+        out = {}
+        for name, body in TD_SAMPLE.items():
+            table = Q.TABLES[kinds[name]][0]
+            recs = list(csv.DictReader(io.StringIO(body)))
+            cols = list(recs[0])
+            def conv(c, v):
+                if c in self.TEXT:
+                    return v or None
+                if c.endswith("_date") and c != "launch_date":
+                    return typed("date", v)
+                if c.endswith("_at") or c == "launch_date":
+                    return typed("ts", v)
+                return typed("num", v)
+            out[table] = (cols, [tuple(conv(c, r[c]) for c in cols) for r in recs])
+        return out
 
     def test_import(self):
-        from decimal import Decimal
-
-        from ingestion.td_export_import import TdExportImporter, is_td_export
+        from ingestion.connectors.supabase import SupabaseConnector, SupabaseTdImporter
+        from ingestion.models import SyncRun
         from warehouse.models import Distributor, InventorySnapshot, LoyaltyEvent, Order, Retailer
 
-        self.assertTrue(is_td_export(self.tmp.name))
-        TdExportImporter(self.tmp.name).run()
-        heera = Distributor.objects.get(source_id="td:9")
-        self.assertEqual(heera.state.name, "Karnataka")
-        self.assertEqual(Distributor.objects.filter(name="Ankit Jain").count(), 2)  # same name, two ids
-        self.assertFalse(Retailer.objects.filter(source_id="cus_t").exists())  # test customer skipped
+        tables = self.rows()
 
+        def fetch(sql):
+            if "etl_watermark" in sql:
+                return ["max", "min", "count"], [(dt.datetime(2026, 11, 19, 4, tzinfo=dt.timezone.utc),
+                                                  dt.datetime(2026, 11, 19, 3, tzinfo=dt.timezone.utc), 7)]
+            table = sql.split(" FROM ")[1].split()[0].strip('"')
+            return tables[table]
+
+        SupabaseTdImporter(fetch).run()
+        heera = Distributor.objects.get(source_id="td:9")
         a = Order.objects.get(source_id="order_A")
-        # sales = line total (points redeemed are not extra sales); units = pieces
         self.assertEqual((a.display_id, a.status, a.is_qualifying, a.gross_value, a.units),
                          ("500", "delivered", True, Decimal("4312"), 12))
         self.assertEqual((a.distributor_id, a.platform, a.payment_mode), (heera.id, "android", "UPI"))
         self.assertTrue(a.placed_at <= a.shipped_at <= a.delivered_at)
-        b = Order.objects.get(source_id="order_B")
-        self.assertEqual((b.status, b.ts_order_status, b.shipped_at), ("confirmed", "packed", None))
-        pilot = Order.objects.get(source_id="order_P")
-        self.assertFalse(pilot.is_qualifying)  # pre-launch order without payment
-
-        # stock = available, summed over the distributor's locations (typo'd location name still matches)
+        self.assertEqual(Order.objects.get(source_id="order_B").status, "confirmed")
+        self.assertFalse(Order.objects.get(source_id="order_P").is_qualifying)
+        self.assertFalse(Retailer.objects.filter(source_id="cus_t").exists())
         self.assertEqual(InventorySnapshot.objects.get(distributor=heera).quantity, 12)
-        pts = dict(LoyaltyEvent.objects.values_list("event_type", "points"))
-        self.assertEqual(pts, {"new_customer": 100, "redeemed": -1312})
+        self.assertEqual(dict(LoyaltyEvent.objects.values_list("event_type", "points")),
+                         {"new_customer": 100, "redeemed": -1312})
         self.assertEqual(LoyaltyEvent.objects.get(event_type="redeemed").order_id, a.id)
+        self.assertEqual(Distributor.objects.filter(name="Ankit Jain").count(), 2)  # same name, two ids
+        self.assertEqual(Order.objects.get(source_id="order_B").ts_order_status, "packed")
 
-        TdExportImporter(self.tmp.name).run()  # re-import is idempotent
+        SupabaseTdImporter(fetch).run()  # re-import is idempotent
         self.assertEqual((Order.objects.count(), a.lines.count(), LoyaltyEvent.objects.count()), (3, 1, 2))
+
+        # the connector imports, then skips while Supabase's etl_watermark is unchanged
+        conn = SupabaseConnector()
+        run = SyncRun.objects.create(source="supabase")
+        self.assertEqual(conn.sync(run, fetch), 4)  # 3 orders + 1 retailer
+        run2 = SyncRun.objects.create(source="supabase")
+        self.assertEqual(conn.sync(run2, fetch), 0)
+        self.assertTrue(run2.details["unchanged"])
+
+
+class ImportLockTests(SimpleTestCase):
+    """Only one import at a time across processes: a second taker is told to skip; the lock is released after."""
+
+    def test_second_import_skips(self):
+        import tempfile
+        from unittest import mock
+
+        from ingestion import locks
+
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.object(locks, "lock_path", return_value=__import__("pathlib").Path(d, "x.lock")):
+            with locks.import_lock() as first:
+                self.assertTrue(first)
+                with locks.import_lock() as second:
+                    self.assertFalse(second)
+            with locks.import_lock() as again:
+                self.assertTrue(again)
+
+
+class AutoRefreshSchedulerTests(TestCase):
+    """The server's built-in schedule: refresh after each SYNC_TIMES slot once (catching up if the server was off),
+    never twice for one slot, and the target forecast from the 27th."""
+
+    def setUp(self):
+        from ingestion import scheduler
+
+        scheduler._last_attempt.clear()
+
+    def at(self, y, mo, d, h, mi=0):
+        from django.utils import timezone
+
+        return timezone.make_aware(dt.datetime(y, mo, d, h, mi))
+
+    def test_refresh_due_after_a_slot_until_one_runs(self):
+        from django.test import override_settings
+
+        from ingestion.models import SyncRun
+        from ingestion.scheduler import refresh_due
+        from ingestion.schedule import REFRESH_SOURCE
+
+        with override_settings(SYNC_TIMES=[(10, 0), (18, 0)]):
+            self.assertEqual(refresh_due(self.at(2026, 11, 19, 10, 5)), self.at(2026, 11, 19, 10))
+            # server off all morning: still due at 14:00 (catch-up), for the 10:00 slot
+            self.assertEqual(refresh_due(self.at(2026, 11, 19, 14)), self.at(2026, 11, 19, 10))
+            SyncRun.objects.create(source=REFRESH_SOURCE, status="failed", started_at=self.at(2026, 11, 19, 10, 1))
+            self.assertIsNone(refresh_due(self.at(2026, 11, 19, 14)))  # ran (even if it failed): not again
+            self.assertEqual(refresh_due(self.at(2026, 11, 19, 18, 1)), self.at(2026, 11, 19, 18))
+            # a Supabase-only import does not count as the full refresh
+            SyncRun.objects.create(source=REFRESH_SOURCE, status="success", started_at=self.at(2026, 11, 19, 18, 2),
+                                   details={"via": "supabase_live"})
+            self.assertEqual(refresh_due(self.at(2026, 11, 19, 18, 5)), self.at(2026, 11, 19, 18))
+
+    def test_tick_runs_the_refresh_once(self):
+        from unittest import mock
+
+        from django.test import override_settings
+
+        from ingestion import scheduler
+        from ingestion.models import SyncRun
+        from ingestion.schedule import REFRESH_SOURCE
+
+        def fake_refresh(*a, **k):
+            SyncRun.objects.create(source=REFRESH_SOURCE, status="success", started_at=now)
+
+        now = self.at(2026, 11, 19, 10, 1)
+        with override_settings(SYNC_TIMES=[(10, 0), (18, 0)]), \
+                mock.patch("django.core.management.call_command", side_effect=fake_refresh) as cc, \
+                mock.patch.object(scheduler, "forecast_due", return_value=None):
+            self.assertEqual(scheduler.tick(now), ["refresh"])
+            self.assertEqual(scheduler.tick(now + dt.timedelta(minutes=1)), [])  # already ran for 10:00
+            self.assertEqual(cc.call_count, 1)
+
+    def test_forecast_due_from_the_27th(self):
+        from warehouse.models import TargetForecast
+        from ingestion.scheduler import forecast_due
+
+        self.assertIsNone(forecast_due(self.at(2026, 11, 26, 23)))
+        self.assertIsNone(forecast_due(self.at(2026, 11, 27, 10)))
+        self.assertEqual(forecast_due(self.at(2026, 11, 27, 11)), dt.date(2026, 12, 1))
+        self.assertEqual(forecast_due(self.at(2026, 11, 30, 9)), dt.date(2026, 12, 1))  # catch-up
+        TargetForecast.objects.create(month=dt.date(2026, 12, 1), scope_type="overall", value=1,
+                                      as_of=dt.date(2026, 11, 27))
+        self.assertIsNone(forecast_due(self.at(2026, 11, 28, 12)))

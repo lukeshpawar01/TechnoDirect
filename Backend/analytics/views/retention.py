@@ -15,7 +15,7 @@ PARETO_N = [10, 25, 50, 100, 250, 500, 1000]
 
 class RetentionView(AnalyticsView):
     permission_code = "view_retention"
-    sources = ["medusa", "payu"]
+    sources = ["supabase", "payu"]
     export_key = "movement"
 
     def compute(self, f, request, **kw):

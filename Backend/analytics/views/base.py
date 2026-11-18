@@ -18,7 +18,7 @@ class AnalyticsView(APIView):
     """
 
     permission_code = None
-    sources = ["medusa", "payu"]
+    sources = ["supabase", "payu"]
     export_key = None
     pii_sensitive = False
 

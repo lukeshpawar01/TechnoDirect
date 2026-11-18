@@ -175,7 +175,7 @@ def create_distributor(data):
     Matched later by name when the distributor appears in the data export (it then gets its export id)."""
     import re
 
-    from ingestion.csv_import import nice_name, norm
+    from ingestion.normalize import nice_name, norm
 
     raw = " ".join(str(data.get("name") or "").split())
     if not raw:

@@ -1,37 +1,25 @@
-"""Load the normalised TechnoDirect data export (the "TD_Data/DATA" folder) into the warehouse.
+"""Map the TD data (Supabase tables: distributors, customers, products, orders, sales, inventory_snapshot,
+loyalty_ledger) into the warehouse. The rows arrive as dicts of strings (ingestion/connectors/supabase.py turns the
+Postgres values into the text form this mapping parses); `read_rows()` is provided by the connector.
 
-This is the full-history export, keyed by IDs rather than names:
-
-    Distributor_Data.csv  distributor_id, distributor_name, gst_number, city, state, pincode, is_active, created_at
-    Customer_Data.csv     customer_id, ..., kyc, ts_pincode, city, province, distributor_name ("P1, P2"), is_test, created_at
-    Product_Data.csv      one row per variant: variant_id, product_id, sku, style, size, price, pcs_per_unit,
-                          category_level_1..3, product_status, is_deleted, launch_date
-    Order_Data.csv        one row per order: order_id (order_...), display_id, customer_id, distributor_id,
-                          ts_order_status, order_date, dispatch_date, delivered_date, line_total, payu_amount,
-                          points_redeemed, total_amount, mode, platform, city, province, updated_at
-    Sales_Data.csv        one row per order line: sales_id, order_key (= Order_Data.order_id), variant_id,
-                          product_id, size, quantity (boxes), pieces, unit_price (per box), line_amount
-    Inventory_Data.csv    snapshot_date, variant_id, stock_location, distributor_id, stock, reserved, available
-    Loyality_Data.csv     ledger_id, customer_id, order_id (display id), event, signed_points, event_date
-
-Interpretation (checked against the TD_DataDeck figures, see docs/PLAN.md "CSV import"):
+Interpretation (checked against the TD_DataDeck figures, see docs/PLAN.md):
   * Sales = line_total (sum of the order's lines, before points). total_amount = payu_amount + points_redeemed,
     so it over-states sales once points are redeemed. Line totals reproduce the deck's month figures
     (first Rs 1 Cr month Jun-25, first Rs 2 Cr month Dec-25, record Rs 2.95 Cr Aug-26).
   * order_date is a calendar date only; placed_at is set to 12:00 IST that day.
   * Paid = a payment mode or a PayU amount is present. Pre-launch pilot orders have neither and do not count.
   * Stock on hand = `available` (stock less reserved), summed over a distributor's locations.
-  * settlement_status is ignored (settlement is out of scope for now).
+  * customers.distributor_name = "P1, P2" serviceable distributors for the retailer.
+  * settlement_status is ignored (settlement comes from the finance tracker).
 
-It supersedes the earlier sample import: orders and loyalty rows loaded from the sample files are removed.
-Admin-maintained mappings (ASM, state / region of a distributor, aliases, targets) are kept.
+Admin-maintained mappings (ASM, state / region of a distributor, aliases, targets) are kept across imports.
 """
 import datetime as dt
 import difflib
-import os
-from collections import defaultdict
+import logging
+from collections import Counter, defaultdict
 from decimal import ROUND_HALF_UP, Decimal
-from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from django.db import transaction
 from django.utils import timezone
@@ -44,25 +32,20 @@ from warehouse.models import (
     LoyaltyEvent,
     Order,
     OrderLine,
+    Pincode,
     Product,
     ProductVariant,
+    Region,
     Retailer,
+    State,
     compute_is_qualifying,
 )
 
-from .csv_import import IST, TWO, WHOLESALE_SHARE, CsvImporter, end_of_day, nice_name, norm, parse_dt, read_csv, slug, to_bool, to_dec, to_int
+from .normalize import (IST, TWO, UTC, WHOLESALE_SHARE, end_of_day, nice_name, norm, parse_dt, slug, to_bool, to_date,
+                        to_dec, to_int)
 from .upsert import chunked, upsert
 
-UTC = dt.timezone.utc
-TD_FILES = {
-    "customer": "customer_data",
-    "distributor": "distributor_data",
-    "product": "product_data",
-    "inventory": "inventory_data",
-    "order": "order_data",
-    "sales": "sales_data",
-    "loyalty": "loyal",
-}
+log = logging.getLogger(__name__)
 STATUS_MAP = {
     "placed": "received", "confirmed": "confirmed", "packed": "confirmed", "on hold": "confirmed",
     "shipped": "shipped", "delivered": "delivered", "cancelled": "cancelled", "canceled": "cancelled",
@@ -72,47 +55,38 @@ LOYALTY_KINDS = {"new customer": "new_customer", "points earned": "earned", "ear
 PLACED_TIME = dt.time(12, 0)
 
 
-def find_td_files(directory):
-    found = {}
-    for path in Path(directory).glob("*.csv"):
-        name = norm(path.stem)
-        for kind, word in TD_FILES.items():
-            if norm(word) in name and (kind not in found or path.stat().st_size > found[kind].stat().st_size):
-                found[kind] = path
-    return found
+class TdImporter:
+    """Full rebuild-by-upsert of the TD data. Subclasses provide read_rows()."""
 
-
-def is_td_export(directory):
-    """True when the folder holds the ID-keyed export (Sales_Data has an order_key column)."""
-    sales = find_td_files(directory).get("sales")
-    if not sales:
-        return False
-    with open(sales, encoding="utf-8-sig") as fh:
-        return "order_key" in fh.readline()
-
-
-def to_date(value):
-    value = (value or "").strip()[:10]
-    try:
-        return dt.date.fromisoformat(value) if value else None
-    except ValueError:
-        return None
-
-
-class TdExportImporter(CsvImporter):
-    def __init__(self, directory, source_tz="UTC", snapshot_date=None, stdout=None):
-        super().__init__(directory, source_tz, snapshot_date, stdout)
-        self.files = find_td_files(self.dir)
+    def __init__(self, source_tz="UTC", stdout=None):
+        self.tz = ZoneInfo(source_tz)
+        self.snapshot_date = None
+        self.out = stdout
+        self.stats = {}
+        self.warnings = []
         self._fuzzy = {}
+        self.sources = {}
+
+    def say(self, msg):
+        log.info(msg)
+        if self.out:
+            self.out.write(f"[import] {msg}")
+
+    def warn(self, msg):
+        self.warnings.append(msg)
+        self.say(f"WARNING: {msg}")
+
+    def read_rows(self):
+        """{kind: [row dict of strings]} for distributor, customer, product, order, sales, inventory, loyalty; also
+        sets self.sources {kind: label} and self.inventory_synced_at."""
+        raise NotImplementedError
 
     # ------------------------------------------------------------------ run
     def run(self):
-        missing = [k for k in TD_FILES if k not in self.files]
-        if missing:
-            self.warn(f"no file found for: {', '.join(missing)} (looked in {self.dir})")
-        for kind, path in sorted(self.files.items()):
-            self.say(f"{kind:<11} <- {path.name}")
-        rd = lambda k: list(read_csv(self.files[k])) if k in self.files else []  # noqa: E731
+        data = self.read_rows()
+        for kind, label in sorted(self.sources.items()):
+            self.say(f"{kind:<11} <- {label}")
+        rd = lambda k: data.get(k) or []  # noqa: E731
         self.dist_rows = rd("distributor")
         self.customers = [r for r in rd("customer") if not to_bool(r.get("is_test"))]
         self.products_rows = rd("product")
@@ -135,24 +109,85 @@ class TdExportImporter(CsvImporter):
             self.load_inventory()
         with transaction.atomic():
             self.load_loyalty()
-        return {"files": {k: p.name for k, p in self.files.items()}, "rows": self.stats,
-                "warnings": self.warnings, "format": "td_export"}
+        return {"files": dict(self.sources), "rows": self.stats, "warnings": self.warnings}
 
     # ------------------------------------------------------------------ geography / pincodes
     def load_geography(self):
-        # the base loader reads ts_pincode / province / city rows: the customer file has exactly those
-        sales, self.sales_rows = self.sales_rows, self.customers
-        try:
-            super().load_geography()
-        finally:
-            self.sales_rows = sales
+        regions = {r.code: r for r in Region.objects.all()}
+        for code, name in geo.REGIONS.items():
+            if code not in regions:
+                regions[code] = Region.objects.create(code=code, name=name)
+        states = {s.code: s for s in State.objects.all()}
+        for code, (name, reg) in geo.STATES.items():
+            if code not in states:
+                existing = State.objects.filter(name=name).first()
+                states[code] = existing or State.objects.create(code=code, name=name, region=regions[reg])
+            elif states[code].region_id is None:
+                states[code].region = regions[reg]
+                states[code].save(update_fields=["region", "updated_at"])
+        self.states = states
+
+        # pincode -> state code: a state named on a retailer beats the PIN-prefix rule
+        self.sales_pin_state, self.sales_pin_city = {}, {}
+        for r in self.customers:
+            pin = r.get("ts_pincode", "")
+            sc = geo.state_code_for_name(r.get("province"))
+            if geo.is_valid_pincode(pin):
+                if sc:
+                    self.sales_pin_state[pin] = sc
+                if r.get("city"):
+                    self.sales_pin_city[pin] = r["city"].strip().title()
+        self.stats["states"] = len(states)
+
+    def state_for_pin(self, pin):
+        code = self.sales_pin_state.get(pin) or geo.state_code_for_pincode(pin)
+        return self.states.get(code) if code else None
 
     def load_pincodes(self):
-        sales, self.sales_rows = self.sales_rows, []
-        try:
-            super().load_pincodes()
-        finally:
-            self.sales_rows = sales
+        p1s, p2s = defaultdict(Counter), defaultdict(Counter)
+        pins = set()
+        for r in self.customers:
+            pin = r.get("ts_pincode", "")
+            if not geo.is_valid_pincode(pin):
+                continue
+            pins.add(pin)
+            parts = [p.strip() for p in (r.get("distributor_name") or "").split(",") if p.strip()]
+            if parts:
+                p1s[pin][parts[0]] += 1
+            if len(parts) > 1:
+                p2s[pin][parts[1]] += 1
+
+        rows = []
+        for pin in sorted(pins):
+            st = self.state_for_pin(pin)
+            p1 = self.dist(p1s[pin].most_common(1)[0][0]) if p1s[pin] else None
+            p2 = self.dist(p2s[pin].most_common(1)[0][0]) if p2s[pin] else None
+            row = {"pincode": pin, "state_id": st.id if st else None,
+                   "distributor_p1_id": p1.id if p1 else None,
+                   "distributor_p2_id": p2.id if p2 and p2 != p1 else None, "is_serviceable": bool(p1)}
+            if pin in self.sales_pin_city:
+                row["city"] = self.sales_pin_city[pin][:100]
+            rows.append(row)
+        # split so that `city` is only overwritten when the source has one
+        upsert(Pincode, [r for r in rows if "city" in r], unique_fields=("pincode",))
+        upsert(Pincode, [r for r in rows if "city" not in r], unique_fields=("pincode",))
+        self.pins = {p.pincode: p for p in Pincode.objects.select_related("state", "asm")}
+
+        # distributor home state = where most of its P1 retailers are (only when not set by an admin)
+        votes = defaultdict(Counter)
+        for pin, c in p1s.items():
+            st = self.pins.get(pin).state if pin in self.pins else None
+            if st:
+                for raw, n in c.items():
+                    d = self.dist(raw)
+                    if d:
+                        votes[d.id][st.id] += n
+        for d in {d.id: d for d in self.dist_by_norm.values()}.values():
+            if d.state_id is None and votes.get(d.id):
+                d.state_id = votes[d.id].most_common(1)[0][0]
+                d.region_id = State.objects.get(id=d.state_id).region_id
+                d.save(update_fields=["state", "region", "updated_at"])
+        self.stats["pincodes"] = len(rows)
 
     def state_for_name(self, name):
         code = geo.state_code_for_name(name)
@@ -417,7 +452,7 @@ class TdExportImporter(CsvImporter):
     def load_inventory(self):
         if not self.inventory_rows:
             return
-        synced = dt.datetime.fromtimestamp(os.path.getmtime(self.files["inventory"]), tz=IST)
+        synced = getattr(self, "inventory_synced_at", None) or timezone.now()
         qty, snap_dates = defaultdict(int), set()
         meta = {}
         for r in self.inventory_rows:

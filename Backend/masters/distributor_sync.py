@@ -42,7 +42,7 @@ def file_signature(path):
 def import_file(path):
     """Update stock_updated_on / inventory_status / stock_upload_mode / stock_update_frequency. Returns a report."""
     from analytics.cache import bump_cache_version
-    from ingestion.csv_import import norm
+    from ingestion.normalize import norm
     from warehouse.models import Distributor
 
     with open(path, encoding="utf-8-sig", newline="") as fh:

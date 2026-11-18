@@ -1,7 +1,7 @@
 # TechnoDirect Dashboard — API Contract (v1)
 
 > **Scope note (11 Nov 2026):** PayU is in scope for sales/order data only. Not built now: `/alerts/*`, `manage_alerts`,
-> the `refunds` key in `/orders/summary/`, `refunds[]` in `/orders/{id}/`, `refund_value` on order rows, and settlement from PayU / Medusa (distributor settlement comes from the finance tracker, see below).
+> the `refunds` key in `/orders/summary/`, `refunds[]` in `/orders/{id}/`, `refund_value` on order rows, and settlement from PayU / the TD database (distributor settlement comes from the finance tracker, see below).
 > `payment` in `/orders/summary/` = `{success, failed, pending, failed_value, paid_no_order, mode_mix:[{mode,count,value}]}`.
 > Refresh: data refreshes at 10:00 and 18:00 IST only. Every envelope `meta` also carries `last_refresh_at` and `next_refresh_at`.
 > `POST /data-health/sync/` accepts `source=all`. There is no `/overview/live/` endpoint.
@@ -17,7 +17,7 @@ Dates: `YYYY-MM-DD` (IST). Datetimes: ISO-8601 with offset.
     "sales_basis": "Gross order value (incl. taxes, before returns)",
     "as_of": "2026-11-11T10:15:00+05:30",
     "period": {"from": "2026-11-01", "to": "2026-11-11", "label": "MTD", "compare_from": "2026-10-01", "compare_to": "2026-10-11"},
-    "freshness": [{"source": "medusa", "last_success_at": "...", "status": "ok|stale|failed"}]
+    "freshness": [{"source": "supabase", "last_success_at": "...", "status": "ok|stale|failed"}]
   }
 }
 ```

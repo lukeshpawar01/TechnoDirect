@@ -45,7 +45,7 @@ def hours(a, b):
 
 class OrdersSummaryView(AnalyticsView):
     permission_code = "view_orders"
-    sources = ["medusa", "payu", "google_sheets"]
+    sources = ["supabase", "payu", "google_sheets"]
     export_key = "status_counts"
 
     def compute(self, f, request, **kw):
@@ -358,7 +358,7 @@ class OrderDetailView(APIView):
                 + (f" – {p.error_message}" if p.error_message else ""), "PayU") for p in pays]
         data["timeline"] = [{"at": timezone.localtime(at).isoformat(), "status": st, "note": note, "actor": actor}
                             for at, st, note, actor in sorted((x for x in tl if x[0]), key=lambda x: x[0])]
-        return envelope(data, f, ["medusa", "payu"])
+        return envelope(data, f, ["supabase", "payu"])
 
 
 __all__ = ["as_date"]

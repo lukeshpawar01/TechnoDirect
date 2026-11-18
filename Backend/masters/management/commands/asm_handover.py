@@ -14,7 +14,7 @@ from django.db.models import Q
 
 from analytics.cache import bump_cache_version
 from analytics.derivations import attribute_orders_to_distributor_asm
-from ingestion.csv_import import norm
+from ingestion.normalize import norm
 from masters.services import assign_distributor_asm, remap_retailers_for_pincodes
 from warehouse.models import Asm, Distributor, Pincode
 

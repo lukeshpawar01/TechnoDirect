@@ -15,8 +15,6 @@ TARGET = BACKEND / ".env.production"
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--domain", default="", help="public hostname, e.g. dashboard.technosport.in")
-    ap.add_argument("--exports", default=str(Path.home() / "Desktop" / "TD_Data" / "DATA"),
-                    help="folder the app exports (Order_Data.csv ...) are dropped into")
     ap.add_argument("--quick-tunnel", action="store_true",
                     help="also accept temporary https://*.trycloudflare.com links (quick_tunnel.ps1, testing only)")
     a = ap.parse_args()
@@ -43,7 +41,6 @@ def main():
         "CORS_ALLOWED_ORIGINS": ",".join(origins) or "http://localhost:8080",
         "FRONTEND_DIST": str((BACKEND.parent / "Frontend" / "dist").resolve()),
         "CACHE_DIR": str((BACKEND / "data" / "cache").resolve()),
-        "TD_EXPORT_DIR": cur.get("TD_EXPORT_DIR") or a.exports,
         "SERVE_HOST": cur.get("SERVE_HOST", "127.0.0.1"),
         "SERVE_PORT": cur.get("SERVE_PORT", "8080"),
     }

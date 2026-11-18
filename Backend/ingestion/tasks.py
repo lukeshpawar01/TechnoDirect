@@ -23,7 +23,7 @@ def _run_source(source, triggered_by):
 
 
 def refresh_all_inline(triggered_by="schedule"):
-    """Medusa -> PayU -> CRM sheet -> Channel Konnect -> derivations -> cache invalidation.
+    """Supabase (TD database) -> PayU -> CRM sheet -> Channel Konnect -> derivations -> cache invalidation.
 
     Every step is logged as its own SyncRun; the umbrella run (source='refresh_all')
     is 'success' unless a step failed.
@@ -86,7 +86,7 @@ def run_single_inline(source, triggered_by="manual"):
     from analytics.derivations import run_all_derivations
 
     res = _run_source(source, triggered_by)
-    if res["status"] == "success" and source in ("medusa", "payu"):
+    if res["status"] == "success" and source in ("supabase", "payu"):
         run_all_derivations()
     bump_cache_version()
     return res

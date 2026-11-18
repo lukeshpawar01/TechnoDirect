@@ -70,7 +70,7 @@ def retailer_segment(r, today):
 
 class FunnelView(AnalyticsView):
     permission_code = "view_funnel"
-    sources = ["medusa"]
+    sources = ["supabase"]
     export_key = "by_state"
 
     def compute(self, f, request, **kw):
@@ -409,7 +409,7 @@ def blueorigin_block(r):
 
 class RetailerDetailView(AnalyticsView):
     permission_code = "view_funnel"
-    sources = ["medusa"]
+    sources = ["supabase"]
     pii_sensitive = True
     export_key = "monthly"
 
@@ -455,7 +455,7 @@ class RfmView(AnalyticsView):
     Cut-offs are ranked against ALL active buyers; region / ASM / distributor filters only choose who is counted."""
 
     permission_code = "view_funnel"
-    sources = ["medusa"]
+    sources = ["supabase"]
     export_key = "segments"
 
     def compute(self, f, request, **kw):
@@ -512,7 +512,7 @@ class SegmentTrendView(AnalyticsView):
     """Retailer segments over time - see analytics/segment_trend.py. ?kind=rfm|lifecycle&grain=day|week|month|quarter"""
 
     permission_code = "view_funnel"
-    sources = ["medusa"]
+    sources = ["supabase"]
 
     def cache_extra(self, request, **kwargs):
         q = request.query_params

@@ -52,7 +52,7 @@ Rule: no dashboard request touches a source system. Every number is read from th
 - **Deferred (not built now):** PayU settlement, payouts and refunds, settlement sheet, alerts + daily MIS (email/WhatsApp), CleverTap funnel, forecasting.
   Sales basis: gross value of non-cancelled orders with captured payment (PayU-verified, Medusa fallback), before returns.
 
-## Data loading: CSV exports (13 Nov 2026)
+## Data loading: CSV exports (13 Nov 2026) — superseded 19 Nov 2026: TD data now comes only from Supabase (`ingestion/connectors/supabase.py`, `ingestion/td_import.py`); the CSV importer was removed
 All synthetic demo data (backend seeder and frontend mock mode) has been removed. Until the live connections are in place,
 the warehouse is loaded from the data team's exports with `manage.py import_csv_data` (files in `Backend/data/import/`,
 upsert, re-runnable). Column interpretation is documented at the top of `Backend/ingestion/csv_import.py`. Derived from the data:

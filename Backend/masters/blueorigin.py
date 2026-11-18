@@ -119,7 +119,7 @@ class Distributors:
     """BlueOrigin distributor names -> TechnoDirect distributors (creates bo_only ones for unknown names)."""
 
     def __init__(self, folder, geo):
-        from ingestion.csv_import import norm
+        from ingestion.normalize import norm
         from warehouse.models import Distributor
 
         self.norm, self.geo = norm, geo
@@ -147,7 +147,7 @@ class Distributors:
 
     def resolve(self, name, row_states):
         """Distributor for a sheet name; row_states = Counter of states seen on its rows (fallback home state)."""
-        from ingestion.csv_import import nice_name
+        from ingestion.normalize import nice_name
         from warehouse.models import Distributor
 
         n = self.norm(name)

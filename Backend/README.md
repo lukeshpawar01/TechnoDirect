@@ -13,9 +13,10 @@ accounts/       email-login User (is_master_admin, Role, data scope), HasPerm('c
 warehouse/      dimensions, facts and derived tables (Region, State, Asm, Distributor, Pincode, Category, Product,
                 ProductVariant, Retailer, Order, OrderLine, Payment, InventorySnapshot, CrmTicket, LoyaltyEvent,
                 RetailerMonth, Target, DataQualityIssue); geo.py = pincode -> state reference + default regions
-ingestion/      connectors/ (medusa.py + medusa_queries.py, payu.py, google_sheets.py, channel_konnect.py),
-                SyncRun / SyncWatermark, payments_link.py (PayU <-> order matching), tasks.refresh_all, run_sync command,
-                csv_import.py + import_csv_data command (loads the TD_*.csv exports)
+ingestion/      connectors/ (supabase.py + supabase_queries.py = TD data, payu.py, google_sheets.py, channel_konnect.py),
+                td_import.py (TD data -> warehouse mapping), normalize.py (shared parsing helpers), scheduler.py
+                (automatic 10:00 / 18:00 refresh), SyncRun / SyncWatermark, payments_link.py (PayU <-> order matching),
+                tasks.refresh_all, run_sync / scheduled_refresh / supabase_live / supabase_check commands
 analytics/      filters.py (presets, FY/QTD in IST, compare period, scope intersection), envelope + freshness,
                 cache (Redis/locmem, invalidated by refresh), export (csv/xlsx), derivations (RetailerMonth, DQ checks),
                 every page endpoint
@@ -30,7 +31,7 @@ py -3.12 -m venv .venv            # or: python -m venv .venv
 Copy-Item .env.example .env       # then set MASTER_ADMIN_EMAIL / MASTER_ADMIN_PASSWORD
 .\.venv\Scripts\python.exe manage.py migrate
 .\.venv\Scripts\python.exe manage.py create_master_admin
-.\.venv\Scripts\python.exe manage.py import_csv_data     # loads data/import/TD_*.csv (about 1 min)
+.\.venv\Scripts\python.exe manage.py supabase_live --force   # TD data from Supabase (SUPABASE_DB_* in .env, ~3 min)
 .\.venv\Scripts\python.exe manage.py runserver 8000
 .\.venv\Scripts\python.exe manage.py test
 ```
@@ -80,37 +81,37 @@ Mail goes through Django's SMTP backend; set these in `.env` and restart the bac
 While `EMAIL_HOST_USER` / `EMAIL_HOST_PASSWORD` are `REPLACE_ME` and `DEBUG=True`, the email (with the code) is printed
 in the `runserver` console instead of being sent.
 
-## Loading the CSV exports (until the live connections are in place)
-Put the data team's exports in `data/import/` (git-ignored, they contain retailer PII). The importer picks the
-largest file whose name contains `customer`, `product`, `inventory`, `sales` or `loyal`:
+## TD data
+TD data (retailers, distributors, products, orders, order lines, stock and loyalty) comes only from Supabase. See
+*Connecting the real sources → TD data on Supabase* below. There are no CSV exports to load any more.
 
-| Export | Loaded into |
-|---|---|
-| `TD_Customer_Data.csv` | Retailer (KYC, GST, Udyam, pincode, P1 distributor), Pincode (P1 / P2), Distributor |
-| `TD_product data.csv` | Product (style, category I / II / III, launch date), ProductVariant (MRP), Category |
-| `TD_Inventory _Data.csv` | InventorySnapshot (stock per distributor x SKU), pieces per box, SKU codes |
-| `TD_Sales_Data*.csv` | Order + OrderLine (status from dispatch / delivered dates, payment mode, platform) |
-| `TD_Loyality_Point*.csv` | LoyaltyEvent (welcome bonus, points earned, points redeemed) |
-
-```powershell
-.\.venv\Scripts\python.exe manage.py import_csv_data                  # upsert; safe to re-run with newer files
-.\.venv\Scripts\python.exe manage.py import_csv_data --dir C:\exports  # another folder
-.\.venv\Scripts\python.exe manage.py import_csv_data --wipe-all       # delete ALL warehouse rows first
-```
-Re-imports keep what admins maintain: regions, a state's region, ASMs, ASM per pincode, a distributor's ASM / state /
-region once set, and targets. Distributor spellings that differ between exports ("Heera" vs "HEERA EXPORTS INC")
-are matched automatically and stored in `Distributor.aliases`. How each source column is interpreted is listed at
-the top of `ingestion/csv_import.py`.
+Each import keeps what admins maintain: regions, a state's region, ASMs, ASM per pincode, a distributor's ASM / state /
+region once set, and targets. Distributor spellings that differ ("Heera" vs "HEERA EXPORTS INC") are matched
+automatically and stored in `Distributor.aliases`. How each column is interpreted is listed at the top of
+`ingestion/td_import.py`.
 
 Useful commands:
-* `manage.py run_sync all|medusa|payu|google_sheets|channel_konnect` runs a sync inline.
+* `manage.py run_sync all|supabase|payu|google_sheets|channel_konnect` runs a sync inline.
+* `manage.py supabase_live [--force]` imports TD data from Supabase now (only if it changed, unless `--force`).
 * `POST /api/data-health/sync/ {"source":"all"}` does the same from the UI. It needs the `trigger_sync` permission.
 
 ## Refresh schedule
-Data refreshes **twice a day at `SYNC_TIMES` (default `10:00,18:00` IST)**. Each refresh runs one chained Celery job,
-`ingestion.tasks.refresh_all`:
+Data refreshes **automatically at `SYNC_TIMES` (default `10:00,18:00` IST)**. The web server runs the refresh itself
+(`ingestion/scheduler.py`), so it works the same way on a laptop (`runserver`), on the Windows server (`serve.py`) or
+on Render or any other host (gunicorn). No Task Scheduler, cron, Celery or Redis is needed.
 
-`Medusa → PayU → CRM Google Sheet → Channel Konnect → derivations (payment reconciliation, retailer aggregates, RetailerMonth, DQ checks) → cache invalidation`
+* A background thread starts with the server (`technodirect/wsgi.py`, `serve.py`) and checks once a minute.
+* When a slot has passed with no refresh since, it runs `manage.py scheduled_refresh`. A server that was off or asleep
+  at 10:00 therefore catches up within a minute of starting.
+* Several server processes never run the same slot twice. `ingestion/locks.py` lets one through, and the others then
+  see its `SyncRun`.
+* From the 27th, 11:00 IST, it also runs the TD Target Forecaster for next month, if it hasn't run yet.
+* `AUTO_REFRESH=false` turns it off, for example for a second server pointed at the same database. Refreshing by hand
+  still works: the **Refresh** button, `manage.py scheduled_refresh` or `manage.py supabase_live`.
+
+The refresh runs these steps in order:
+
+`Supabase (TD data) → PayU → CRM Google Sheet → Channel Konnect → BlueOrigin (Dropbox) → settlement tracker → distributor stock sheet → derivations (payment reconciliation, retailer aggregates, RetailerMonth, DQ checks) → cache invalidation`
 
 * Every step writes its own `SyncRun`. A failed step does not stop the steps after it.
 * Each connector is incremental, using a per-entity watermark in `SyncWatermark`, and upserts its rows.
@@ -132,22 +133,27 @@ Data refreshes **twice a day at `SYNC_TIMES` (default `10:00,18:00` IST)**. Each
 * Analytics pages export one table with `?export=csv&table=<key>`, for example `/products/?export=csv&table=bottom_articles`.
 * Percentages and shares are on a 0–100 scale. Money is in INR rupees. Dates are IST.
 * Sales = gross order value of non-cancelled orders whose payment is captured. The payment state comes from the PayU
-  transaction when one is linked, otherwise from the Medusa payment status.
+  transaction when one is linked, otherwise from the TD app's own payment status.
 
 ## Connecting the real sources
-### Medusa read replica
-1. Ask the AWS team for the read-only role described in `../docs/AWS_DATA_ACCESS_REQUEST.md`
-   (23 tables, column-level grants where tables hold secrets, ready-to-run SQL included).
-2. Set `MEDUSA_DATABASE_URL=postgres://td_dashboard_ro:...@<replica-host>:5432/<db>`, plus
-   `MEDUSA_AMOUNT_DIVISOR` (100 if money is in paise, 1 if rupees) and `MEDUSA_NAIVE_TZ` (UTC or Asia/Kolkata).
-3. The SQL in `ingestion/connectors/medusa_queries.py` is written against the real TechnoDirect schema
-   (`tc_distributor`, `ts_distributor_serviceability`, `customer.kyc`, `product.ts_style` / `ts_pcPerUnit`,
-   `order.distributor_id` / `shipped_at` / `delivered_at`, `ts_product_variant_inventory`, `ts_pending_order_job`).
-   Every query documents its output columns. `ingestion/tests.py` checks parameter escaping, that no query uses
-   `SELECT *` (column grants would reject it) and that no secret column is read.
-4. Run `python manage.py run_sync medusa` once; the first run backfills from 1 Jan 2024.
+### TD data on Supabase
+Supabase (project "technosport", schema `public`) holds the ID-keyed TD export tables: `orders`, `sales`, `customers`,
+`distributors`, `products`, `inventory_snapshot` and `loyalty_ledger`, plus its loader's `etl_watermark`.
 
-   The `medusa` alias is protected in three ways:
+`ingestion/connectors/supabase.py` reads them through a read-only login and passes the rows to the TD mapping
+(`ingestion/td_import.py`).
+
+1. Run `deploy/supabase_readonly.sql` in Supabase > SQL Editor. It creates `td_dashboard_ro`, which can only run select on
+   those tables. The script is generated by `python manage.py supabase_check --grant-sql`.
+2. In `.env`, fill in `SUPABASE_DB_HOST`, `SUPABASE_DB_USER` (`td_dashboard_ro.<project-ref>`) and `SUPABASE_DB_PASSWORD`,
+   taken from Supabase > Connect > Session pooler.
+3. Run `python manage.py supabase_check`. It confirms the session is read-only and uses SSL, that every table and column
+   is present, and shows row counts and Supabase's last refresh.
+4. Run `python manage.py supabase_live --force` once for the first import. After that, the server's 10:00 / 18:00
+   refresh (see *Refresh schedule*) pulls from Supabase by itself and skips the CSV folder. Supabase is imported only
+   when its `etl_watermark` changed. `supabase_live` remains available as a manual "import now".
+
+   The `supabase` alias is protected in three ways:
    * The router never migrates it.
    * The session sets `default_transaction_read_only=on` and `statement_timeout`.
    * Tests mirror it to the default database.
@@ -170,6 +176,23 @@ Refunds, settlements and payouts are out of scope.
 ### Channel Konnect
 Set `CK_BASE_URL`, `CK_API_KEY` and each distributor's `ck_code`. The endpoint and payload format are assumed;
 adjust `fetch_distributor_stock` in `ingestion/connectors/channel_konnect.py` once the real API is known.
+
+## Render deployment
+* **Web service:** the build installs `requirements.txt`, runs `migrate` and builds the frontend. Start it with
+  `gunicorn technodirect.wsgi --workers 2 --threads 4 --timeout 300`. Do **not** add `--preload`: the refresh thread
+  must start inside each worker, after the fork.
+* **Keep it awake:** use an always-on instance type. Free instances sleep when idle. The refresh still catches up when
+  the service wakes, but only then.
+* **Database:**
+  * SQLite needs a Render persistent disk mounted where `db.sqlite3` lives, and one instance.
+  * Or set `DATABASE_URL` to a Postgres database (Render Postgres, or a separate Supabase project) and run
+    `manage.py migrate`.
+* **Environment:** put the `.env` values in Render's environment settings:
+  * `SUPABASE_DB_*` and `DROPBOX_*`;
+  * `DJANGO_SECRET_KEY`, `DEBUG=False`, `ALLOWED_HOSTS` and `CORS_ALLOWED_ORIGINS`.
+* **Not available on Render yet:** the settlement tracker and the distributor stock sheet are read from CSV files on
+  the office PC (`SETTLEMENT_TRACKER`, `DISTRIBUTOR_SYNC_SHEET`). Until they come from Google Sheets or Supabase, those
+  two steps report "not configured".
 
 ## AWS deployment
 * **Warehouse:** RDS PostgreSQL 16, for example `db.t4g.medium` with Multi-AZ in prod. Set it as `DATABASE_URL` and run

@@ -29,7 +29,7 @@ from django.db import transaction
 from accounts.models import User
 from analytics.cache import bump_cache_version
 from analytics.derivations import attribute_orders_to_distributor_asm, run_all_derivations
-from ingestion.csv_import import nice_name, norm
+from ingestion.normalize import nice_name, norm
 from masters.services import assign_distributor_asm, remap_retailers_for_pincodes
 from warehouse.models import Asm, Distributor, Order, Pincode, Region, State, Target
 
