@@ -109,7 +109,7 @@ export default function Loyalty() {
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <ChartCard
           title="Points issued vs redeemed"
-          subtitle={`By month · ${rangeText.toLowerCase()}`}
+          subtitle={`By month · ${rangeText.charAt(0).toLowerCase()}${rangeText.slice(1)}`}
           option={monthlyOpt}
           loading={q.isLoading}
           empty={!d?.monthly.length}

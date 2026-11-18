@@ -15,6 +15,11 @@ from .envutil import env_bool, env_int, env_list, env_str, parse_times
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 env = environ.Env()
+# Hosted mode (deploy/windows): TD_ENV_FILE=.env.production is read first and wins over .env, so the same .env keeps
+# the shared settings (data paths, email, ...) and the production file only holds what differs (DEBUG, hosts, key).
+_td_env_file = __import__("os").environ.get("TD_ENV_FILE")
+if _td_env_file and Path(_td_env_file).exists():
+    environ.Env.read_env(_td_env_file, overwrite=True)
 if (BASE_DIR / ".env").exists():
     environ.Env.read_env(str(BASE_DIR / ".env"))
 
@@ -90,7 +95,9 @@ else:  # local development fallback
         "default": {
             "ENGINE": "django.db.backends.sqlite3",
             "NAME": BASE_DIR / "db.sqlite3",
-            "OPTIONS": {"timeout": 30},
+            # WAL lets the dashboard keep reading while the scheduled refresh writes
+            "OPTIONS": {"timeout": 30, "transaction_mode": "IMMEDIATE",
+                        "init_command": "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;"},
         }
     }
 
@@ -122,6 +129,19 @@ AUTH_PASSWORD_VALIDATORS = [
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
+# --- Hosting the built frontend from Django (single-server setup, deploy/windows) ---------------------------------
+# FRONTEND_DIST = Frontend/dist built with VITE_API_BASE_URL=/api. WhiteNoise serves its files; unknown paths fall
+# back to index.html (technodirect/urls.py) so links like /settlements work on reload.
+FRONTEND_DIST = env_str("FRONTEND_DIST")
+if FRONTEND_DIST and Path(FRONTEND_DIST).is_dir():
+    MIDDLEWARE.insert(MIDDLEWARE.index("django.middleware.security.SecurityMiddleware") + 1,
+                      "whitenoise.middleware.WhiteNoiseMiddleware")
+    WHITENOISE_ROOT = FRONTEND_DIST
+    WHITENOISE_INDEX_FILE = True
+    WHITENOISE_MAX_AGE = 3600
+else:
+    FRONTEND_DIST = ""
+
 # --- Cache -------------------------------------------------------------------
 REDIS_URL = env_str("REDIS_URL")
 if REDIS_URL:
@@ -131,6 +151,17 @@ if REDIS_URL:
             "LOCATION": REDIS_URL,
             "TIMEOUT": 600,
             "KEY_PREFIX": "td",
+        }
+    }
+elif env_str("CACHE_DIR"):
+    # Hosted on one Windows machine without Redis: a file cache shared by the web server and the scheduled refresh
+    # (an in-memory cache would not see the refresh bump the data version).
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.filebased.FileBasedCache",
+            "LOCATION": env_str("CACHE_DIR"),
+            "TIMEOUT": 600,
+            "OPTIONS": {"MAX_ENTRIES": 20000},
         }
     }
 else:
@@ -208,6 +239,12 @@ REFRESH_GRACE_MINUTES = env_int("REFRESH_GRACE_MINUTES", 30)
 # --- Business defaults --------------------------------------------------------
 LAUNCH_DATE = "2024-12-01"
 ORDER_DISPATCH_SLA_HOURS = env_int("ORDER_DISPATCH_SLA_HOURS", 48)
+# Shipped -> delivered target (days) for the Order flow & delays section.
+ORDER_TRANSIT_SLA_DAYS = env_int("ORDER_TRANSIT_SLA_DAYS", 3)
+# "Open" orders (ageing, SLA breaches) = still placed / confirmed / shipped AND placed within this many days. The TD
+# export's ts_order_status is not updated for many old orders (770 "packed" orders over a year old); those are
+# reported separately as stale statuses instead of inflating the open-order counts.
+ORDER_OPEN_WINDOW_DAYS = env_int("ORDER_OPEN_WINDOW_DAYS", 30)
 LOW_STOCK_THRESHOLD = env_int("LOW_STOCK_THRESHOLD", 5)
 RECONCILIATION_TOLERANCE_PCT = 1.0
 
@@ -218,6 +255,9 @@ BLUEORIGIN_DIR = env_str("BLUEORIGIN_DIR")
 SETTLEMENT_TRACKER = env_str("SETTLEMENT_TRACKER")
 # "TechnoDirect Data - TechnoD Distributors" sheet (CSV): per-distributor "Inventory Updated" = stock sync date
 DISTRIBUTOR_SYNC_SHEET = env_str("DISTRIBUTOR_SYNC_SHEET")
+# folder the app exports (Order_Data.csv, Customer_Data.csv, ...) are dropped into; `scheduled_refresh` re-imports
+# them when they change
+TD_EXPORT_DIR = env_str("TD_EXPORT_DIR")
 PAYU_MERCHANT_KEY = env_str("PAYU_MERCHANT_KEY")
 PAYU_MERCHANT_SALT = env_str("PAYU_MERCHANT_SALT")
 PAYU_BASE_URL = env_str("PAYU_BASE_URL", "https://info.payu.in")

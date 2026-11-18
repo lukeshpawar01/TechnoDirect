@@ -166,10 +166,10 @@ export interface Overview {
     top3_distributor_share: number;
     top_state: { name: string; share: number } | null;
     top10_retailer_share: number;
-  };
+  } | null;
   top_distributors: { id: number; name: string; sales: number; share: number; growth_pct: number | null }[];
   top_states: { id: number; name: string; sales: number; share: number }[];
-  exceptions: { code: string; severity: 'high' | 'medium' | 'low'; count: number; message: string; link: string }[];
+  exceptions: { code: string; severity: 'high' | 'medium' | 'low'; count: number | null; message: string; link: string }[];
 }
 
 // ---------------------------------------------------------------- funnel
@@ -184,7 +184,7 @@ export interface Funnel {
   kyc_penetration?: { kyc_approved: number; ever_ordered: number; ever_pct: number | null; active: number; active_pct: number | null; period_label: string };
   kyc_conversion?: { kyc_approved: number; converted: number; rate: number | null; median_days: number | null; within_30d: number; within_30d_pct: number | null; basis: 'signup' | 'approval' };
   acquisition_monthly: { month: string; new_retailers: number; cumulative: number }[];
-  by_state: { state: string; kyc_approved: number; ever_ordered: number; active: number; adoption_pct: number }[];
+  by_state: { state_id: number | null; state: string; kyc_approved: number; ever_ordered: number; active: number; adoption_pct: number }[];
 }
 
 // ---------------------------------------------------------------- retailers
@@ -492,7 +492,11 @@ export interface Territory {
 // ---------------------------------------------------------------- orders
 export interface OrdersSummary {
   status_counts: { status: string; count: number; value: number }[];
+  /** open orders placed within open_window_days, by age bucket and status */
   ageing: { bucket: string; status: string; count: number }[];
+  open_window_days?: number;
+  /** older orders the TD export still shows as placed / confirmed / shipped (status never updated) */
+  stale_open?: number;
   tat: {
     order_to_dispatch_median_h: number | null;
     order_to_delivery_median_h: number | null;
@@ -530,6 +534,71 @@ export interface OrderRow {
   awb: string | null;
   dispatch_hours: number | null;
   is_split: boolean;
+  /** calendar dates / whole days (the TD export records dates only) */
+  shipped_on?: string | null;
+  delivered_on?: string | null;
+  dispatch_days?: number | null;
+  transit_days?: number | null;
+}
+
+/** /orders/flow/ — Order flow & delays (analytics/views/fulfilment.py) */
+export interface FlowPoint {
+  date: string;
+  received: number;
+  shipped: number;
+  delivered: number;
+}
+export interface LeadBucket {
+  key: string;
+  label: string;
+  orders: number;
+  /** the bucket is beyond the SLA */
+  late: boolean;
+}
+export interface LeadStage {
+  buckets: LeadBucket[];
+  done: number;
+  median_days: number | null;
+  within_sla_pct: number | null;
+  /** not finished yet, placed within the open window */
+  waiting: number;
+  waiting_late: number;
+}
+export interface DelayGroup {
+  key: string;
+  label: string;
+  orders: number;
+  median_dispatch_days: number | null;
+  late_dispatch: number;
+  late_dispatch_pct: number | null;
+  median_transit_days: number | null;
+  late_transit: number;
+  late_transit_pct: number | null;
+  late_orders: number;
+  late_pct: number | null;
+  late_dispatch_share: number | null;
+  late_transit_share: number | null;
+}
+export interface FlowInsight {
+  tone: 'bad' | 'warn' | 'good';
+  text: string;
+  title: string;
+  params: Record<string, string> | null;
+}
+export interface OrderFlow {
+  /** latest day with orders in the data */
+  as_of: string;
+  sla: { dispatch_days: number; transit_days: number };
+  flow: { granularity: 'day' | 'week'; points: FlowPoint[] };
+  latest_day: { date: string; today: FlowPoint | null; previous: FlowPoint | null } | null;
+  orders: number;
+  dispatch: LeadStage;
+  transit: LeadStage;
+  end_to_end_median_days: number | null;
+  late_orders: number;
+  insights: FlowInsight[];
+  hotspots: { group_by: string; label: string; min_orders: number; rows: DelayGroup[] };
+  dimensions: { key: string; label: string }[];
 }
 
 export interface OrderPayment {
@@ -686,6 +755,8 @@ export interface Target {
   value: number;
   effective_from: string;
   notes: string;
+  /** the version the dashboard uses today; older versions stay listed for the audit trail */
+  in_use?: boolean;
 }
 export interface UploadResult {
   created: number;

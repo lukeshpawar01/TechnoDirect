@@ -2,14 +2,15 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useAnalytics, usePagedList } from '@/api/hooks';
-import type { OrderDetail, OrderRow, OrdersSummary } from '@/api/types';
-import { cartesian, heatmap } from '@/charts/builders';
+import type { OrderDetail, OrderFlow, OrderRow, OrdersSummary } from '@/api/types';
+import { cartesian } from '@/charts/builders';
 import { useChartTokens } from '@/charts/EChart';
 import { STATUS } from '@/charts/palette';
 import { ChartCard } from '@/components/ChartCard';
 import { DataTable } from '@/components/DataTable';
 import { OrdersDrill, type OrdersDrillSpec } from '@/components/OrdersDrill';
 import { MiniStat } from '@/components/KpiTile';
+import { DailyFlowCard, DelaySection } from '@/components/OrderFlow';
 import { MODE_LABELS } from '@/lib/format';
 import { PageHeader } from '@/components/PageHeader';
 import { Badge, Card, Drawer, ErrorState, LoadingBlock, Segmented, Stat, StatusBadge, cx } from '@/components/ui';
@@ -19,7 +20,6 @@ import { describePreset, linkWithFilters, parseFilters, useFilters } from '@/lib
 import { dateTime, hours, inr, monthLabel, num, pct, asPct, titleCase } from '@/lib/format';
 
 const STATUS_ORDER = ['received', 'confirmed', 'shipped', 'delivered', 'cancelled'];
-const AGE_BUCKETS = ['0-1d', '1-2d', '2-4d', '4-7d', '7d+'];
 
 // ------------------------------------------------------------------ order drawer
 export function OrderDrawer({ id, onClose }: { id: string | number | null; onClose: () => void }) {
@@ -182,18 +182,10 @@ export default function Orders() {
     [statusRows, t, orderStatus],
   );
 
-  const ageing = useMemo(() => {
-    const a = d?.ageing ?? [];
-    if (!a.length) return null;
-    const statuses = STATUS_ORDER.filter((s) => a.some((x) => x.status === s)).concat([...new Set(a.map((x) => x.status))].filter((s) => !STATUS_ORDER.includes(s)));
-    const buckets = AGE_BUCKETS.filter((b) => a.some((x) => x.bucket === b)).concat([...new Set(a.map((x) => x.bucket))].filter((b) => !AGE_BUCKETS.includes(b)));
-    const data: [number, number, number | null][] = [];
-    buckets.forEach((b, xi) => statuses.forEach((s, yi) => data.push([xi, yi, a.find((x) => x.bucket === b && x.status === s)?.count ?? 0])));
-    return { opt: heatmap(t, { x: buckets, y: statuses.map(titleCase), data, labels: true }), buckets, statuses };
-  }, [d, t]);
-  const ageingOpt = ageing?.opt ?? null;
   const [drill, setDrill] = useState<OrdersDrillSpec | null>(null);
   const periodLabel = describePreset(parseFilters(sp));
+  const [groupBy, setGroupBy] = useState('distributor');
+  const flow = useAnalytics<OrderFlow>('/orders/flow/', { group_by: groupBy });
 
   const [tatView, setTatView] = useState<'tat' | 'rate'>('tat');
   const rateOpt = useMemo(
@@ -238,7 +230,7 @@ export default function Orders() {
 
   return (
     <div>
-      <PageHeader title="Orders & Fulfilment" subtitle="Status, ageing, turnaround, payment modes and ordering platform" meta={q.data?.meta} />
+      <PageHeader title="Orders & Fulfilment" subtitle="Status, daily flow, delays, turnaround, payment modes and ordering platform" meta={q.data?.meta} />
 
       {q.error && !q.data ? (
         <Card>
@@ -249,7 +241,7 @@ export default function Orders() {
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
             <MiniStat label="Orders" value={num(totalOrders)} sub={`${inr(scopedRows.reduce((s, r) => s + r.value, 0))} value`} />
             <MiniStat label="Cancellation rate" value={pct(asPct(d?.cancellation_rate))} tone={(asPct(d?.cancellation_rate) ?? 0) > 5 ? 'bad' : undefined} />
-            <MiniStat label="SLA breaches" value={num(d?.sla_breaches)} tone={d?.sla_breaches ? 'bad' : 'good'} sub="Not dispatched within SLA" />
+            <MiniStat label="SLA breaches" value={num(d?.sla_breaches)} tone={d?.sla_breaches ? 'bad' : 'good'} sub={`Not dispatched within SLA · placed in the last ${d?.open_window_days ?? 30} days`} />
             <MiniStat label="Median order → dispatch" value={hours(d?.tat.order_to_dispatch_median_h)} />
             <MiniStat label="Median order → delivery" value={hours(d?.tat.order_to_delivery_median_h)} />
             <MiniStat
@@ -292,25 +284,7 @@ export default function Orders() {
               }}
               table={{ columns: ['Status', 'Orders', 'Value'], rows: statusRows.map((r) => [titleCase(r.status), num(r.count), inr(r.value)]) }}
             />
-            <ChartCard
-              title="Open order ageing"
-              subtitle="Orders by time since placed · click a cell to list them"
-              option={ageingOpt}
-              loading={q.isLoading}
-              height={240}
-              onClick={(p) => {
-                const v = p.value as [number, number, number] | undefined;
-                const b = v && ageing?.buckets[v[0]];
-                const st = v && ageing?.statuses[v[1]];
-                if (!b || !st || !v[2]) return;
-                setDrill({
-                  title: `${titleCase(st)} · open for ${b}`,
-                  subtitle: `${num(v[2])} open orders still ${titleCase(st).toLowerCase()}, placed ${b} ago (any date)`,
-                  params: { order_status: st, age_bucket: b },
-                });
-              }}
-              table={d ? { columns: ['Bucket', 'Status', 'Orders'], rows: d.ageing.map((a) => [a.bucket, titleCase(a.status), num(a.count)]) } : undefined}
-            />
+            <DailyFlowCard d={flow.data?.data} loading={flow.isLoading} periodLabel={periodLabel} onDrill={setDrill} />
             <ChartCard
               title={tatView === 'tat' ? 'Turnaround time trend' : 'Dispatch rate trend'}
               subtitle={tatView === 'tat' ? 'Monthly median, hours · click a month to list its orders' : 'Share of non-cancelled orders dispatched, by order month · click a month'}
@@ -331,6 +305,8 @@ export default function Orders() {
               table={d ? { columns: ['Month', 'Dispatch (h)', 'Delivery (h)', 'Dispatch rate'], rows: d.tat.trend.map((m) => [monthLabel(m.month), hours(m.dispatch_h), hours(m.delivery_h), pct(m.dispatch_pct)]) } : undefined}
             />
           </div>
+
+          <DelaySection d={flow.data?.data} loading={flow.isLoading} periodLabel={periodLabel} groupBy={groupBy} onGroupBy={setGroupBy} onDrill={setDrill} />
 
           <div className={cx('mt-4 grid grid-cols-1 gap-4', [true, true, !!pay, crmOn].filter(Boolean).length > 2 ? 'xl:grid-cols-3' : 'xl:grid-cols-2')}>
             <ChartCard

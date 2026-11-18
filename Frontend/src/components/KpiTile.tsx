@@ -70,7 +70,7 @@ export function KpiTile({
 }
 
 /** Small numeric tile without sparkline. */
-export function MiniStat({ label, value, sub, tone, to }: { label: string; value: ReactNode; sub?: ReactNode; tone?: 'good' | 'warn' | 'bad'; to?: string }) {
+export function MiniStat({ label, value, sub, tone, to, onClick }: { label: string; value: ReactNode; sub?: ReactNode; tone?: 'good' | 'warn' | 'bad'; to?: string; onClick?: () => void }) {
   const body = (
     <>
       <div className="text-xs text-ink2">{label}</div>
@@ -78,7 +78,13 @@ export function MiniStat({ label, value, sub, tone, to }: { label: string; value
       {sub && <div className="mt-0.5 text-xs text-muted">{sub}</div>}
     </>
   );
-  const cls = cx('card block px-3.5 py-3', to && 'hover:border-brand/50 hover:bg-sunken/40');
+  const cls = cx('card block px-3.5 py-3', (to || onClick) && 'hover:border-brand/50 hover:bg-sunken/40');
+  if (onClick && !to)
+    return (
+      <button type="button" onClick={onClick} className={cx(cls, 'w-full text-left')}>
+        {body}
+      </button>
+    );
   return to ? (
     <Link to={to} className={cls}>
       {body}

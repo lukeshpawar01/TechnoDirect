@@ -48,6 +48,19 @@ class OrdersDrillTests(TestCase):
         self.assertEqual(self.get("orders/", "order_status=received&age_bucket=7d%2B")["count"], 0)
         self.assertEqual(self.c.get("/api/orders/?age_bucket=9d").status_code, 400)
 
+    def test_old_orders_with_an_open_status_are_stale_not_open(self):
+        # the TD export never updated this year-old order: it is not work in progress
+        at = timezone.now() - dt.timedelta(days=400)
+        Order.objects.create(source_id="old", display_id="OLD", split_group="old", retailer=self.r1,
+                             distributor=self.r1.distributor, region=self.r1.region, status="shipped",
+                             payment_status="captured", is_qualifying=True, gross_value=Decimal(10), units=1,
+                             placed_at=at, placed_date=timezone.localtime(at).date())
+        cache.clear()
+        s = self.c.get("/api/orders/summary/?preset=last_30d").json()["data"]
+        shipped_7d = next(a["count"] for a in s["ageing"] if a["bucket"] == "7d+" and a["status"] == "shipped")
+        self.assertEqual((shipped_7d, s["stale_open"], s["open_window_days"]), (1, 1, 30))
+        self.assertEqual(self.get("orders/", "order_status=shipped&age_bucket=7d%2B")["count"], 1)
+
     def test_payment_mode_and_platform_are_paid_orders_only(self):
         self.assertEqual(self.get("orders/", "paid=1&mode=UPI")["count"], 2)  # the cancelled UPI order is excluded
         self.assertEqual(self.get("orders/", "paid=1&mode=Unknown")["count"], 1)  # blank mode

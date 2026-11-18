@@ -22,7 +22,8 @@ export const PRESETS = [
   { value: 'last_90d', label: 'Last 90d', group: 'Rolling' },
   { value: 'last_12m', label: 'Last 12 months', group: 'Rolling' },
   { value: 'all_time', label: 'All time', group: 'Other' },
-  { value: 'custom', label: 'Custom range', group: 'Other' },
+  // custom dates are picked in the From/To boxes beside the dropdown, not from the list
+  { value: 'custom', label: 'Custom dates', group: 'Other', hidden: true },
 ] as const;
 
 export type Preset = (typeof PRESETS)[number]['value'];
@@ -171,6 +172,48 @@ export function describePreset(f: GlobalFilters): string {
     return `${dayjs(f.date_from).format('DD MMM YY')} – ${dayjs(f.date_to).format('DD MMM YY')}`;
   }
   return label;
+}
+
+/** Today's date in IST (the backend's calendar), whatever this browser's time zone. */
+export function todayIst(now = new Date()): dayjs.Dayjs {
+  const ist = new Date(now.getTime() + (330 + now.getTimezoneOffset()) * 60_000);
+  return dayjs(new Date(ist.getFullYear(), ist.getMonth(), ist.getDate()));
+}
+
+const QUARTER_START_MONTH: Record<string, number> = { q1: 3, q2: 6, q3: 9, q4: 0 };
+const ROLLING: Record<string, number> = { last_7d: 7, last_30d: 30, last_90d: 90 };
+
+/**
+ * The From/To dates a preset covers — mirrors analytics/filters.py resolve_period so the date boxes can show
+ * them. `from` is null for All time (its start is the first order, known only to the server).
+ */
+export function presetRange(f: Pick<GlobalFilters, 'preset' | 'date_from' | 'date_to'>, today = todayIst()): { from: string | null; to: string } {
+  const iso = (d: dayjs.Dayjs) => d.format('YYYY-MM-DD');
+  const t = today;
+  const fyStart = t.month() >= 3 ? t.year() : t.year() - 1;
+  let s: dayjs.Dayjs | null = t;
+  let e = t;
+  switch (f.preset) {
+    case 'yesterday': s = e = t.subtract(1, 'day'); break;
+    case 'wtd': s = t.subtract((t.day() + 6) % 7, 'day'); break;
+    case 'last_week': s = t.subtract(((t.day() + 6) % 7) + 7, 'day'); e = s.add(6, 'day'); break;
+    case 'mtd': s = t.startOf('month'); break;
+    case 'prev_month': s = t.subtract(1, 'month').startOf('month'); e = s.endOf('month').startOf('day'); break;
+    case 'qtd': s = t.startOf('month').subtract(((t.month() - 3 + 12) % 12) % 3, 'month'); break;
+    case 'fytd': s = dayjs(new Date(fyStart, 3, 1)); break;
+    case 'q1': case 'q2': case 'q3': case 'q4': {
+      const m = QUARTER_START_MONTH[f.preset];
+      s = dayjs(new Date(m >= 3 ? fyStart : fyStart + 1, m, 1));
+      const qEnd = s.add(2, 'month').endOf('month').startOf('day');
+      e = s.isAfter(t) || qEnd.isBefore(t) ? qEnd : t;
+      break;
+    }
+    case 'last_7d': case 'last_30d': case 'last_90d': s = t.subtract(ROLLING[f.preset] - 1, 'day'); break;
+    case 'last_12m': s = t.startOf('month').subtract(11, 'month'); break;
+    case 'all_time': s = null; break;
+    case 'custom': return { from: f.date_from ?? null, to: f.date_to ?? iso(t) };
+  }
+  return { from: s ? iso(s) : null, to: iso(e) };
 }
 
 /** Financial year label (Apr–Mar): 2026-11-11 → "FY 2026-27" */

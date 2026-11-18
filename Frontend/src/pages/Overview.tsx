@@ -80,7 +80,7 @@ export default function Overview() {
   }, [d]);
 
   const funnelOpt = useMemo(() => {
-    if (!funnelRows.length) return null;
+    if (!funnelRows.some((r) => r.count > 0)) return null;
     return cartesian(t, {
       x: funnelRows.map((r) => STAGE[r.status]?.label ?? r.status),
       horizontal: true,
@@ -296,7 +296,8 @@ export default function Overview() {
                             {e.severity}
                           </Badge>
                           <span className="min-w-0 flex-1 text-xs text-ink2 group-hover:text-ink">
-                            <span className="font-semibold text-ink">{num(e.count)}</span> {e.message}
+                            {e.count !== null && <span className="font-semibold text-ink">{num(e.count)} </span>}
+                            {e.message}
                           </span>
                           <IconChevron size={14} className="mt-0.5 shrink-0 text-muted" />
                         </Link>

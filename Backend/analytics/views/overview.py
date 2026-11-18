@@ -35,10 +35,34 @@ def kpi(value, compare, spark_values):
             "delta_pct": delta_pct(value, compare) if compare is not None else None, "spark": spark_values}
 
 
-def open_sla_breaches(f):
-    cutoff = timezone.now() - dt.timedelta(hours=settings.ORDER_DISPATCH_SLA_HOURS)
-    return f.orders(qualifying=False, statuses=False).filter(
-        status__in=["received", "confirmed"], placed_at__lt=cutoff)
+OPEN_STATUSES = ["received", "confirmed", "shipped"]
+
+
+def open_window_start(f):
+    return f.today - dt.timedelta(days=settings.ORDER_OPEN_WINDOW_DAYS - 1)
+
+
+def open_orders(f, statuses=OPEN_STATUSES, use_filter_statuses=False):
+    """Orders still open (not delivered / cancelled) and placed within ORDER_OPEN_WINDOW_DAYS. Older orders that
+    still carry an open status are stale statuses in the TD export, not work in progress (see stale_open_orders)."""
+    return f.orders(qualifying=False, statuses=use_filter_statuses).filter(
+        status__in=statuses, placed_date__gte=open_window_start(f))
+
+
+def stale_open_orders(f):
+    """Orders placed before the open window that the TD export still shows as placed / confirmed / shipped."""
+    return f.orders(qualifying=False, statuses=False).filter(status__in=OPEN_STATUSES,
+                                                             placed_date__lt=open_window_start(f))
+
+
+def open_sla_breaches(f, use_filter_statuses=False):
+    """Not shipped yet and placed more than the dispatch SLA (in days) before the data date - the latest day in
+    the TD export, not the clock: the export lags a day or two, and measuring from the clock made every order of
+    those days look late. Same rule as the Order flow & delays section (fulfilment.py)."""
+    from .fulfilment import data_date, dispatch_sla_days
+
+    cutoff = data_date(f.today) - dt.timedelta(days=dispatch_sla_days())
+    return open_orders(f, ["received", "confirmed"], use_filter_statuses).filter(placed_date__lt=cutoff)
 
 
 def stale_stock_distributors(f):
@@ -155,7 +179,7 @@ class OverviewView(AnalyticsView):
             "top_state": {"name": snames.get(top_state["state_id"], "Unmapped"),
                           "share": share(top_state["s"], total)} if top_state else None,
             "top10_retailer_share": share(sum(float(r["s"] or 0) for r in by_ret), total),
-        }
+        } if total else None  # no sales in the period: the card shows its empty state, not "0.0% of sales"
         top_distributors = [{
             "id": r["distributor_id"], "name": dnames.get(r["distributor_id"], "Unmapped"),
             "sales": num(r["s"]), "share": share(r["s"], total),
@@ -173,22 +197,26 @@ class OverviewView(AnalyticsView):
 
     def exceptions(self, f, target):
         out = []
+        from ..stocksync import STOCK_SYNC_DAYS
+
+        # "message" never repeats the count: the UI shows `count` in front of it (count None = no number shown)
         sla = open_sla_breaches(f).count()
         if sla:
             out.append({"code": "order_sla_breach", "severity": "high", "count": sla,
-                        "message": f"{sla} orders not dispatched within {settings.ORDER_DISPATCH_SLA_HOURS}h",
+                        "message": f"orders not dispatched within {settings.ORDER_DISPATCH_SLA_HOURS}h "
+                                   f"(placed in the last {settings.ORDER_OPEN_WINDOW_DAYS} days)",
                         "link": "/orders?order_status=received,confirmed&sla_breached=1"})
         stale = stale_stock_distributors(f)
         if stale:
             out.append({"code": "stock_sync_stale", "severity": "medium", "count": len(stale),
-                        "message": f"{len(stale)} distributors without a stock sync in 24h",
-                        "link": "/inventory"})
+                        "message": f"distributors without a stock update in the last {STOCK_SYNC_DAYS} days",
+                        "link": "/distributors?stock_sync=stale,never"})
         if target and target["days_total"] > target["days_elapsed"] > 0:
             req, curr = target["required_run_rate"], target["current_run_rate"]
             if req > curr:
                 out.append({
                     "code": "target_run_rate_shortfall",
-                    "severity": "high" if curr < 0.8 * req else "medium", "count": 1,
+                    "severity": "high" if curr < 0.8 * req else "medium", "count": None,
                     "message": f"Run rate {fmt_inr(curr)}/day vs required {fmt_inr(req)}/day "
                                f"({target['achievement_pct']}% of {fmt_inr(target['target'])} achieved)",
                     "link": "/overview"})
@@ -202,7 +230,7 @@ class OverviewView(AnalyticsView):
             if sev_rank[sev] < sev_rank[e[1]]:
                 e[1] = sev
         for code, (n, sev, label) in dq.items():
-            out.append({"code": f"dq_{code}", "severity": sev, "count": n, "message": f"{label}: {n}",
+            out.append({"code": f"dq_{code}", "severity": sev, "count": n, "message": label,
                         "link": f"/data-health?issue={code}"})
-        out.sort(key=lambda e: (sev_rank[e["severity"]], -e["count"]))
+        out.sort(key=lambda e: (sev_rank[e["severity"]], -(e["count"] or 0)))
         return out

@@ -84,8 +84,8 @@ export default function Distributors() {
   const basis = q.data?.meta?.sales_basis;
 
   const shareOpt = useMemo(() => {
-    if (!rows?.length) return null;
-    const top = [...rows].sort((a, b) => b.sales - a.sales);
+    const top = (rows ?? []).filter((r) => r.sales > 0).sort((a, b) => b.sales - a.sales);
+    if (!top.length) return null; // no sales in the period: empty state, not a column of ₹0 bars
     const head = top.slice(0, 10);
     const rest = top.slice(10).reduce((s, r) => s + r.sales, 0);
     const x = [...head.map((r) => r.name), ...(rest > 0 ? ['Other'] : [])];

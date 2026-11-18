@@ -138,6 +138,10 @@ export function OrdersDrill({ spec, onClose, onOpenOrder }: { spec: OrdersDrillS
                 { key: 'retailer', header: 'Retailer' },
                 { key: 'distributor', header: 'Distributor' },
                 { key: 'status', header: 'Status', render: (r) => <StatusBadge status={r.status} /> },
+                { key: 'shipped_on', header: 'Shipped', sortable: false, render: (r) => (r.shipped_on ? date(r.shipped_on, 'DD MMM') : '–') },
+                { key: 'dispatch_days', header: 'Days to ship', sortable: false, align: 'right', render: (r) => (r.dispatch_days ?? '–') },
+                { key: 'delivered_on', header: 'Delivered', sortable: false, render: (r) => (r.delivered_on ? date(r.delivered_on, 'DD MMM') : '–') },
+                { key: 'transit_days', header: 'Days in transit', sortable: false, align: 'right', render: (r) => (r.transit_days ?? '–') },
                 { key: 'payment_mode', header: 'Mode', render: (r) => r.payment_mode ?? '–' },
                 { key: 'value', header: 'Value', align: 'right', render: (r) => inr(r.value, { compact: false }) },
               ]}

@@ -73,9 +73,12 @@ export function cartesian(t: ChartTokens, o: CartesianOpts): EChartsOption {
   const lastStackIdx = new Map<string, number>();
   o.series.forEach((s, i) => s.stack && lastStackIdx.set(s.stack, i));
 
+  // counts (all whole numbers) never get fractional ticks, which would print as "0 0 1 1" on small/empty data
+  const wholeNumbers = f === 'num' && o.series.every((s) => s.data.every((v) => v === null || v === undefined || Number.isInteger(v)));
   const valueAxis = {
     type: 'value' as const,
     ...ax,
+    ...(wholeNumbers ? { minInterval: 1 } : {}),
     axisLine: { show: false },
     // keep a reference line (e.g. 100% target) inside the plot
     max: o.yMax ?? (o.markLine ? (v: { max: number }) => Math.max(v.max, o.markLine!.value) * 1.08 : undefined),

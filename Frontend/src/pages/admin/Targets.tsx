@@ -191,9 +191,26 @@ export default function Targets() {
             { key: 'scope_type', header: 'Scope', render: (r) => titleCase(r.scope_type) },
             { key: 'scope_name', header: 'Name', render: (r) => <span className="font-medium">{r.scope_name || 'All India'}</span> },
             { key: 'metric', header: 'Metric', render: (r) => titleCase(r.metric) },
-            { key: 'value', header: 'Target', align: 'right', render: (r) => <InlineValue t={r} onSave={(value) => save.mutateAsync({ id: r.id, value })} /> },
+            {
+              key: 'value',
+              header: 'Target',
+              align: 'right',
+              render: (r) =>
+                r.in_use === false ? (
+                  <span className="text-muted line-through" title="Replaced by a newer version">{inr(r.value)}</span>
+                ) : (
+                  <InlineValue t={r} onSave={(value) => save.mutateAsync({ id: r.id, value })} />
+                ),
+            },
             { key: 'effective_from', header: 'Effective from', render: (r) => date(r.effective_from) },
-            { key: 'notes', header: 'Notes', render: (r) => <span className="text-xs text-ink2">{r.notes || '–'}</span> },
+            {
+              key: 'in_use',
+              header: 'Status',
+              sortable: false,
+              value: (r) => (r.in_use === false ? 'superseded' : 'in use'),
+              render: (r) => (r.in_use === false ? <Badge tone="neutral">superseded</Badge> : <Badge tone="good" icon>in use</Badge>),
+            },
+            { key: 'notes', header: 'Notes', render: (r) => <span className="block max-w-[18rem] truncate text-xs text-ink2" title={r.notes || undefined}>{r.notes || '–'}</span> },
             {
               key: 'del',
               header: '',

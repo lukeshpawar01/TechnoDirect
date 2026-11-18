@@ -55,6 +55,12 @@ export function baseOption(t: ChartTokens): EChartsOption {
       extraCssText: 'box-shadow: 0 4px 16px rgba(0,0,0,.12); border-radius: 8px;',
     },
     legend: {
+      // one row that pages when it doesn't fit; a wrapped second row would overlap the plot (grid top is fixed)
+      type: 'scroll',
+      pageIconColor: t.ink2,
+      pageIconInactiveColor: t.muted,
+      pageIconSize: 10,
+      pageTextStyle: { color: t.muted, fontSize: 11 },
       top: 0,
       left: 0,
       icon: 'roundRect',

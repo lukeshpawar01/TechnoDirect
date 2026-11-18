@@ -11,7 +11,7 @@ from accounts.scope import ASM_DIMS, DISTRIBUTOR_DIMS, REGION_DIMS, RETAILER_DIM
 from warehouse.models import (Asm, Distributor, FieldStaff, InventorySnapshot, OrderLine, Region, Retailer, Rsm, State,
                               primary_inventory)
 
-from ..filters import add_months, month_start, months_between
+from ..filters import add_months, month_end, month_start, months_between
 from ..rsm import region_rsm_map, with_rsm
 from ..metrics import (
     as_date,
@@ -99,7 +99,7 @@ class DistributorsView(AnalyticsView):
         targets = defaultdict(float)
         for (sid, _), v in tv.items():
             targets[sid] += float(v)
-        tsales = targeted_sales(cur_qs, "distributor_id", tv)
+        tsales = targeted_sales(target_window(base, f), "distributor_id", tv)
         stock = stocksync.last_sync(ids)  # sheet "Inventory Updated" date, else inventory import time
         total = sum(float(r["sales"] or 0) for r in cur.values())
         rows = []
@@ -128,11 +128,11 @@ class DistributorsView(AnalyticsView):
                 "stock_sync_status": stocksync.bucket(stock.get(d.id), f.today), **stocksync.info(d),
                 "spark": [num(sp[d.id].get(m, 0)) for m in months12],
             })
-        rows.sort(key=lambda r: -r["sales"])
-        sync = request.query_params.get("stock_sync")
-        if sync in ("fresh", "stale", "never"):
-            # within 3 days = current ("fresh"), older = "stale", no date at all = "never"
-            rows = [r for r in rows if r["stock_sync_status"] == sync]
+        rows.sort(key=lambda r: (-r["sales"], (r["name"] or "").lower()))
+        # within 3 days = current ("fresh"), older = "stale", no date at all = "never"; comma list allowed
+        sync = {s for s in (request.query_params.get("stock_sync") or "").split(",") if s in ("fresh", "stale", "never")}
+        if sync:
+            rows = [r for r in rows if r["stock_sync_status"] in sync]
         return {"rows": rows}
 
 
@@ -170,6 +170,7 @@ class DistributorDetailView(AnalyticsView):
                                 "distributor_id").get(d.id, (None, None)) if p.cmp_start else (None, None)
         tv = target_values("distributor", [d.id], months_between(p.start, p.end), "sales", f.today)
         tgt = float(sum(tv.values())) if tv else None
+        t_sales = targeted_sales(target_window(base, f), "distributor_id", tv).get(d.id, 0.0) if tgt else 0.0
         last_sync = stocksync.last_sync([d.id]).get(d.id)
 
         months = spark_months(p.end)
@@ -199,14 +200,18 @@ class DistributorDetailView(AnalyticsView):
             "new_retailers": kpi(a["new"], c and c["new"], sp(lambda r, m: mnew.get(m, 0))),
             "dispatch_pct": kpi(disp[0] or 0, disp_c[0] if c else None,
                                 sp(lambda r, m: pct(mdisp[m][1], mdisp[m][0]))),
-            "achievement_pct": kpi(share(a["sales"], tgt) if tgt else 0, None,
+            "achievement_pct": kpi(share(t_sales, tgt) if tgt else None, None,
                                    sp(lambda r, m: share(r.get("sales"), mt.get((d.id, m))) if mt.get((d.id, m)) else 0)),
         }
         if c is None:
             for k in kpis:
                 kpis[k]["compare"] = kpis[k]["delta_pct"] = None
-        target = {"target": num(tgt), "achieved": num(a["sales"]), "achievement_pct": share(a["sales"], tgt),
-                  "balance": num(max(tgt - a["sales"], 0))} if tgt else None
+        if not tgt:
+            kpis["achievement_pct"]["value"] = None  # no target set: show "–", not 0%
+        if disp[0] is None:
+            kpis["dispatch_pct"]["value"] = None  # no orders in the period: nothing to dispatch
+        target = {"target": num(tgt), "achieved": num(t_sales), "achievement_pct": share(t_sales, tgt),
+                  "balance": num(max(tgt - t_sales, 0))} if tgt else None
         monthly = [{"month": mkey(m), "sales": num(mrows.get(m, {}).get("sales")),
                     "orders": mrows.get(m, {}).get("orders", 0),
                     "active_retailers": mrows.get(m, {}).get("retailers", 0)} for m in months]
@@ -248,6 +253,14 @@ GROWTH_MIN_BASE = 50_000  # growth % on a smaller comparison base is noise (e.g.
 def growth_on_base(sales, prev):
     prev = float(prev or 0)
     return delta_pct(float(sales), prev) if prev >= GROWTH_MIN_BASE else None
+
+
+def target_window(base, f):
+    """Orders measured against monthly targets: the whole months the period touches, up to today - the same basis as
+    the Overview target card (metrics.target_block). Without it a 'Today' or 'Last 7 days' view divides a few days of
+    sales by a full month's target and reads ~0%."""
+    p = f.period
+    return base.filter(placed_date__gte=month_start(p.start), placed_date__lte=min(month_end(p.end), f.today))
 
 
 def targeted_sales(qs, gfield, tv):
@@ -308,7 +321,7 @@ class TerritoryView(AnalyticsView):
         targets = defaultdict(float)
         for (sid, _), v in tv.items():
             targets[sid] += float(v)
-        tsales = targeted_sales(cur_qs, gfield, tv)
+        tsales = targeted_sales(target_window(base, f), gfield, tv)
         rows = []
         for gid in group_ids | ({None} if None in cur else set()):
             c, k = cur.get(gid, {}), kyc.get(gid, {})
@@ -325,7 +338,7 @@ class TerritoryView(AnalyticsView):
                 "sales_per_retailer": ratio(sales, c.get("retailers", 0)),
                 "growth_pct": growth_on_base(sales, cmp.get(gid)) if p.cmp_start else None,
             })
-        rows.sort(key=lambda r: -r["sales"])
+        rows.sort(key=lambda r: (-r["sales"], str(r.get("name") or "").lower()))
         team = self.team(group_by, rows)
         months12 = spark_months(p.end)
         monthly = [{"month": mkey(r["m"]), "group": names.get(r[gfield], "Unmapped"), "group_id": r[gfield],
@@ -386,7 +399,7 @@ class TerritoryView(AnalyticsView):
         tgt = defaultdict(float)
         for (aid, _), v in tv.items():
             tgt[aid] += float(v)
-        tsales = targeted_sales(cur_qs, "asm_id", tv)
+        tsales = targeted_sales(target_window(base, f), "asm_id", tv)
         # ASM-less distributors' own targets belong to the "Distributor-managed" row of their region's RSM
         reg_rsm = region_rsm_map()
         no_asm = {d: reg_rsm.get(r) for d, r in Distributor.objects.filter(asm__isnull=True).values_list(
@@ -399,7 +412,7 @@ class TerritoryView(AnalyticsView):
                 dm_months[no_asm[did]].add(m)
                 keys.add((no_asm[did], None))
         dm_sales = defaultdict(float)
-        for r in cur_qs.filter(asm__isnull=True).annotate(_m=TruncMonth("placed_date")).values(
+        for r in target_window(base, f).filter(asm__isnull=True).annotate(_m=TruncMonth("placed_date")).values(
                 "rsm_key", "_m").annotate(_s=Sum("gross_value")):
             if as_date(r["_m"]) in dm_months.get(r["rsm_key"], ()):
                 dm_sales[r["rsm_key"]] += float(r["_s"] or 0)

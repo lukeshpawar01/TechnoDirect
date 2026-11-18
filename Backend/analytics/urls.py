@@ -7,6 +7,7 @@ from .views.growth import GrowthView
 from .views.funnel import FunnelView, RetailerDetailView, RetailerListView, RfmView, SegmentTrendView
 from .views.loyalty import LoyaltyView
 from .views.health import DataHealthView, DataVersionView, FilterOptionsView, SyncTriggerView
+from .views.fulfilment import FulfilmentFlowView
 from .views.orders import OrderDetailView, OrderListView, OrderRetailersView, OrdersSummaryView
 from .views.overview import OverviewView
 from .views.products import InventoryItemsView, InventoryView, ProductsView, ProductTreeView
@@ -37,6 +38,7 @@ urlpatterns = [
     path("distributors/<int:pk>/", DistributorDetailView.as_view()),
     path("territory/", TerritoryView.as_view()),
     path("orders/summary/", OrdersSummaryView.as_view()),
+    path("orders/flow/", FulfilmentFlowView.as_view()),
     path("orders/", OrderListView.as_view()),
     path("orders/retailers/", OrderRetailersView.as_view()),
     path("orders/<int:pk>/", OrderDetailView.as_view()),

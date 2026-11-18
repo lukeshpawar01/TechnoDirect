@@ -31,13 +31,25 @@ class MonthField(serializers.Field):
 class TargetSerializer(serializers.ModelSerializer):
     month = MonthField()
     scope_name = serializers.SerializerMethodField()
+    in_use = serializers.SerializerMethodField()
     effective_from = serializers.DateField(required=False)
 
     class Meta:
         model = Target
         fields = ["id", "month", "scope_type", "scope_id", "scope_name", "metric", "value", "effective_from",
-                  "notes", "version", "updated_by", "updated_at"]
+                  "notes", "version", "updated_by", "updated_at", "in_use"]
         read_only_fields = ["version", "updated_by", "updated_at"]
+
+    def get_in_use(self, obj):
+        """True for the version the dashboard uses today (same rule as analytics.metrics.target_values); older
+        versions of the same scope/month/metric stay listed for the audit trail."""
+        import datetime as _dt
+
+        today = _dt.date.today()
+        siblings = Target.objects.filter(scope_type=obj.scope_type, scope_id=obj.scope_id, month=obj.month,
+                                         metric=obj.metric).values_list("id", "effective_from", "version")
+        best = max(siblings, key=lambda s: (s[1] <= today, s[1], s[2], s[0]), default=None)
+        return bool(best and best[0] == obj.id)
 
     def get_scope_name(self, obj):
         if obj.scope_type == "overall":

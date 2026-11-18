@@ -210,8 +210,9 @@ class EndpointShapeTests(TestCase):
 
     def test_orders_summary_and_list_shapes(self):
         d = self.c.get("/api/orders/summary/?preset=last_12m").json()["data"]
-        self.assertEqual(set(d), {"status_counts", "ageing", "tat", "cancellation_rate", "payment", "order_payment_modes", "order_platforms",
-                                  "split_orders", "sla_breaches", "crm"})
+        self.assertEqual(set(d), {"status_counts", "ageing", "open_window_days", "stale_open", "tat", "cancellation_rate",
+                                  "payment", "order_payment_modes", "order_platforms", "split_orders", "sla_breaches",
+                                  "crm"})
         self.assertNotIn("refunds", d)
         lst = self.c.get("/api/orders/?preset=last_12m").json()
         self.assertEqual(set(lst), {"count", "next", "previous", "results"})
@@ -258,6 +259,23 @@ class KycVerifiedFilterTests(TestCase):
         self.assertEqual(yes + no, total)
         stages = {s["key"]: s["count"] for s in self.c.get("/api/funnel/?preset=all_time&kyc_verified=false").json()["data"]["stages"]}
         self.assertEqual(stages["kyc_approved"], 0)
+
+    def test_funnel_drill_lists_the_retailers_behind_each_number(self):
+        for preset in ("all_time", "last_90d"):
+            d = self.c.get(f"/api/funnel/?preset={preset}").json()["data"]
+
+            def n(q):
+                return self.c.get(f"/api/retailers/?preset={preset}&{q}").json()["count"]
+
+            for s in d["stages"]:
+                self.assertEqual(n(f"stage={s['key']}"), s["count"], (preset, s["key"]))
+            self.assertEqual(n("segment=never_ordered&stage=kyc_approved"), d["never_ordered"]["total"])
+            self.assertEqual(n("stage=kyc_ever_ordered"), d["kyc_penetration"]["ever_ordered"])
+            self.assertEqual(n("stage=first_order_30d"), d["kyc_conversion"]["within_30d"])
+            for m in d["acquisition_monthly"]:
+                self.assertEqual(n(f"first_order_month={m['month']}"), m["new_retailers"], m["month"])
+        self.assertEqual(self.c.get("/api/retailers/?stage=nope").status_code, 400)
+        self.assertEqual(self.c.get("/api/retailers/?signup_month=2026-13").status_code, 400)
 
 
 @override_settings(CELERY_TASK_ALWAYS_EAGER=True)
@@ -398,6 +416,14 @@ class RsmRollupTests(TestCase):
         self.assertEqual(rows["Ravi South"]["achievement_pct"], 50.0)  # Nov sales 100 / Nov target 200
         t = self.c.get(f"/api/overview/?{q}&rsm={self.r_s.id}").json()["data"]["target"]
         self.assertEqual((t["achieved"], t["target"], t["target_months"]), (100, 200, ["2026-11"]))
+
+    def test_short_period_achievement_is_month_to_date_like_overview(self):
+        # a single day with no orders: the monthly target is measured month-to-date, not "0 of a month's target"
+        q = "preset=custom&date_from=2026-11-10&date_to=2026-11-10"
+        rows = {r["name"]: r for r in self.c.get(f"/api/territory/?{q}&group_by=rsm").json()["data"]["rows"]}
+        self.assertEqual((rows["Ravi South"]["sales"], rows["Ravi South"]["achievement_pct"]), (0, 50.0))
+        t = self.c.get(f"/api/overview/?{q}&rsm={self.r_s.id}").json()["data"]["target"]
+        self.assertEqual(t["achievement_pct"], 50.0)
 
 
 class AsmHandoverTests(TestCase):

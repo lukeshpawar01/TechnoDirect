@@ -76,7 +76,8 @@ Master admin (`is_master_admin`) implicitly has all permissions and full scope.
 }
 ```
   KPI = `{"value":n,"compare":n|null,"delta_pct":n|null,"spark":[n,...12 months]}`
-- `GET /funnel/` → `{"stages":[{"key":"signed_up|kyc_submitted|kyc_approved|first_order|repeat_order|active_this_period","label","count"}],
+- Funnel drill-downs — extra params on `/retailers/` (same definitions as `/funnel/`): `stage=signed_up|kyc_approved|first_order|repeat_order|active_this_period|kyc_pending|kyc_rejected|never_flagged|kyc_ever_ordered|kyc_active|first_order_30d`, `signup_month=YYYY-MM`, `first_order_month=YYYY-MM`, `state_none=1`.
+- `GET /funnel/` → `{"stages":[{"key":"signed_up|kyc_approved|first_order|repeat_order|active_this_period","label","count"}],
   "kyc_status":[{"status":"pending|approved|rejected","count"}], "never_ordered":{"total","warm","cold","flagged"},
   "inactivity":{"d30","d60","d90"}, "signup_cohorts":[{"month","signed_up","kyc_approved","first_order","kyc_rate","order_rate"}] (by sign-up month; no KYC approval date in the source), "kyc_conversion":{"kyc_approved","converted","rate","median_days","within_30d","within_30d_pct","basis":"signup"} (time to first order measured from the created date),
   "acquisition_monthly":[{"month","new_retailers","cumulative"}], "by_state":[{"state","kyc_approved","ever_ordered","active","adoption_pct"}]}`
@@ -102,6 +103,14 @@ Master admin (`is_master_admin`) implicitly has all permissions and full scope.
   "split_orders":{"split_carts","total_carts"}, "sla_breaches":n, "crm":{"open","by_type":[{type,count}]}}`
 - `GET /orders/` list → `{id,display_id,placed_at,retailer,distributor,state,status,payment_status,value,units,awb,dispatch_hours,is_split,refund_value}`; `GET /orders/{id}/` → with `lines[]`, `payments[]`, `refunds[]`, `timeline[]`.
   Chart drill-downs (Orders page) — extra params on `/orders/` and `/orders/retailers/`: `age_bucket=0-1d|1-2d|2-4d|4-7d|7d+` (open orders by time since placed, any date, with `order_status`), `month=YYYY-MM` (placed that month, cancelled excluded — TAT trend), `paid=1` (paid, non-cancelled — payment mode / platform mix), `mode=<payment mode|Unknown>`.
+- `GET /orders/flow/?group_by=distributor|state|asm|weekday|size|cart|payment_mode|platform` (perm `view_orders`; Orders page "Daily order flow" + "Where orders get delayed"; `export=csv|xlsx` exports the hotspot rows) →
+  `{as_of (latest day in the data — ages are measured from it, not the clock), sla:{dispatch_days, transit_days (ORDER_TRANSIT_SLA_DAYS, default 3)},
+  flow:{granularity:"day|week" (week beyond 45 days), points:[{date,received,shipped,delivered}]}, latest_day:{date,today,previous}|null,
+  orders, dispatch|transit:{buckets:[{key:"0|1|2|3|4_6|7p",label,orders,late}],done,median_days,within_sla_pct,waiting,waiting_late},
+  end_to_end_median_days, late_orders, insights:[{tone,text,title,params}], hotspots:{group_by,label,min_orders,rows:[{key,label,orders,median_dispatch_days,late_dispatch,late_dispatch_pct,median_transit_days,late_transit,late_transit_pct,late_orders,late_pct,late_dispatch_share,late_transit_share}]}, dimensions:[{key,label}]}`.
+  Basis: non-cancelled orders placed in the period; whole days (the TD export has dates only). Late = took longer than the SLA, or is still waiting past it (placed within ORDER_OPEN_WINDOW_DAYS).
+  Drill params on `/orders/` and `/orders/retailers/`: `flow_day=YYYY-MM-DD&flow_event=received|shipped|delivered[&flow_week=1]`, `lead=dispatch|transit&lead_bucket=<key>`, `delay=dispatch|transit|any[&waiting=1]`, `group_by=<dim>&group=<key>`.
+  Order rows also carry `shipped_on, delivered_on, dispatch_days, transit_days`. `sla_breaches` (summary, Overview) = received / confirmed and placed more than the dispatch SLA in days before the data date.
 - `GET /orders/retailers/` (perm `view_orders`; same params as `/orders/`; `ordering=-value|orders|last_order`; `export=csv|xlsx`) → one row per retailer behind those orders `{id,retailer,phone(masked unless view_pii),city,state,distributor,asm,rfm_segment,rfm_label,orders,value,last_order}`.
 - `GET /products/` → `{"categories":[{code,name,sales,units,share,realisation}],"category_mix_monthly":[{month,category,sales}],
   "top_articles":[{style,name,category,sales,units,orders,retailers,share}],"bottom_articles":[...],"new_launches":[{style,launched_on,sales,units,retailers}],

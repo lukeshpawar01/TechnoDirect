@@ -21,10 +21,10 @@ from ..metrics import as_date, median, mkey, num, pct, spark_months
 from ..envelope import envelope
 from .base import AnalyticsView
 from .funnel import resolve_ordering
-from .overview import open_sla_breaches
+from .overview import OPEN_STATUSES, open_orders, open_sla_breaches, stale_open_orders
 
+# the last bucket ends at the open window (ORDER_OPEN_WINDOW_DAYS): older "open" orders are stale TD statuses
 AGE_BUCKETS = [("0-1d", 0, 24), ("1-2d", 24, 48), ("2-4d", 48, 96), ("4-7d", 96, 168), ("7d+", 168, None)]
-OPEN_STATUSES = ["received", "confirmed", "shipped"]
 
 
 def day_bounds(start, end):
@@ -62,8 +62,7 @@ class OrdersSummaryView(AnalyticsView):
 
         now = timezone.now()
         ageing_counts = defaultdict(int)
-        for st, placed in f.orders(qualifying=False, statuses=False).filter(status__in=OPEN_STATUSES).values_list(
-                "status", "placed_at"):
+        for st, placed in open_orders(f).values_list("status", "placed_at"):
             age_h = (now - placed).total_seconds() / 3600
             for label, lo, hi in AGE_BUCKETS:
                 if age_h >= lo and (hi is None or age_h < hi):
@@ -146,6 +145,9 @@ class OrdersSummaryView(AnalyticsView):
         }
         return {
             "status_counts": status_counts, "ageing": ageing, "tat": tat,
+            "open_window_days": settings.ORDER_OPEN_WINDOW_DAYS,
+            # older orders the TD export still shows as placed / confirmed / shipped (status never updated)
+            "stale_open": stale_open_orders(f).count(),
             "cancellation_rate": pct(cancelled, total_n) or 0.0,
             "payment": payment,
             "order_payment_modes": mix("payment_mode"),
@@ -173,6 +175,12 @@ def order_row(o):
         "status": o.status, "payment_status": o.payment_status, "payment_mode": o.payment_mode or None,
         "payu_txn_id": o.payu_txn_id or None, "value": num(o.gross_value), "units": o.units,
         "awb": o.awb or None, "dispatch_hours": hours(o.placed_at, o.shipped_at), "is_split": o.is_split,
+        # calendar days (the TD export has dates only): placed -> shipped, shipped -> delivered
+        "shipped_on": timezone.localtime(o.shipped_at).date().isoformat() if o.shipped_at else None,
+        "delivered_on": timezone.localtime(o.delivered_at).date().isoformat() if o.delivered_at else None,
+        "dispatch_days": max(0, (timezone.localtime(o.shipped_at).date() - o.placed_date).days) if o.shipped_at else None,
+        "transit_days": max(0, (timezone.localtime(o.delivered_at).date() - timezone.localtime(o.shipped_at).date()).days)
+        if o.shipped_at and o.delivered_at else None,
     }
 
 
@@ -187,7 +195,8 @@ class _OrderRows:
 def drill_orders(f, q):
     """Orders behind one mark of an Orders-page chart (same basis as OrdersSummaryView).
 
-    age_bucket=0-1d|1-2d|2-4d|4-7d|7d+  open orders by time since placed (any date, like the ageing heatmap)
+    age_bucket=0-1d|1-2d|2-4d|4-7d|7d+  open orders by time since placed (any period; placed within the open
+                                          window, like the ageing heatmap)
     month=YYYY-MM                         orders placed that month, cancelled excluded (TAT trend)
     paid=1                                paid, non-cancelled orders only (payment mode / platform mix)
     mode=<payment mode | Unknown>         payment mode as shown in the mix (Unknown = blank)
@@ -198,7 +207,7 @@ def drill_orders(f, q):
         if b is None:
             raise ValidationError({"age_bucket": f"must be one of {[x[0] for x in AGE_BUCKETS]}"})
         now = timezone.now()
-        qs = f.orders(qualifying=False).filter(status__in=OPEN_STATUSES, placed_at__lte=now - dt.timedelta(hours=b[1]))
+        qs = open_orders(f, use_filter_statuses=True).filter(placed_at__lte=now - dt.timedelta(hours=b[1]))
         if b[2] is not None:
             qs = qs.filter(placed_at__gt=now - dt.timedelta(hours=b[2]))
         return qs
@@ -218,6 +227,16 @@ def drill_orders(f, q):
     return None
 
 
+def drill_any(f, q):
+    """The orders behind a chart mark: Orders-page charts first, then the Order flow & delays section."""
+    drill = drill_orders(f, q)
+    if drill is None:
+        from .fulfilment import drill_flow
+
+        drill = drill_flow(f, q)
+    return drill
+
+
 class OrderListView(ExportListMixin, generics.ListAPIView):
     permission_classes = [IsAuthenticated, HasPerm("view_orders")]
     export_filename = "orders"
@@ -225,13 +244,11 @@ class OrderListView(ExportListMixin, generics.ListAPIView):
     def get_queryset(self):
         f = parse_filters(self.request)
         q = self.request.query_params
-        drill = drill_orders(f, q)
+        drill = drill_any(f, q)
         qs = (drill if drill is not None else f.orders(start=f.period.start, end=f.period.end, qualifying=False)
               ).select_related("retailer", "distributor", "state")
         if q.get("sla_breached") in ("1", "true"):
-            cutoff = timezone.now() - dt.timedelta(hours=settings.ORDER_DISPATCH_SLA_HOURS)
-            qs = f.orders(qualifying=False).select_related("retailer", "distributor", "state").filter(
-                status__in=["received", "confirmed"], placed_at__lt=cutoff)
+            qs = open_sla_breaches(f, use_filter_statuses=True).select_related("retailer", "distributor", "state")
         if q.get("search"):
             s = q["search"].strip()
             qs = qs.filter(Q(display_id__icontains=s) | Q(awb__icontains=s) | Q(retailer__name__icontains=s) |
@@ -253,11 +270,10 @@ class OrderRetailersView(ExportListMixin, generics.ListAPIView):
 
         f = parse_filters(self.request)
         q = self.request.query_params
-        drill = drill_orders(f, q)
+        drill = drill_any(f, q)
         qs = drill if drill is not None else f.orders(start=f.period.start, end=f.period.end, qualifying=False)
         if q.get("sla_breached") in ("1", "true"):
-            cutoff = timezone.now() - dt.timedelta(hours=settings.ORDER_DISPATCH_SLA_HOURS)
-            qs = f.orders(qualifying=False).filter(status__in=["received", "confirmed"], placed_at__lt=cutoff)
+            qs = open_sla_breaches(f, use_filter_statuses=True)
         if q.get("search"):
             s = q["search"].strip()
             qs = qs.filter(Q(retailer__name__icontains=s) | Q(retailer__phone__icontains=s))

@@ -13,3 +13,6 @@ google-auth>=2.28
 requests>=2.31
 gunicorn>=21.2
 tzdata>=2024.1
+# Windows single-server hosting (deploy/windows)
+waitress>=3.0
+whitenoise>=6.6

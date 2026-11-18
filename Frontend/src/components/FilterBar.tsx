@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useFilterOptions } from '@/api/hooks';
-import { PRESETS, useFilters, type Preset } from '@/lib/filters';
+import { PRESETS, presetRange, useFilters, type Preset } from '@/lib/filters';
 import { ALL_TOP_FILTERS, type TopFilter } from '@/nav';
 import { MultiSelect } from './MultiSelect';
 import { IconX } from './Icons';
@@ -30,6 +30,9 @@ function notStartedQuarters(now = new Date()): Set<string> {
   return out;
 }
 
+/** All time has no client-known start: picking a To date then starts the range on that month's 1st. */
+const dayjsMonthStart = (iso: string) => iso.slice(0, 8) + '01';
+
 const TOP_KEYS: Record<TopFilter, string[]> = {
   date: ['preset', 'date_from', 'date_to'],
   region: ['region'],
@@ -51,6 +54,19 @@ export function FilterBar({ visible = ALL_TOP_FILTERS }: { visible?: TopFilter[]
   const o = opts.data;
   const show = new Set(visible);
   const future = useMemo(() => notStartedQuarters(), []);
+  const isCustom = filters.preset === 'custom';
+  // a date picked past the other end moves that end with it, so the range is never back to front
+  const setCustom = (from: string, to: string, edited: 'from' | 'to') => {
+    // typing a year fires a change per digit (0002, 0020, …): wait until it is a real year
+    const ok = (d: string) => /^\d{4}-\d{2}-\d{2}$/.test(d) && d >= '2000-01-01' && d <= '2099-12-31';
+    if (!ok(from) || !ok(to)) return;
+    if (from > to) {
+      if (edited === 'from') to = from;
+      else from = to;
+    }
+    update({ preset: 'custom', date_from: from, date_to: to });
+  };
+  const range = useMemo(() => presetRange(filters), [filters.preset, filters.date_from, filters.date_to]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const regionSet = new Set(filters.region);
   const stateSet = new Set(filters.state);
@@ -99,13 +115,7 @@ export function FilterBar({ visible = ALL_TOP_FILTERS }: { visible?: TopFilter[]
           <select
             id="preset"
             value={filters.preset}
-            onChange={(e) => {
-              const p = e.target.value as Preset;
-              if (p === 'custom') {
-                const today = new Date().toISOString().slice(0, 10);
-                update({ preset: p, date_from: filters.date_from ?? today.slice(0, 8) + '01', date_to: filters.date_to ?? today });
-              } else update({ preset: p, date_from: undefined, date_to: undefined });
-            }}
+            onChange={(e) => update({ preset: e.target.value as Preset, date_from: undefined, date_to: undefined })}
             className="rounded-md border border-brand/50 bg-surface px-2 py-1.5 text-xs font-medium text-ink"
           >
             {PRESET_GROUPS.map((g) => (
@@ -125,13 +135,25 @@ export function FilterBar({ visible = ALL_TOP_FILTERS }: { visible?: TopFilter[]
               </option>
             ))}
           </select>
-          {filters.preset === 'custom' && (
-            <div className="flex items-center gap-1 text-xs">
-              <input type="date" aria-label="From date" className="input w-[8.5rem] py-1 text-xs" value={filters.date_from ?? ''} max={filters.date_to} onChange={(e) => update({ date_from: e.target.value })} />
-              <span className="text-muted">to</span>
-              <input type="date" aria-label="To date" className="input w-[8.5rem] py-1 text-xs" value={filters.date_to ?? ''} min={filters.date_from} onChange={(e) => update({ date_to: e.target.value })} />
-            </div>
-          )}
+          {/* From/To are always on the bar: they show the dates the chosen preset covers, and editing either
+              one switches to custom dates (the other box keeps the date it showed). */}
+          <div className="flex items-center gap-1 text-xs" title={isCustom ? 'Custom dates' : 'Pick a date to set a custom range'}>
+            <input
+              type="date"
+              aria-label="From date"
+              className={`input w-[8.5rem] py-1 text-xs ${isCustom ? 'border-brand/50' : 'text-ink2'}`}
+              value={range.from ?? ''}
+              onChange={(e) => setCustom(e.target.value, range.to, 'from')}
+            />
+            <span className="text-muted">to</span>
+            <input
+              type="date"
+              aria-label="To date"
+              className={`input w-[8.5rem] py-1 text-xs ${isCustom ? 'border-brand/50' : 'text-ink2'}`}
+              value={range.to}
+              onChange={(e) => setCustom(range.from ?? dayjsMonthStart(e.target.value), e.target.value, 'to')}
+            />
+          </div>
         </>
       )}
       {show.has('region') && <MultiSelect label="Region" options={regionOpts} value={filters.region} onChange={(v) => update({ region: v })} disabled={opts.isLoading} width="w-36" />}

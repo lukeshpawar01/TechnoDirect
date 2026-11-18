@@ -11,7 +11,7 @@ import { RfmDot } from '@/components/RfmPanel';
 import { PageHeader } from '@/components/PageHeader';
 import { Card, ErrorState, LoadingBlock, Stat } from '@/components/ui';
 import { linkWithFilters, useFilters } from '@/lib/filters';
-import { asPct, date, inr, monthLabel, num, sharePct, titleCase } from '@/lib/format';
+import { asPct, date, inr, monthLabel, num, pct, sharePct, titleCase } from '@/lib/format';
 import { StalenessBadge, type SyncInfo } from './Distributors';
 
 const KPI_FMT: Record<string, { label: string; fmt: (n: number | null | undefined) => string; money?: boolean }> = {
@@ -22,7 +22,13 @@ const KPI_FMT: Record<string, { label: string; fmt: (n: number | null | undefine
   new_retailers: { label: 'New retailers', fmt: (n) => num(n) },
   repeat_retailers: { label: 'Repeat retailers', fmt: (n) => num(n) },
   units_per_order: { label: 'Units per order', fmt: (n) => num(n, 1) },
+  dispatch_pct: { label: 'Orders dispatched', fmt: (n) => pct(n) },
+  achievement_pct: { label: 'Target achieved (month to date)', fmt: (n) => pct(n) },
 };
+
+// profile fields shown as-is from the API: readable labels, and numbers with separators
+const PROFILE_LABELS: Record<string, string> = { gstin: 'GSTIN', mapped_retailers: 'Mapped retailers', pan: 'PAN' };
+const profileValue = (v: string | number) => (typeof v === 'number' ? num(v) : v);
 
 export default function DistributorDetail() {
   const { id } = useParams();
@@ -72,7 +78,7 @@ export default function DistributorDetail() {
             sub={[p.stock_upload_mode ? `Updated ${String(p.stock_upload_mode).toLowerCase() === 'manually' ? 'manually' : 'via ' + p.stock_upload_mode}` : null, p.stock_update_frequency as string | null].filter(Boolean).join(' · ') || undefined}
           />
           {extraProfile.slice(0, 3).map(([k, v]) => (
-            <Stat key={k} label={titleCase(k)} value={String(v)} />
+            <Stat key={k} label={PROFILE_LABELS[k] ?? titleCase(k)} value={String(profileValue(v as string | number))} />
           ))}
         </div>
       </Card>

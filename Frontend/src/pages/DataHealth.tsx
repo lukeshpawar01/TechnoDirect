@@ -108,9 +108,19 @@ export default function DataHealth() {
                 emptyHint="All checks passed in the last refresh."
                 columns={[
                   { key: 'severity', header: 'Severity', render: (r) => <Badge tone={r.severity === 'high' ? 'bad' : r.severity === 'medium' ? 'warn' : 'neutral'} icon>{r.severity}</Badge> },
-                  { key: 'label', header: 'Issue', render: (r) => <span className="font-medium">{r.label}</span> },
-                  { key: 'code', header: 'Code', render: (r) => <span className="font-mono text-2xs text-muted">{r.code}</span> },
-                  { key: 'count', header: 'Count', align: 'right', render: (r) => num(r.count) },
+                  { key: 'count', header: 'Open', align: 'right', render: (r) => <span className={r.count ? 'font-semibold' : 'text-muted'}>{num(r.count)}</span> },
+                  {
+                    key: 'label',
+                    header: 'Issue',
+                    className: 'whitespace-normal',
+                    // the code sits under the label: as its own column it pushed Count out of the half-width card
+                    render: (r) => (
+                      <div>
+                        <div className="font-medium">{r.label}</div>
+                        <div className="font-mono text-2xs text-muted">{r.code}</div>
+                      </div>
+                    ),
+                  },
                 ]}
               />
             </Card>

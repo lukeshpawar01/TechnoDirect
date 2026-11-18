@@ -142,7 +142,7 @@ export default function Retention() {
 
   const paretoOpt = useMemo(() => {
     const p = d?.pareto ?? [];
-    if (!p.length) return null;
+    if (!p.some((x) => x.share > 0)) return null; // no sales in the period
     return cartesian(t, {
       x: p.map((x) => `Top ${num(x.top_n)}`),
       format: 'pct',

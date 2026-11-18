@@ -6,6 +6,7 @@ from django.db.models.functions import Coalesce, TruncMonth
 from django.http import Http404
 from django.utils import timezone
 from rest_framework import generics
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 
 from accounts.permissions import HasPerm
@@ -84,7 +85,6 @@ class FunnelView(AnalyticsView):
                   .filter(n__gte=2).count())
         agg = rb.aggregate(
             signed=Count("id", filter=Q(signed_up_at__isnull=True) | Q(signed_up_at__lt=end_excl)),
-            submitted=Count("id", filter=Q(kyc_status__in=["pending", "approved", "rejected"])),
             approved=Count("id", filter=Q(kyc_status="approved")),
             first=Count("id", filter=Q(first_order_date__lte=p.end)),
             pending=Count("id", filter=Q(kyc_status="pending")),
@@ -103,7 +103,8 @@ class FunnelView(AnalyticsView):
         warm_ready = Retailer.objects.filter(warm_match=True).exists()
         stages = [
             {"key": "signed_up", "label": "Signed up", "count": agg["signed"]},
-            {"key": "kyc_submitted", "label": "KYC submitted", "count": agg["submitted"]},
+            # one KYC stage, "KYC approved", as on every other page: the TD export only has the approved flag,
+            # so a separate "KYC submitted" stage always showed the same number
             {"key": "kyc_approved", "label": "KYC approved", "count": agg["approved"]},
             {"key": "first_order", "label": "Placed first order", "count": agg["first"]},
             {"key": "repeat_order", "label": "Placed repeat order", "count": repeat},
@@ -265,6 +266,75 @@ def retailer_row(r, can_pii, today, rsm_ctx=None, rfm_rows=None):
     }
 
 
+FUNNEL_STAGES = ("signed_up", "kyc_approved", "first_order", "repeat_order", "active_this_period", "kyc_pending",
+                 "kyc_rejected", "never_flagged", "kyc_ever_ordered", "kyc_active", "first_order_30d")
+
+
+def _month_arg(q, key):
+    raw = (q.get(key) or "").strip()
+    if not raw:
+        return None
+    try:
+        return dt.date.fromisoformat(raw + "-01")
+    except ValueError:
+        raise ValidationError({key: "must be YYYY-MM"}) from None
+
+
+def funnel_drill(f, qs, q):
+    """Retailers behind one number / bar on the Retailer Funnel page - the same definitions as FunnelView.
+
+    stage=signed_up | kyc_approved | first_order | repeat_order | active_this_period   (the funnel stages)
+          kyc_pending | kyc_rejected                (KYC status card)
+          never_flagged                             (never ordered, no distributor or state)
+          kyc_ever_ordered | kyc_active             (KYC base ever ordered / ordering in the period)
+          first_order_30d                           (first order within 30 days of sign-up)
+    signup_month=YYYY-MM       signed up that month (IST) - conversion chart
+    first_order_month=YYYY-MM  first order that month - acquisition chart
+    state_none=1               no state mapped (the "Unmapped" row of Adoption by state)"""
+    p = f.period
+    day0 = lambda d: timezone.make_aware(dt.datetime.combine(d, dt.time.min))  # noqa: E731
+    stage = (q.get("stage") or "").strip()
+    if stage and stage not in FUNNEL_STAGES:
+        raise ValidationError({"stage": f"must be one of {list(FUNNEL_STAGES)}"})
+    if stage == "signed_up":
+        qs = qs.filter(Q(signed_up_at__isnull=True) | Q(signed_up_at__lt=day0(p.end + dt.timedelta(days=1))))
+    elif stage == "kyc_approved":
+        qs = qs.filter(kyc_status="approved")
+    elif stage == "kyc_pending":
+        qs = qs.filter(kyc_status="pending")
+    elif stage == "kyc_rejected":
+        qs = qs.filter(kyc_status="rejected")
+    elif stage == "first_order":
+        qs = qs.filter(first_order_date__lte=p.end)
+    elif stage == "kyc_ever_ordered":
+        qs = qs.filter(kyc_status="approved", first_order_date__lte=p.end)
+    elif stage == "repeat_order":
+        ids = (f.orders(end=p.end).values("retailer_id").annotate(n=Count("split_group", distinct=True))
+               .filter(n__gte=2).values("retailer_id"))
+        qs = qs.filter(id__in=ids)
+    elif stage in ("active_this_period", "kyc_active"):
+        qs = qs.filter(id__in=f.orders(start=p.start, end=p.end).values("retailer_id"))
+        if stage == "kyc_active":
+            qs = qs.filter(kyc_status="approved")
+    elif stage == "never_flagged":
+        qs = qs.filter(Q(kyc_status="approved", orders_count=0) & (Q(distributor__isnull=True) | Q(state__isnull=True)))
+    elif stage == "first_order_30d":
+        ids = [rid for rid, su, fo in qs.filter(
+            kyc_status="approved", signed_up_at__isnull=False, first_order_date__isnull=False,
+            first_order_date__lte=p.end).values_list("id", "signed_up_at", "first_order_date")
+               if 0 <= (fo - timezone.localtime(su).date()).days <= 30]
+        qs = qs.filter(id__in=ids)
+    m = _month_arg(q, "signup_month")
+    if m:
+        qs = qs.filter(signed_up_at__gte=day0(m), signed_up_at__lt=day0(add_months(m, 1)))
+    m = _month_arg(q, "first_order_month")
+    if m:
+        qs = qs.filter(first_order_date__gte=m, first_order_date__lt=add_months(m, 1))
+    if q.get("state_none") in ("1", "true"):
+        qs = qs.filter(state__isnull=True)
+    return qs
+
+
 class RetailerListView(ExportListMixin, generics.ListAPIView):
     """Rows: orders/sales are for the selected period; lifetime_* are all-time."""
 
@@ -282,6 +352,7 @@ class RetailerListView(ExportListMixin, generics.ListAPIView):
         q = self.request.query_params
         if q.get("warm") in ("true", "1", "false", "0"):
             qs = qs.filter(warm_match=q["warm"] in ("true", "1"))
+        qs = funnel_drill(f, qs, q)
         if q.get("search"):
             s = q["search"].strip()
             qs = qs.filter(Q(name__icontains=s) | Q(phone__icontains=s) | Q(gstin__icontains=s) |

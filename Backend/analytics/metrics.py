@@ -150,9 +150,10 @@ def target_values(scope_type, ids, months, metric="sales", as_of=None):
     if ids is not None:
         qs = qs.filter(scope_id__in=ids)
     best = {}
-    for t in qs.values("scope_id", "month", "value", "effective_from", "version"):
+    for t in qs.values("id", "scope_id", "month", "value", "effective_from", "version"):
         key = (t["scope_id"], t["month"])
-        rank = (t["effective_from"] <= as_of, t["effective_from"], t["version"])
+        # id last: two rows with the same date and version -> the newer row wins, never row order
+        rank = (t["effective_from"] <= as_of, t["effective_from"], t["version"], t["id"])
         if key not in best or rank > best[key][0]:
             best[key] = (rank, t["value"])
     return {k: v[1] for k, v in best.items()}

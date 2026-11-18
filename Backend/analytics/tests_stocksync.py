@@ -69,3 +69,15 @@ class StockSyncTests(TestCase):
         row = next(r for r in self.c.get("/api/distributors/?preset=last_90d").json()["data"]["rows"]
                    if r["id"] == self.w["d1"].id)
         self.assertEqual((row["stock_sync_status"], row["stock_upload_mode"]), ("fresh", "Manually"))
+        # comma list (the Overview exception links to stale + never)
+        self.assertEqual(ids("stale,never") & {self.w["d1"].id, self.w["d2"].id, self.d3.id},
+                         {self.w["d2"].id, self.d3.id})
+
+    def test_overview_exception_uses_three_day_rule_and_no_repeated_count(self):
+        ex = {e["code"]: e for e in self.c.get("/api/overview/?preset=mtd").json()["data"]["exceptions"]}
+        e = ex["stock_sync_stale"]
+        self.assertEqual(e["message"], "distributors without a stock update in the last 3 days")
+        self.assertGreaterEqual(e["count"], 2)
+        self.assertEqual(e["link"], "/distributors?stock_sync=stale,never")
+        for x in ex.values():  # the UI prints count in front: messages never repeat it
+            self.assertFalse(x["message"][:1].isdigit(), x["message"])
