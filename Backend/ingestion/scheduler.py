@@ -59,20 +59,33 @@ def forecast_due(now=None):
     return None if TargetForecast.objects.filter(month=month).exists() else month
 
 
-def _attempt(job, now):
+def _attempt(job, now, every=RETRY_AFTER):
     last = _last_attempt.get(job)
-    if last and now - last < RETRY_AFTER:
+    if last and now - last < every:
         return False
     _last_attempt[job] = now
     return True
+
+
+EDITS_BACKUP_EVERY = dt.timedelta(minutes=15)
 
 
 def tick(now=None):
     """One check: run whatever is due. Returns the jobs started (for tests and the log)."""
     from django.core.management import call_command
 
+    from ingestion import edit_store
+
     now = now or timezone.now()
     done = []
+    # dashboard edits -> Supabase (only changed rows; also catches changes made by commands, not just the API)
+    if edit_store.configured() and _attempt("edits-backup", now, EDITS_BACKUP_EVERY):
+        try:
+            res = edit_store.push()
+            if res["sent"] or res["deleted"]:
+                done.append("edits-backup")
+        except Exception:  # noqa: BLE001 - Supabase unreachable: the refresh below still runs; retried in 15 min
+            log.exception("edits backup failed")
     slot = refresh_due(now)
     if slot and _attempt(f"refresh:{slot.isoformat()}", now):
         log.info("auto refresh: running the %s refresh", timezone.localtime(slot).strftime("%H:%M"))
@@ -93,8 +106,23 @@ def tick(now=None):
     return done
 
 
+def restore_edits_if_new():
+    """A new server (empty database) first gets the dashboard edits back from Supabase, before any import."""
+    from ingestion import edit_store
+
+    if edit_store.configured() and edit_store.local_is_empty():
+        res = edit_store.restore()
+        log.info("new database: restored %s edited records from Supabase", res.get("restored"))
+
+
 def _loop():
     time.sleep(FIRST_CHECK_AFTER)
+    try:
+        restore_edits_if_new()
+    except Exception:  # noqa: BLE001
+        log.exception("restoring the dashboard edits from Supabase failed")
+    finally:
+        connections.close_all()
     while True:
         try:
             tick()

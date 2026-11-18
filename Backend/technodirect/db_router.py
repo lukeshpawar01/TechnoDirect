@@ -19,6 +19,6 @@ class ReadOnlySourceRouter:
         return True
 
     def allow_migrate(self, db, app_label, model_name=None, **hints):
-        if db == SUPABASE_ALIAS:
+        if db in (SUPABASE_ALIAS, "supabase_edits"):  # raw SQL only (edits backup: ingestion/edit_store.py)
             return False
         return None

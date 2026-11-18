@@ -109,7 +109,15 @@ class TdImporter:
             self.load_inventory()
         with transaction.atomic():
             self.load_loyalty()
+        with transaction.atomic():
+            self.load_pnl_checks()
         return {"files": dict(self.sources), "rows": self.stats, "warnings": self.warnings}
+
+    def load_pnl_checks(self):
+        """Per-quarter order totals the P&L compares its entered figures with (masters/pnl.py)."""
+        from masters.pnl import rebuild_data_checks
+
+        self.stats["pnl_quarters"] = rebuild_data_checks(self.order_rows)
 
     # ------------------------------------------------------------------ geography / pincodes
     def load_geography(self):

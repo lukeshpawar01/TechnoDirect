@@ -7,9 +7,9 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import Q
 from django.http import HttpResponse
-from rest_framework import serializers, viewsets
+from rest_framework import permissions, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.filters import OrderingFilter
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
@@ -604,3 +604,129 @@ class AsmTrackerCreateView(APIView):
         log_action(request, "create", obj)
         bump_cache_version()
         return Response({"id": obj.id, "name": obj.name}, status=201)
+
+
+# ----------------------------------------------------------------------------- P&L (Business Head + master admin)
+def pnl_allowed(user, code):
+    """The master admin, or a user of the Business Head role holding the code. Checked on every P&L request, so the
+    P&L stays restricted even if the permission were put on another role."""
+    from accounts.models import PNL_ROLE
+
+    if not user or not user.is_authenticated:
+        return False
+    if user.is_master_admin:
+        return True
+    return bool(user.role_id and user.role.name == PNL_ROLE and user.has_code(code))
+
+
+class PnlPermission(permissions.BasePermission):
+    message = "The P&L is available to the Business Head and the admin only."
+
+    def has_permission(self, request, view):
+        code = "view_pnl" if request.method in permissions.SAFE_METHODS else "manage_pnl"
+        return pnl_allowed(request.user, code)
+
+
+def _pnl_amount(value, field, pct=False):
+    from decimal import Decimal, InvalidOperation
+
+    if value in (None, ""):
+        if pct:
+            raise ValidationError({field: "required"})
+        return None
+    try:
+        d = Decimal(str(value).replace(",", "").strip())
+    except (InvalidOperation, ValueError):
+        raise ValidationError({field: "must be a number"}) from None
+    if d < 0 or (pct and d > 100):
+        raise ValidationError({field: "must be between 0 and 100" if pct else "cannot be negative"})
+    return d
+
+
+class PnlView(APIView):
+    """GET /api/masters/pnl/ - the P&L statement, quarter on quarter, with checks against the data.
+    ?export=csv|xlsx downloads the statement laid out like the Excel sheet."""
+
+    permission_classes = [IsAuthenticated, PnlPermission]
+
+    def get(self, request):
+        from analytics.export import rows_to_response
+
+        from .pnl import export_rows, statement
+
+        data = statement()
+        fmt = request.query_params.get("export")
+        if fmt:
+            log_action(request, "export", None, object_type="pnl", object_id=fmt)
+            return rows_to_response(export_rows(data), "TD_PnL_QoQ", fmt)
+        data["can_edit"] = pnl_allowed(request.user, "manage_pnl")
+        return Response(data)
+
+
+class PnlQuarterView(APIView):
+    """POST /api/masters/pnl/quarters/            add the next quarter (costs and % carried forward)
+       PATCH /api/masters/pnl/quarters/<start>/   change a quarter's inputs
+       DELETE /api/masters/pnl/quarters/<start>/  remove the latest quarter (undo an add)"""
+
+    permission_classes = [IsAuthenticated, PnlPermission]
+    PCTS = {"cogs_pct", "pg_pct", "loyalty_pct"}
+    AMOUNTS = {"gross_revenue", "returns", "tech_platform_cost", "manpower_operating_cost", "misc_expense"}
+
+    def _get(self, start):
+        from .models import PnlQuarter
+
+        try:
+            return PnlQuarter.objects.get(quarter_start=dt.date.fromisoformat(start))
+        except (ValueError, PnlQuarter.DoesNotExist):
+            raise NotFound("No such P&L quarter") from None
+
+    def post(self, request):
+        from .models import PnlQuarter
+        from .pnl import CARRY_FORWARD, is_quarter_start, next_quarter, quarter_label
+
+        latest = PnlQuarter.objects.order_by("-quarter_start").first()
+        raw = request.data.get("quarter_start")
+        try:
+            start = dt.date.fromisoformat(raw) if raw else (next_quarter(latest.quarter_start) if latest else None)
+        except ValueError:
+            raise ValidationError({"quarter_start": "use YYYY-MM-DD"}) from None
+        if start is None or not is_quarter_start(start):
+            raise ValidationError({"quarter_start": "must be the first day of a quarter (1 Apr / Jul / Oct / Jan)"})
+        if start > dt.date.today():
+            raise ValidationError({"quarter_start": f"{quarter_label(start)} has not started yet"})
+        if PnlQuarter.objects.filter(quarter_start=start).exists():
+            raise ValidationError({"quarter_start": f"{quarter_label(start)} already exists"})
+        carry = {f: getattr(latest, f) for f in CARRY_FORWARD} if latest else {}
+        obj = PnlQuarter.objects.create(quarter_start=start, updated_by=request.user.email,
+                                        notes=f"Costs and % carried forward from {quarter_label(latest.quarter_start)}"
+                                        if latest else "", **carry)
+        log_action(request, "create", obj, after=snapshot(obj))
+        return Response({"start": start.isoformat(), "label": quarter_label(start)}, status=201)
+
+    def patch(self, request, start):
+        obj = self._get(start)
+        before = snapshot(obj)
+        changed = []
+        for field in self.AMOUNTS | self.PCTS:
+            if field in request.data:
+                setattr(obj, field, _pnl_amount(request.data[field], field, pct=field in self.PCTS))
+                changed.append(field)
+        if "notes" in request.data:
+            obj.notes = str(request.data.get("notes") or "")[:2000]
+            changed.append("notes")
+        if not changed:
+            raise ValidationError({"detail": "nothing to change"})
+        obj.updated_by = request.user.email
+        obj.save()
+        log_action(request, "update", obj, before=before, after=snapshot(obj))
+        return Response({"updated": sorted(changed)})
+
+    def delete(self, request, start):
+        from .models import PnlQuarter
+
+        obj = self._get(start)
+        if PnlQuarter.objects.filter(quarter_start__gt=obj.quarter_start).exists():
+            raise ValidationError({"detail": "Only the latest quarter can be removed"})
+        log_action(request, "delete", obj, before=snapshot(obj))
+        obj.delete()
+        return Response(status=204)

@@ -158,6 +158,32 @@ Supabase (project "technosport", schema `public`) holds the ID-keyed TD export t
    * The session sets `default_transaction_read_only=on` and `statement_timeout`.
    * Tests mirror it to the default database.
 
+### Dashboard edits kept in Supabase
+What admins change in the dashboard is backed up to Supabase, laid out like the dashboard (`ingestion/edit_store.py`).
+There is one schema ("folder") per module, and one table per kind of record, with real columns plus `_synced_at`, like
+the TD tables:
+
+| Schema (module) | Tables |
+|---|---|
+| `region_asm_performance` | `targets`, `asms`, `rsms`, `asm_handovers`, `field_staff`, `tracked_distributors`, `target_forecasts` |
+| `distributors` | `distributors` (ASM, state and aliases set in the dashboard) |
+| `mappings` | `regions`, `states`, `pincodes` |
+| `admin` | `users`, `roles`, `audit_log`, `metric_definitions`, `reconciliation_refs` |
+
+Everything else is rebuilt from the sources, so it is not copied. The login creates its own tables, and a field added
+to the dashboard later becomes a new column automatically.
+
+1. Run `deploy/supabase_edits.sql` in Supabase > SQL Editor (the password is set the first time only). It creates the
+   four schemas and the login `td_dashboard_rw`, which can only use those schemas.
+2. In `.env`, set `SUPABASE_EDITS_USER=td_dashboard_rw.<project-ref>` and `SUPABASE_EDITS_PASSWORD`.
+3. Run `python manage.py edits_backup --check`, then `python manage.py edits_backup` for the first full copy.
+
+After that it is automatic:
+* A change made through the API is sent within about 5 seconds.
+* Every 15 minutes the server sends anything else that changed, for example from commands. Only changed rows are sent.
+* A new server with an empty database (Render, a new PC) restores the edits on its first start, before its first data
+  import. By hand: `manage.py edits_restore`, or `edits_restore --force` to overwrite a database that already has users.
+
 ### PayU (sales transactions only)
 Set `PAYU_MERCHANT_KEY` and `PAYU_MERCHANT_SALT`. The connector calls `get_Transaction_Details` (postservice) over
 date windows and upserts one `Payment` per `mihpayid`.
@@ -188,7 +214,7 @@ adjust `fetch_distributor_stock` in `ingestion/connectors/channel_konnect.py` on
   * Or set `DATABASE_URL` to a Postgres database (Render Postgres, or a separate Supabase project) and run
     `manage.py migrate`.
 * **Environment:** put the `.env` values in Render's environment settings:
-  * `SUPABASE_DB_*` and `DROPBOX_*`;
+  * `SUPABASE_DB_*`, `SUPABASE_EDITS_*` (so the dashboard edits are restored on the first start) and `DROPBOX_*`;
   * `DJANGO_SECRET_KEY`, `DEBUG=False`, `ALLOWED_HOSTS` and `CORS_ALLOWED_ORIGINS`.
 * **Not available on Render yet:** the settlement tracker and the distributor stock sheet are read from CSV files on
   the office PC (`SETTLEMENT_TRACKER`, `DISTRIBUTOR_SYNC_SHEET`). Until they come from Google Sheets or Supabase, those

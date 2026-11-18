@@ -71,3 +71,46 @@ def ensure_default_metrics(**kwargs):
         MetricDefinition.objects.get_or_create(code=code, defaults={
             "name": name, "definition": definition, "formula": formula, "source": source,
             "owner": "Business Analytics", "refresh": "Twice daily (10:00 & 18:00 IST)"})
+
+
+class PnlQuarter(models.Model):
+    """One quarter of the TD P&L (Business Head / master admin only). The inputs entered in the dashboard; every other
+    line is calculated exactly as in TD_P&L_QoQ_Rev.xlsx (masters/pnl.py)."""
+
+    quarter_start = models.DateField(unique=True, help_text="First day of the FY quarter (1 Apr / Jul / Oct / Jan)")
+    gross_revenue = models.DecimalField(max_digits=16, decimal_places=2, null=True, blank=True)
+    returns = models.DecimalField(max_digits=16, decimal_places=2, null=True, blank=True,
+                                  help_text="Returns / refunds / cancellations")
+    cogs_pct = models.DecimalField(max_digits=7, decimal_places=4, default=70, help_text="% of Net Revenue")
+    pg_pct = models.DecimalField(max_digits=7, decimal_places=4, default=1, help_text="% of Gross Revenue")
+    loyalty_pct = models.DecimalField(max_digits=7, decimal_places=4, default=0.25,
+                                      help_text="% of Gross Revenue (the sheet: 0.5% / 2)")
+    tech_platform_cost = models.DecimalField(max_digits=16, decimal_places=2, null=True, blank=True)
+    manpower_operating_cost = models.DecimalField(max_digits=16, decimal_places=2, null=True, blank=True)
+    misc_expense = models.DecimalField(max_digits=16, decimal_places=2, null=True, blank=True)
+    notes = models.TextField(blank=True)
+    updated_by = models.CharField(max_length=254, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["quarter_start"]
+
+    def __str__(self):
+        return f"P&L {self.quarter_start:%Y-%m}"
+
+
+class PnlDataCheck(models.Model):
+    """Per-quarter totals from the TD data (Supabase orders), rebuilt at every import - the P&L's 'check against data'."""
+
+    quarter_start = models.DateField(unique=True)
+    orders = models.PositiveIntegerField(default=0)
+    order_value = models.DecimalField(max_digits=16, decimal_places=2, default=0,
+                                      help_text="Order value incl. points redeemed (total_amount) of paid orders")
+    line_value = models.DecimalField(max_digits=16, decimal_places=2, default=0, help_text="Order lines (= Sales)")
+    cancelled_value = models.DecimalField(max_digits=16, decimal_places=2, default=0)
+    points_redeemed = models.DecimalField(max_digits=16, decimal_places=2, default=0)
+    computed_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["quarter_start"]

@@ -65,6 +65,8 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    # after an edit through the API, back the edited data up to Supabase (no-op until SUPABASE_EDITS_* is set)
+    "ingestion.edit_store.EditBackupMiddleware",
 ]
 
 ROOT_URLCONF = "technodirect.urls"
@@ -118,6 +120,23 @@ if _sb_host and _sb_user and _sb_pass:
         # encrypted, and belt and braces: the session itself is read-only and statements time out
         "OPTIONS": {"sslmode": env_str("SUPABASE_DB_SSLMODE", "require") or "require", "connect_timeout": 15,
                     "options": "-c default_transaction_read_only=on -c statement_timeout=120000"},
+        "TEST": {"MIRROR": "default"},
+    }
+# What admins edit in the dashboard (users, targets, ASMs, handovers, mappings, ...) is backed up to Supabase, one schema
+# per dashboard module, with a separate login that can write only there (deploy/supabase_edits.sql, ingestion/edit_store.py),
+# and restored automatically on a new server.
+_sbw_user, _sbw_pass = env_str("SUPABASE_EDITS_USER"), env_str("SUPABASE_EDITS_PASSWORD")
+if _sb_host and _sbw_user and _sbw_pass:
+    DATABASES["supabase_edits"] = {
+        "ENGINE": "django.db.backends.postgresql",
+        "HOST": _sb_host,
+        "PORT": env_int("SUPABASE_DB_PORT", 5432),
+        "NAME": env_str("SUPABASE_DB_NAME", "postgres") or "postgres",
+        "USER": _sbw_user,
+        "PASSWORD": _sbw_pass,
+        "CONN_MAX_AGE": 0,
+        "OPTIONS": {"sslmode": env_str("SUPABASE_DB_SSLMODE", "require") or "require", "connect_timeout": 15,
+                    "options": "-c statement_timeout=120000"},
         "TEST": {"MIRROR": "default"},
     }
 

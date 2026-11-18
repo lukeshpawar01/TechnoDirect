@@ -15,6 +15,7 @@ export const IconFunnel = (p: P) => <Svg {...p}><path d="M3 4h18l-7 8v6l-4 2v-8z
 export const IconTruck = (p: P) => <Svg {...p}><path d="M3 6h11v10H3zM14 10h4l3 3v3h-7" /><circle cx="7" cy="18" r="1.6" /><circle cx="17" cy="18" r="1.6" /></Svg>;
 export const IconMap = (p: P) => <Svg {...p}><path d="M9 4l-6 2v14l6-2 6 2 6-2V4l-6 2z" /><path d="M9 4v14M15 6v14" /></Svg>;
 export const IconWallet = (p: P) => <Svg {...p}><path d="M4 7h14a2 2 0 012 2v9a2 2 0 01-2 2H5a1 1 0 01-1-1z" /><path d="M4 7l11-3v3" /><path d="M16 13h4" /></Svg>;
+export const IconRupee = (p: P) => <Svg {...p}><path d="M6 4h12" /><path d="M6 9h12" /><path d="M9 4h1a5 5 0 010 10H7l8 7" /></Svg>;
 export const IconCart = (p: P) => <Svg {...p}><path d="M3 4h2l2.4 11h10.2L20 8H6.2" /><circle cx="9" cy="19" r="1.4" /><circle cx="17" cy="19" r="1.4" /></Svg>;
 export const IconBox = (p: P) => <Svg {...p}><path d="M3 7l9-4 9 4-9 4z" /><path d="M3 7v10l9 4 9-4V7" /><path d="M12 11v10" /></Svg>;
 export const IconLayers = (p: P) => <Svg {...p}><path d="M12 3l9 5-9 5-9-5z" /><path d="M3 13l9 5 9-5" /></Svg>;

@@ -179,3 +179,38 @@ Window: the period in whole months, clipped to the last BO month; a period after
 - `GET /blueorigin/hierarchy/?group_by=region|rsm|asm|state|distributor` → `{window, group_by, rows:[Agg+{id,name,offline_only}], total:Agg}` (no ASM → "Unassigned"). Exportable (`table=rows`).
 - `GET /blueorigin/retailers/?search=&on_app=true|false&active=1&ordering=-purchase|name|tier|distributor|bo_id` → paged `{id,bo_id,retailer,phone(masked),district,state,distributor,offline_only_distributor,asm,rsm,tier,tier_history:[{quarter,tier}×4],purchase,on_app,td_retailer_id,td_retailer,app_orders}`; CSV/XLSX export.
 - App retailers: list rows and detail profile carry `tier` (null = not in BlueOrigin); `/retailers/?tier=Gold,None`; detail adds `blueorigin:[{bo_id,name,distributor,district,tier,quarters:[{quarter,tier,purchase,deliverables}],monthly:[{month,value}]}]`. `warm_match` = phone found in BlueOrigin (Funnel warm / cold). `/meta/filters/` adds `tiers` and `distributors[].bo_only`.
+
+## Profit & Loss — `/api/masters/pnl/` (Business Head role + master admin only)
+Access needs `view_pnl` (reads) / `manage_pnl` (writes). It is checked on every request **and** limited to the role named
+"Business Head" or the master admin. The two codes cannot be given to any other role (the Roles API returns 400).
+
+* `GET /api/masters/pnl/` returns `{lines[], quarters[], next_quarter, can_edit}`.
+  * `lines[]`: `{key, label, kind: input|assumption|subtotal|total|margin, formula}` in the order of TD_P&L_QoQ_Rev.xlsx.
+  * `quarters[]`, one per quarter:
+    * `start`, `end`, `label` ("Q2 (FY 25-26)") and `status` (`complete` | `in_progress`)
+    * `inputs` (`gross_revenue`, `returns`, `cogs_pct`, `pg_pct`, `loyalty_pct`, `tech_platform_cost`,
+      `manpower_operating_cost`, `misc_expense`, `notes`)
+    * `values{line}`
+    * `growth{line}`: a fraction for value lines, and the percentage-point change as a fraction for margin lines
+    * `missing[]`
+    * `checks{rows[{key, label, entered, data, diff, diff_pct, ebitda_effect, basis}], tracker_coverage, pg_actual_rate}`,
+      where `ebitda_effect` = EBITDA with the actual cost − EBITDA in the P&L (negative means the P&L overstates profit).
+* `GET ?export=csv|xlsx` exports the statement as the sheet lays it out (the value and QoQ for each quarter).
+* `POST /api/masters/pnl/quarters/ {quarter_start?}` adds the next quarter (it must have started). The costs and % are
+  carried forward from the latest quarter; revenue and returns are left empty.
+* `PATCH /api/masters/pnl/quarters/<YYYY-MM-DD>/` changes any of the inputs. Amounts must be ≥ 0 (commas are allowed)
+  and % must be between 0 and 100.
+* `DELETE /api/masters/pnl/quarters/<YYYY-MM-DD>/` removes a quarter, but only the latest one.
+
+Formulas (`masters/pnl.py`):
+* Net = Gross − Returns
+* COGS = Net × COGS %
+* Gross Profit = Net − COGS
+* PG = Gross × PG %
+* Loyalty = Gross × Loyalty %
+* CM1 = Gross Profit − PG − Loyalty
+* CM2 = CM1 − Technology − Manpower
+* EBITDA = CM2 − Misc
+* Operating margin = EBITDA / Gross
+
+All changes are written to the audit log and backed up to Supabase `pnl.quarters`.

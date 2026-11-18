@@ -25,8 +25,13 @@ PERMISSIONS = [
     ("manage_users", "Manage users, roles & audit log", "Admin"),
     ("manage_metrics", "Manage metric dictionary & reconciliation", "Admin"),
     ("trigger_sync", "Trigger data sync", "Admin"),
+    ("view_pnl", "View profit & loss (P&L) - Business Head and the master admin only", "Finance"),
+    ("manage_pnl", "Edit P&L inputs (revenue, returns, costs, assumptions)", "Finance"),
 ]
 PERMISSION_CODES = [p[0] for p in PERMISSIONS]
+# The P&L is restricted: only this role (and the master admin, who holds every permission) may have these codes.
+PNL_PERMISSIONS = {"view_pnl", "manage_pnl"}
+PNL_ROLE = "Business Head"
 
 
 class Role(models.Model):

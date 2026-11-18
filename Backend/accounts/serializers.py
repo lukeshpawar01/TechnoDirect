@@ -130,6 +130,16 @@ class RoleSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(f"Unknown permission codes: {bad}")
         return sorted(set(value))
 
+    def validate(self, attrs):
+        from .models import PNL_PERMISSIONS, PNL_ROLE
+
+        name = attrs.get("name", getattr(self.instance, "name", ""))
+        perms = set(attrs.get("permissions", getattr(self.instance, "permissions", None) or []))
+        if perms & PNL_PERMISSIONS and name != PNL_ROLE:
+            raise serializers.ValidationError(
+                {"permissions": f"P&L access is limited to the {PNL_ROLE} role (and the master admin)."})
+        return attrs
+
     def to_representation(self, instance):
         data = super().to_representation(instance)
         if data.get("user_count") is None:

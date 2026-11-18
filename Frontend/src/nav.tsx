@@ -3,6 +3,7 @@ import {
   IconBook,
   IconDatabase,
   IconWallet,
+  IconRupee,
   IconBox,
   IconCart,
   IconFunnel,
@@ -44,6 +45,8 @@ export const MAIN_NAV: NavItem[] = [
   { to: '/territory', label: 'Region & ASM Performance', icon: <IconMap />, perms: ['view_territory'] },
   { to: '/orders', label: 'Orders & Fulfilment', icon: <IconCart />, perms: ['view_orders'] },
   { to: '/settlements', label: 'Distributor Settlements', icon: <IconWallet />, perms: ['view_settlements'], filters: NO_CATEGORY },
+  // Business Head + admin only (the backend enforces it too); company-level, so no top-bar filters
+  { to: '/pnl', label: 'Profit & Loss', icon: <IconRupee />, perms: ['view_pnl'], filters: [] },
   // Category I is in the top bar AND the module row here (same `category` key, so they stay in sync)
   { to: '/products', label: 'Products', icon: <IconLayers />, perms: ['view_products'] },
   // stock is a current snapshot: no date range

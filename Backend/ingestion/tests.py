@@ -287,3 +287,122 @@ class AutoRefreshSchedulerTests(TestCase):
         TargetForecast.objects.create(month=dt.date(2026, 12, 1), scope_type="overall", value=1,
                                       as_of=dt.date(2026, 11, 27))
         self.assertIsNone(forecast_due(self.at(2026, 11, 28, 12)))
+
+
+class FakeState:
+    """In-memory stand-in for the Supabase module schemas."""
+
+    def __init__(self):
+        self.tables = {}  # "schema.table" -> {id: (row dict, hash)}
+
+    def _t(self, spec):
+        return self.tables.setdefault(f"{spec.schema}.{spec.table}", {})
+
+    def hashes(self, spec):
+        return {pk: h for pk, (_r, h) in self._t(spec).items()}
+
+    def upsert(self, spec, rows):
+        cols = [c for c, _ in spec.columns]
+        for vals, h in rows:
+            r = dict(zip(cols, vals))
+            self._t(spec)[r["id"]] = (r, h)
+
+    def delete(self, spec, ids):
+        for pk in ids:
+            self._t(spec).pop(pk, None)
+
+    def rows(self, spec):
+        return [r for r, _h in self._t(spec).values()]
+
+
+class EditStoreTests(TestCase):
+    """Dashboard edits are backed up to Supabase (only what changed) and restored into a new, empty database."""
+
+    def setUp(self):
+        from accounts.models import AuditLog, User
+        from warehouse.models import Asm, Distributor, Pincode, Region, State, Target
+
+        self.reg = Region.objects.create(code="S", name="South")
+        st = State.objects.create(code="KA", name="Karnataka", region=self.reg)
+        self.asm = Asm.objects.create(code="A1", name="Ravi", region=self.reg)
+        self.dist = Distributor.objects.create(code="HE", name="Heera", region=self.reg, state=st, asm=self.asm,
+                                               aliases=["HEERA EXPORTS INC"], source_id="td:9")
+        Pincode.objects.create(pincode="560001", state=st, asm=self.asm, distributor_p1=self.dist)
+        self.target = Target.objects.create(month=dt.date(2026, 12, 1), value=Decimal("1500000"),
+                                            effective_from=dt.date(2026, 11, 19))
+        self.user = User.objects.create_user(email="asm@test.local", password="x-Strong-pass1")
+        self.user.scope_distributors.add(self.dist)
+        AuditLog.objects.create(user=self.user, action="update", object_type="target")
+
+    def test_push_sends_only_changes(self):
+        from ingestion import edit_store
+
+        store = FakeState()
+        first = edit_store.push(store)
+        self.assertGreater(first["sent"], 8)
+        self.assertEqual(edit_store.push(store)["sent"], 0)  # nothing changed
+        self.target.value = Decimal("1800000")
+        self.target.save()
+        self.assertEqual(edit_store.push(store)["tables"], {"region_asm_performance.targets": 1})
+        self.target.delete()
+        self.assertEqual(edit_store.push(store)["deleted"], 1)
+        # laid out like the dashboard: module folders, real columns
+        self.assertIn("region_asm_performance.targets", store.tables)
+        self.assertIn("mappings.pincodes", store.tables)
+        user = next(iter(store.tables["admin.users"].values()))[0]
+        self.assertEqual(user["scope_distributors"], [self.dist.pk])
+        self.assertNotIn("user_permissions", user)
+        dist = next(iter(store.tables["distributors.distributors"].values()))[0]
+        self.assertEqual((dist["asm_id"], dist["aliases"]), (self.asm.pk, ["HEERA EXPORTS INC"]))
+
+    def test_restore_into_an_empty_database(self):
+        from accounts.models import AuditLog, User
+        from ingestion import edit_store
+        from warehouse.models import Asm, Distributor, Pincode, Region, State, Target
+
+        store = FakeState()
+        edit_store.push(store)
+        self.assertEqual(edit_store.restore(store)["restored"], 0)  # users exist: not without --force
+        for m in (AuditLog, User, Pincode, Target, Distributor, Asm, State, Region):
+            m.objects.all().delete()
+        self.assertTrue(edit_store.local_is_empty())
+        res = edit_store.restore(store)
+        self.assertGreater(res["restored"], 8)
+        d = Distributor.objects.get(source_id="td:9")
+        self.assertEqual((d.asm.name, d.state.name, d.aliases), ("Ravi", "Karnataka", ["HEERA EXPORTS INC"]))
+        self.assertEqual(Pincode.objects.get(pincode="560001").asm_id, d.asm_id)
+        u = User.objects.get(email="asm@test.local")
+        self.assertTrue(u.check_password("x-Strong-pass1"))  # logins survive
+        self.assertEqual(list(u.scope_distributors.all()), [d])
+        self.assertEqual(Target.objects.get().value, Decimal("1500000"))
+        self.assertEqual(AuditLog.objects.get().user, u)
+
+    def test_api_change_triggers_a_backup(self):
+        from unittest import mock
+
+        from django.test import RequestFactory
+
+        from ingestion import edit_store
+
+        mw = edit_store.EditBackupMiddleware(lambda r: type("R", (), {"status_code": 200})())
+        with mock.patch.object(edit_store, "configured", return_value=True), \
+                mock.patch.object(edit_store, "push_soon") as soon:
+            mw(RequestFactory().get("/api/overview/"))
+            soon.assert_not_called()
+            mw(RequestFactory().post("/api/masters/targets/"))
+            soon.assert_called_once()
+
+
+class EditStoreLayoutTests(SimpleTestCase):
+    def test_module_schemas_and_columns(self):
+        from ingestion import edit_store
+
+        self.assertEqual(edit_store.SCHEMAS, ["admin", "distributors", "mappings", "pnl", "region_asm_performance"])
+        spec = next(s for s in edit_store.SPECS if s.table == "targets")
+        cols = dict(spec.columns)
+        self.assertEqual((cols["id"], cols["month"], cols["value"]), ("bigint", "date", "numeric"))
+        users = dict(next(s for s in edit_store.SPECS if s.table == "users").columns)
+        self.assertEqual(users["scope_asms"], "jsonb")
+        sql = edit_store.setup_sql()
+        self.assertIn("grant usage, create on schema region_asm_performance to td_dashboard_rw;", sql)
+        self.assertNotIn("public", sql.split("--")[-1].split("drop")[0])  # never granted on the TD tables
