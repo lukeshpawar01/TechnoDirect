@@ -251,6 +251,13 @@ RECONCILIATION_TOLERANCE_PCT = 1.0
 # --- Integrations (placeholder => "" => not configured) -----------------------
 # BlueOrigin offline sheets (FY??_qtr?.csv + Dist-state.xlsx), e.g. the synced Dropbox "Power BI" folder
 BLUEORIGIN_DIR = env_str("BLUEORIGIN_DIR")
+# ... or the same sheets live from Dropbox through its API (masters/dropbox_bo.py). When all three credentials are
+# set, the API is used and BLUEORIGIN_DIR is ignored. Get the refresh token with `manage.py dropbox_auth`.
+DROPBOX_APP_KEY = env_str("DROPBOX_APP_KEY")
+DROPBOX_APP_SECRET = env_str("DROPBOX_APP_SECRET")
+DROPBOX_REFRESH_TOKEN = env_str("DROPBOX_REFRESH_TOKEN")
+DROPBOX_BO_PATH = env_str("DROPBOX_BO_PATH", "/Power BI")  # the folder as seen in Dropbox (not the PC path)
+DROPBOX_BO_MIRROR = env_str("DROPBOX_BO_MIRROR")  # local copy; default Backend/data/blueorigin_dropbox
 # finance team's distributor settlement tracker (CSV export of the "Tracker" sheet)
 SETTLEMENT_TRACKER = env_str("SETTLEMENT_TRACKER")
 # "TechnoDirect Data - TechnoD Distributors" sheet (CSV): per-distributor "Inventory Updated" = stock sync date

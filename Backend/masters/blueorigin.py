@@ -354,6 +354,19 @@ def refresh_if_changed(folder=None, triggered_by="schedule"):
 
     from ingestion.models import SyncRun, SyncWatermark
 
+    from masters import dropbox_bo
+
+    via = "folder"
+    if not folder and dropbox_bo.configured():
+        via = "dropbox"
+        # live from Dropbox: refresh the local mirror first (only changed files are downloaded)
+        try:
+            folder = dropbox_bo.mirror()["folder"]
+        except Exception as exc:  # noqa: BLE001 - the previous import stays on the dashboard
+            log.warning("BlueOrigin Dropbox download failed: %s", exc)
+            run = SyncRun.objects.create(source="blueorigin", status="failed", triggered_by=triggered_by,
+                                         error=str(exc)[:4000], finished_at=timezone.now())
+            return {"source": "blueorigin", "status": "failed", "rows": 0, "run_id": run.pk}
     folder = folder or getattr(settings, "BLUEORIGIN_DIR", "")
     if not folder or not os.path.isdir(folder):
         return {"source": "blueorigin", "status": "not_configured", "rows": 0, "run_id": None}
@@ -367,6 +380,7 @@ def refresh_if_changed(folder=None, triggered_by="schedule"):
         run.status, run.rows = "success", rep["quarter_rows"]
         run.details = {k: rep[k] for k in ("retailers", "quarter_rows", "month_rows", "distributors_created",
                                            "td_match", "tiers")}
+        run.details["via"] = via
         SyncWatermark.put("blueorigin:files", timezone.now(), cursor=sig)
     except Exception as exc:  # noqa: BLE001
         log.exception("BlueOrigin import failed")

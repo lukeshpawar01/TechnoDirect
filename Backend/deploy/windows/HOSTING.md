@@ -68,6 +68,26 @@ Everything else, such as data paths and email, stays in `.env`.
 **Login OTP:** to require an emailed code at login, add `LOGIN_OTP_ENABLED=True` to `.env.production` and restart the
 task. The email settings in `.env` must work first. Test with one user before enabling it.
 
+## BlueOrigin live from Dropbox (API)
+
+Once `DROPBOX_APP_KEY`, `DROPBOX_APP_SECRET` and `DROPBOX_REFRESH_TOKEN` are set in `Backend\.env`, every refresh
+downloads the changed BlueOrigin sheets (`FY??_qtr?.csv`, `Dist-state.xlsx`) from Dropbox. Without them, it reads
+`BLUEORIGIN_DIR` as before.
+
+The download is read-only and pulls nothing else from the folder. The local copy is in `Backend\data\blueorigin_dropbox`
+and is git-ignored. The Dropbox desktop app is no longer needed.
+
+1. Go to https://www.dropbox.com/developers/apps and choose **Create app**: *Scoped access*, *Full Dropbox*.
+2. **Permissions** tab: tick `files.metadata.read` and `files.content.read`, then **Submit**.
+3. **Settings** tab: paste the App key and App secret into `.env`.
+4. Run `python manage.py dropbox_auth`, open the link, click **Allow**, then run
+   `python manage.py dropbox_auth --code <code>`. This saves the refresh token in `.env`.
+5. Run `python manage.py dropbox_auth --check`, then `python manage.py import_blueorigin`.
+6. Restart the "TechnoDirect Dashboard" task.
+
+If something fails (for example a revoked token), the run shows as failed on Data Health and the previous data stays on
+the dashboard.
+
 ## Notes
 
 - **The PC must stay on and connected.** The dashboard is offline while it is shut down. Set Windows Update active

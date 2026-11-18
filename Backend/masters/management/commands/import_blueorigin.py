@@ -1,4 +1,8 @@
-"""Load the BlueOrigin (offline) quarterly sheets: python manage.py import_blueorigin [--dir FOLDER]."""
+"""Load the BlueOrigin (offline) quarterly sheets: python manage.py import_blueorigin [--dir FOLDER].
+
+Without --dir: from Dropbox through the API when DROPBOX_* is set (changed files are downloaded first), else from
+BLUEORIGIN_DIR.
+"""
 import json
 
 from django.conf import settings
@@ -11,12 +15,24 @@ class Command(BaseCommand):
     help = "Rebuild BlueOrigin retailers / quarters / months from FY??_qtr?.csv and tag app retailers (tier, warm)."
 
     def add_arguments(self, parser):
-        parser.add_argument("--dir", default=None, help="Folder with FY??_qtr?.csv (default: BLUEORIGIN_DIR)")
+        parser.add_argument("--dir", default=None,
+                            help="Folder with FY??_qtr?.csv (default: the Dropbox API if configured, else BLUEORIGIN_DIR)")
 
     def handle(self, *args, **opts):
-        folder = opts["dir"] or settings.BLUEORIGIN_DIR
+        from masters import dropbox_bo
+
+        folder, via = opts["dir"], "folder"
+        if not folder and dropbox_bo.configured():
+            try:
+                m = dropbox_bo.mirror()
+            except dropbox_bo.DropboxError as exc:
+                raise CommandError(str(exc)) from None
+            folder, via = m["folder"], "dropbox"
+            self.stdout.write(f"Dropbox {dropbox_bo.remote_folder()}: {m['files']} files, "
+                              f"downloaded {len(m['downloaded'])}, removed {len(m['removed'])}")
+        folder = folder or settings.BLUEORIGIN_DIR
         if not folder:
-            raise CommandError("Set BLUEORIGIN_DIR in .env or pass --dir")
+            raise CommandError("Set the DROPBOX_* credentials or BLUEORIGIN_DIR in .env, or pass --dir")
         from django.utils import timezone
 
         from ingestion.models import SyncRun, SyncWatermark
@@ -31,6 +47,7 @@ class Command(BaseCommand):
             raise CommandError(str(exc)) from exc
         run.status, run.rows, run.finished_at = "success", rep["quarter_rows"], timezone.now()
         run.details = {k: rep[k] for k in ("retailers", "quarter_rows", "month_rows", "distributors_created", "td_match")}
+        run.details["via"] = via
         run.save()
         SyncWatermark.put("blueorigin:files", timezone.now(), cursor=files_signature(folder))
         rep["month_totals"] = {k: round(v) for k, v in sorted(rep["month_totals"].items())}
