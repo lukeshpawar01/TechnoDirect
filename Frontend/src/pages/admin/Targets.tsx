@@ -173,6 +173,7 @@ export default function Targets() {
           rowKey={(r) => r.id}
           exportName={`targets_${month || 'all'}`}
           exportPath="/masters/targets/"
+          exportGlobal={false}
           exportParams={{ month: month || undefined, metric: metric || undefined }}
           initialSort={{ key: 'scope_type', dir: 'asc' }}
           pageSize={50}

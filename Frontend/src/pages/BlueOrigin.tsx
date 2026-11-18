@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { useAnalytics, usePagedList } from '@/api/hooks';
 import type { BoHierarchy, BoRetailerRow, BoSummary } from '@/api/types';
 import { cartesian } from '@/charts/builders';
@@ -12,7 +11,7 @@ import { PageHeader } from '@/components/PageHeader';
 import { TierChip } from '@/components/TierChip';
 import { Card, Delta, ErrorState, Segmented, cx } from '@/components/ui';
 import { useFilters } from '@/lib/filters';
-import { inr, monthLabel, num, sharePct } from '@/lib/format';
+import { inr, monthLabel, num } from '@/lib/format';
 import { TIERS, tierColor } from '@/lib/tiers';
 
 type Group = 'region' | 'rsm' | 'asm' | 'state' | 'distributor';
@@ -42,8 +41,7 @@ export default function BlueOrigin() {
   const [page, setPage] = useState(1);
   const [ordering, setOrdering] = useState('-purchase');
   const [search, setSearch] = useState('');
-  const [onApp, setOnApp] = useState<'' | 'true' | 'false'>('');
-  const listParams = { page, page_size: 50, ordering, search: search.trim() || undefined, on_app: onApp || undefined };
+  const listParams = { page, page_size: 50, ordering, search: search.trim() || undefined };
   const list = usePagedList<BoRetailerRow>('/blueorigin/retailers/', listParams);
 
   const mixOpt = useMemo(() => {
@@ -66,10 +64,8 @@ export default function BlueOrigin() {
     return cartesian(t, {
       x: d.monthly.map((m) => monthLabel(m.month)),
       format: 'inr',
-      legend: true,
       series: [
         { name: 'Distributor purchase (BlueOrigin)', data: d.monthly.map((m) => m.offline), color: t.series[0] },
-        { name: 'Of which ordered on the app', data: d.monthly.map((m) => m.app), color: t.series[1] },
       ],
     });
   }, [d, t]);
@@ -116,14 +112,12 @@ export default function BlueOrigin() {
                 {w.clipped ? ' (the period runs past the BlueOrigin data, so it stops at its last month)' : ''}.{' '}
               </>
             )}
-            BlueOrigin data runs {monthLabel(w.data_from)} to {monthLabel(w.data_until)}. Tiers are the distributor sheets' "New Tier" for {w.tier_quarter}. The sheets record everything a
-            distributor sold to the retailer, app orders included (for app retailers the two match within 10% in most months), so app sales are a part of the sheet value,
-            never added to it.
+            BlueOrigin data runs {monthLabel(w.data_from)} to {monthLabel(w.data_until)}. Tiers are the distributor sheets' "New Tier" for {w.tier_quarter}.
           </span>
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <MiniStat
           label="Distributor purchase"
           value={inr(k?.purchase)}
@@ -141,12 +135,7 @@ export default function BlueOrigin() {
           value={num(k?.tiered)}
           sub={k ? `Platinum ${num(k.tiers.Platinum)} · Gold ${num(k.tiers.Gold)}` : undefined}
         />
-        <MiniStat
-          label="On the TechnoDirect app"
-          value={num(k?.on_app)}
-          sub={k ? `${sharePct(k.on_app_pct)} of buying retailers · ${num(k.app_buyers)} ordered on the app` : undefined}
-        />
-        <MiniStat label="Ordered on the app" value={inr(k?.app_sales)} sub={k?.purchase ? `${sharePct((k.app_sales / k.purchase) * 100)} of distributor purchase` : undefined} />
+        <MiniStat label="Avg purchase per buying retailer" value={inr(k?.active ? k.purchase / k.active : null)} sub={w ? `in ${w.label}` : undefined} />
       </div>
 
       <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-5">
@@ -176,7 +165,7 @@ export default function BlueOrigin() {
               : undefined
           }
         />
-        <Card className="xl:col-span-2" title={`Tiers in ${w?.tier_quarter ?? '…'}`} subtitle={`Purchase in ${w?.label ?? 'the period'} · app adoption of buying retailers`}>
+        <Card className="xl:col-span-2" title={`Tiers in ${w?.tier_quarter ?? '…'}`} subtitle={`Purchase in ${w?.label ?? 'the period'}`}>
           <div className="overflow-x-auto px-4 pb-4">
             <table className="w-full text-sm tabular">
               <thead>
@@ -184,8 +173,7 @@ export default function BlueOrigin() {
                   <th className="py-2 pr-2 text-left font-medium">Tier</th>
                   <th className="px-2 py-2 text-right font-medium">Retailers</th>
                   <th className="px-2 py-2 text-right font-medium">Purchase</th>
-                  <th className="px-2 py-2 text-right font-medium">Avg</th>
-                  <th className="py-2 pl-2 text-right font-medium">On app</th>
+                  <th className="py-2 pl-2 text-right font-medium">Avg</th>
                 </tr>
               </thead>
               <tbody>
@@ -196,10 +184,7 @@ export default function BlueOrigin() {
                     </td>
                     <td className="px-2 py-1.5 text-right">{num(r.tier === 'Untiered' ? r.active : r.retailers)}</td>
                     <td className="whitespace-nowrap px-2 py-1.5 text-right font-semibold text-ink">{inr(r.purchase)}</td>
-                    <td className="whitespace-nowrap px-2 py-1.5 text-right text-ink2">{inr(r.avg_purchase)}</td>
-                    <td className="whitespace-nowrap py-1.5 pl-2 text-right">
-                      {num(r.on_app)} <span className="text-xs text-muted">{sharePct(r.on_app_pct)}</span>
-                    </td>
+                    <td className="whitespace-nowrap py-1.5 pl-2 text-right text-ink2">{inr(r.avg_purchase)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -273,15 +258,15 @@ export default function BlueOrigin() {
         </Card>
         <ChartCard
           className="xl:col-span-3"
-          title="Distributor purchase and the app's part"
-          subtitle="Last 12 BlueOrigin months · app orders of the phone-matched retailers are part of the sheet value"
+          title="Distributor purchase by month"
+          subtitle="Last 12 BlueOrigin months"
           option={monthlyOpt}
           loading={s.isLoading}
           table={
             d
               ? {
-                  columns: ['Month', 'Distributor purchase', 'Ordered on the app', 'App share'],
-                  rows: d.monthly.map((m) => [monthLabel(m.month), inr(m.offline), inr(m.app), m.offline ? sharePct((m.app / m.offline) * 100) : '–']),
+                  columns: ['Month', 'Distributor purchase'],
+                  rows: d.monthly.map((m) => [monthLabel(m.month), inr(m.offline)]),
                 }
               : undefined
           }
@@ -324,8 +309,6 @@ export default function BlueOrigin() {
                       {num(h.data!.data.total.tiers[tr])}
                     </td>
                   ))}
-                  <td className="px-3 py-2 text-right">{sharePct(h.data.data.total.on_app_pct)}</td>
-                  <td className="px-3 py-2 text-right">{inr(h.data.data.total.app_sales)}</td>
                 </tr>
               </tfoot>
             ) : undefined
@@ -357,8 +340,6 @@ export default function BlueOrigin() {
               value: (r: BoHierarchy['rows'][number]) => r.tiers[tr],
               render: (r: BoHierarchy['rows'][number]) => (r.tiers[tr] ? num(r.tiers[tr]) : <span className="text-muted">·</span>),
             })),
-            { key: 'on_app_pct', header: 'On app', align: 'right', value: (r) => r.on_app_pct, render: (r) => sharePct(r.on_app_pct) },
-            { key: 'app_sales', header: 'App sales', align: 'right', render: (r) => <span className="whitespace-nowrap">{inr(r.app_sales)}</span> },
           ]}
         />
       </Card>
@@ -391,19 +372,6 @@ export default function BlueOrigin() {
                   aria-label="Search offline retailers"
                 />
               </div>
-              <Segmented
-                size="xs"
-                value={onApp || ('all' as const)}
-                onChange={(v) => {
-                  setOnApp(v === 'all' ? '' : (v as 'true' | 'false'));
-                  setPage(1);
-                }}
-                options={[
-                  { value: 'all', label: 'All' },
-                  { value: 'true', label: 'On app' },
-                  { value: 'false', label: 'Not on app' },
-                ]}
-              />
             </div>
           }
           columns={[
@@ -461,19 +429,6 @@ export default function BlueOrigin() {
               ),
             },
             { key: 'purchase', header: 'Purchase', align: 'right', render: (r) => <span className="whitespace-nowrap font-semibold">{inr(r.purchase)}</span> },
-            {
-              key: 'on_app',
-              header: 'On app',
-              sortable: false,
-              render: (r) =>
-                r.td_retailer_id ? (
-                  <Link className="text-brand hover:underline dark:text-ink" to={`/retailers/${r.td_retailer_id}`} onClick={(e) => e.stopPropagation()}>
-                    {num(r.app_orders)} orders
-                  </Link>
-                ) : (
-                  <span className="text-xs text-muted">No</span>
-                ),
-            },
           ]}
         />
       </Card>

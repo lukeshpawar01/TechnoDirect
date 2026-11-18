@@ -3,6 +3,7 @@
 Every analytics / list endpoint calls `parse_filters(request)` and then uses
 `Filters.orders()` / `Filters.dims_q()` so the user's data scope is always intersected.
 """
+import re
 import calendar
 import datetime as dt
 from dataclasses import dataclass, field
@@ -257,6 +258,11 @@ class Filters:
     kyc_statuses: list = field(default_factory=list)  # approved / pending / rejected / not_submitted
     event_types: list = field(default_factory=list)
     tiers: list = field(default_factory=list)  # BlueOrigin tier (Platinum ... Untiered)
+    # distributor settlement (finance tracker)
+    settle_statuses: list = field(default_factory=list)  # settled / not_settled / pending / cancelled
+    pay_statuses: list = field(default_factory=list)  # approved / not_approved / pending / cancelled
+    payout_dates: list = field(default_factory=list)  # Distributor Settlement Date(s), ISO
+    date_basis: str = "order"  # period applies to the order date or to the payout date
     today: dt.date = field(default_factory=today_ist)
 
     @property
@@ -275,6 +281,7 @@ class Filters:
             sorted(self.platforms), sorted(self.payment_modes), self.split_only, sorted(self.cat_l1),
             sorted(self.cat_l2), sorted(self.cat_l3), sorted(self.sizes), self.has_account, sorted(self.event_types),
             self.kyc_verified, sorted(self.kyc_statuses), sorted(self.tiers),
+            sorted(self.settle_statuses), sorted(self.pay_statuses), sorted(self.payout_dates), self.date_basis,
         ])
 
     # -- dimension predicates ----------------------------------------------
@@ -419,6 +426,10 @@ def parse_filters(request, default_preset="mtd", today=None):
         kyc_verified={"true": True, "1": True, "yes": True, "false": False, "0": False, "no": False}.get((p.get("kyc_verified") or "").lower()),
         event_types=_csv(p.get("event_type")),
         tiers=[t.strip().title() for t in _csv(p.get("tier"))],
+        settle_statuses=[x.lower() for x in _csv(p.get("settlement_status"))],
+        pay_statuses=[x.lower() for x in _csv(p.get("pay_status"))],
+        payout_dates=[x for x in _csv(p.get("payout_date")) if re.fullmatch(r"\d{4}-\d{2}-\d{2}", x)],
+        date_basis="payout" if p.get("date_basis") == "payout" else "order",
         today=today or today_ist(),
     )
 

@@ -1,6 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { useAuth } from '@/auth/AuthContext';
 import { download, errorMessage, type Params } from '@/lib/api';
+import { useFilters } from '@/lib/filters';
 import { downloadCsv } from '@/lib/csv';
 import { num } from '@/lib/format';
 import { EmptyState, ErrorState, LoadingBlock, Spinner, cx } from './ui';
@@ -47,9 +48,11 @@ interface Props<T> {
   server?: ServerPaging;
   pageSize?: number;
   initialSort?: { key: string; dir: 'asc' | 'desc' };
-  /** Server export: GET {exportPath}?export=csv|xlsx with these params. */
+  /** Server export: GET {exportPath}?export=csv|xlsx with the page's active filters plus these params. */
   exportPath?: string;
   exportParams?: Params;
+  /** false = do not send the dashboard filters with the export (admin lists that are not filtered by them) */
+  exportGlobal?: boolean;
   exportName: string;
   title?: ReactNode;
   toolbar?: ReactNode;
@@ -68,6 +71,7 @@ function cmp(a: unknown, b: unknown): number {
 
 export function DataTable<T>(p: Props<T>) {
   const { can } = useAuth();
+  const { apiParams } = useFilters();
   const [sort, setSort] = useState<{ key: string; dir: 'asc' | 'desc' } | null>(p.initialSort ?? null);
   const [page, setPage] = useState(1);
   const [exporting, setExporting] = useState<string | null>(null);
@@ -118,7 +122,9 @@ export function DataTable<T>(p: Props<T>) {
     if (p.exportPath) {
       setExporting(fmt);
       try {
-        await download(p.exportPath, { ...(p.exportParams ?? {}), export: fmt, ordering: serverOrdering }, `${p.exportName}.${fmt}`);
+        // the download holds exactly what is on screen: top-bar + page filters, then the table's own search / tab / sort
+        const filters = p.exportGlobal === false ? {} : apiParams;
+        await download(p.exportPath, { ...filters, ...(p.exportParams ?? {}), export: fmt, ordering: serverOrdering }, `${p.exportName}.${fmt}`);
       } catch (e) {
         setExportErr(errorMessage(e));
       } finally {

@@ -118,6 +118,8 @@ export interface FilterOptions {
   styles?: { code: string; name: string; l1: string; l2: string; l3: string }[];
   /** BlueOrigin tiers, best first */
   tiers?: string[];
+  /** distributor payout dates (finance tracker), newest first */
+  payout_dates?: string[];
 }
 
 // ---------------------------------------------------------------- overview
@@ -890,4 +892,152 @@ export interface DistributorInsights {
   top_articles: { id: number; name: string; sales: number; articles: { style: string; sales: number }[] }[];
   multi_distributor: { retailers: number; multi: number; multi_pct: number | null; avg_orders_multi: number | null; avg_orders_single: number | null; monthly: { month: string; active: number; multi: number; multi_pct: number | null }[] };
   transacting_monthly: { month: string; distributors: number; retailers: number }[];
+}
+
+// ---------------------------------------------------------------- distributor settlements (finance tracker)
+export type SettleStatus = 'settled' | 'not_settled' | 'pending' | 'cancelled';
+export interface SettleAgg {
+  orders: number;
+  order_value: number;
+  refunds: number;
+  loyalty: number;
+  payable: number;
+  pg_charges: number;
+  settled: number;
+  settled_orders: number;
+  settled_pct: number | null;
+  due: number;
+  due_orders: number;
+  overdue: number;
+  overdue_orders: number;
+  not_yet_due: number;
+  not_yet_due_orders: number;
+  cancelled: number;
+  cancelled_orders: number;
+  median_days: number | null;
+  p90_days: number | null;
+  last_payout: string | null;
+}
+export interface SettlementSummary {
+  available: boolean;
+  basis: 'order' | 'payout';
+  sla_days: number;
+  data: { from: string; until: string; last_payout: string | null };
+  kpis: SettleAgg;
+  by_status: { status: SettleStatus; label: string; orders: number; payable: number; order_value: number }[];
+  by_payment: { status: string; label: string; orders: number; payable: number; order_value: number }[];
+  weekly: { week: string; orders: number; settled: number; due: number; not_yet_due: number }[];
+  payouts: { date: string; orders: number; amount: number; distributors: number; median_days: number | null }[];
+  ageing: { bucket: string; orders: number; amount: number }[];
+  issues: { issue: string; orders: number }[];
+  split: SplitBlock;
+}
+export interface SplitPart {
+  order_ref: string;
+  order_id: number | null;
+  distributor: string | null;
+  distributor_id: number | null;
+  order_value: number;
+  payable: number;
+  courier: number;
+  settlement_status: SettleStatus;
+  settled_on: string | null;
+  fulfilment: string;
+}
+export interface SplitCart {
+  cart: string;
+  date: string;
+  customer: string;
+  state: 'settled' | 'partly' | 'open' | 'cancelled';
+  order_value: number;
+  payable: number;
+  settled: number;
+  courier: number;
+  parts: SplitPart[];
+}
+export interface SplitBlock {
+  carts: number;
+  parts: number;
+  share_pct: number | null;
+  order_value: number;
+  payable: number;
+  settled: number;
+  remaining: number;
+  courier: number;
+  states: Record<'settled' | 'partly' | 'open' | 'cancelled', number>;
+  pairs: { pair: string; carts: number; value: number }[];
+  list: SplitCart[];
+}
+export interface SettlementDistributorRow {
+  id: number | null;
+  distributor: string;
+  asm: string | null;
+  state: string | null;
+  orders: number;
+  order_value: number;
+  refunds: number;
+  payable: number;
+  settled: number;
+  settled_pct: number | null;
+  due: number;
+  due_orders: number;
+  overdue: number;
+  overdue_orders: number;
+  not_yet_due: number;
+  payouts: number;
+  last_payout: string | null;
+  median_days: number | null;
+  split_orders: number;
+  split_payable: number;
+}
+export interface SettlementOrderRow {
+  id: number;
+  order_ref: string;
+  order_id: number | null;
+  order_date: string;
+  delivered_date: string | null;
+  fulfilment: string;
+  customer: string;
+  destination: string;
+  distributor: string;
+  distributor_id: number | null;
+  asm: string | null;
+  order_value: number;
+  customer_refund: number;
+  loyalty_points: number;
+  payable: number;
+  payment_mode: string;
+  transaction_id: string;
+  payment_status: string;
+  settlement_status: SettleStatus;
+  settled_on: string | null;
+  days_to_settle: number | null;
+  state: 'settled' | 'due' | 'not_yet_due' | 'cancelled';
+  days_since_delivery: number | null;
+  overdue: boolean;
+  remark: string;
+  issues: string[];
+  is_split: boolean;
+  split_with: { order_ref: string; order_id: number | null; distributor: string | null; distributor_id: number | null; payable: number; settlement_status: SettleStatus }[];
+}
+export interface SettlementStatement extends SettlementSummary {
+  distributor: { id: number; name: string; asm: string | null; rsm: string | null; state: string | null };
+  bridge: { order_value: number; cancelled: number; refunds: number; adjustments: number; payable: number; settled: number; due: number; not_yet_due: number; remaining: number };
+  monthly: { month: string; orders: number; payable: number; settled: number; remaining: number }[];
+  payouts: (SettlementSummary['payouts'][number] & { cumulative: number })[];
+  payout_gap_days: number | null;
+  open_orders: {
+    order_ref: string;
+    order_id: number | null;
+    customer: string;
+    order_date: string;
+    delivered_date: string | null;
+    fulfilment: string;
+    payable: number;
+    state: 'due' | 'not_yet_due';
+    settlement_status: SettleStatus;
+    payment_status: string;
+    days_since_delivery: number | null;
+    overdue: boolean;
+  }[];
 }

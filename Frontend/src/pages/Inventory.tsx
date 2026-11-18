@@ -10,7 +10,7 @@ import { useFilters } from '@/lib/filters';
 import { date, num, pct, titleCase } from '@/lib/format';
 
 const STOCK_LABEL: Record<string, string> = { oos: 'out of stock', low_stock: 'low stock', in_stock: 'in stock' };
-import { StalenessBadge } from './Distributors';
+import { STOCK_SYNC_DAYS, StalenessBadge } from './Distributors';
 
 export default function Inventory() {
   const q = useAnalytics<InventoryData>('/inventory/');
@@ -29,7 +29,7 @@ export default function Inventory() {
   useEffect(() => setPage(1), [debounced, stock, apiParams]);
 
   const items = usePagedList<InventoryItem>('/inventory/items/', { page, page_size: 50, ordering, search: debounced || undefined, stock_status: stock || undefined });
-  const staleCount = (d?.sync ?? []).filter((s) => !s.last_sync_at || Date.now() - new Date(s.last_sync_at).getTime() > 24 * 36e5).length;
+  const staleCount = (d?.sync ?? []).filter((s) => !s.last_sync_at || Date.now() - new Date(s.last_sync_at).getTime() > STOCK_SYNC_DAYS * 24 * 36e5).length;
 
   return (
     <div>
@@ -44,11 +44,11 @@ export default function Inventory() {
             <MiniStat label="Live styles" value={num(d?.summary.live_styles)} />
             <MiniStat label="Out-of-stock SKUs" value={num(d?.summary.oos_skus)} tone={d?.summary.oos_skus ? 'bad' : undefined} />
             <MiniStat label="Low-stock SKUs" value={num(d?.summary.low_stock_skus)} tone={d?.summary.low_stock_skus ? 'warn' : undefined} />
-            <MiniStat label="Distributors with stale stock" value={num(staleCount)} sub="No sync in 24 h" tone={staleCount ? 'warn' : 'good'} />
+            <MiniStat label="Distributors with stale stock" value={num(staleCount)} sub={`No sync in ${STOCK_SYNC_DAYS} days`} tone={staleCount ? 'warn' : 'good'} />
           </div>
 
           <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
-            <Card title="Stock sync by distributor" subtitle="Green ≤ 24 h · amber ≤ 72 h · red older or never">
+            <Card title="Stock sync by distributor" subtitle={`Green = synced within ${STOCK_SYNC_DAYS} days · amber = older · red = never synced`}>
               <DataTable
                 rows={d?.sync}
                 loading={q.isLoading}

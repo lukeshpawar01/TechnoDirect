@@ -214,6 +214,8 @@ RECONCILIATION_TOLERANCE_PCT = 1.0
 # --- Integrations (placeholder => "" => not configured) -----------------------
 # BlueOrigin offline sheets (FY??_qtr?.csv + Dist-state.xlsx), e.g. the synced Dropbox "Power BI" folder
 BLUEORIGIN_DIR = env_str("BLUEORIGIN_DIR")
+# finance team's distributor settlement tracker (CSV export of the "Tracker" sheet)
+SETTLEMENT_TRACKER = env_str("SETTLEMENT_TRACKER")
 PAYU_MERCHANT_KEY = env_str("PAYU_MERCHANT_KEY")
 PAYU_MERCHANT_SALT = env_str("PAYU_MERCHANT_SALT")
 PAYU_BASE_URL = env_str("PAYU_BASE_URL", "https://info.payu.in")

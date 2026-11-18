@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import {
   IconBook,
   IconDatabase,
+  IconWallet,
   IconBox,
   IconCart,
   IconFunnel,
@@ -42,6 +43,7 @@ export const MAIN_NAV: NavItem[] = [
   { to: '/distributors', label: 'Distributors', icon: <IconTruck />, perms: ['view_distributors'] },
   { to: '/territory', label: 'Region & ASM Performance', icon: <IconMap />, perms: ['view_territory'] },
   { to: '/orders', label: 'Orders & Fulfilment', icon: <IconCart />, perms: ['view_orders'] },
+  { to: '/settlements', label: 'Distributor Settlements', icon: <IconWallet />, perms: ['view_settlements'], filters: NO_CATEGORY },
   // Category I is in the top bar AND the module row here (same `category` key, so they stay in sync)
   { to: '/products', label: 'Products', icon: <IconLayers />, perms: ['view_products'] },
   // stock is a current snapshot: no date range

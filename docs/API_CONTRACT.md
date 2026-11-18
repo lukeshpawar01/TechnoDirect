@@ -1,7 +1,7 @@
 # TechnoDirect Dashboard — API Contract (v1)
 
 > **Scope note (11 Nov 2026):** PayU is in scope for sales/order data only. Not built now: `/alerts/*`, `manage_alerts`,
-> the `refunds` key in `/orders/summary/`, `refunds[]` in `/orders/{id}/`, `refund_value` on order rows, and anything settlement-related.
+> the `refunds` key in `/orders/summary/`, `refunds[]` in `/orders/{id}/`, `refund_value` on order rows, and settlement from PayU / Medusa (distributor settlement comes from the finance tracker, see below).
 > `payment` in `/orders/summary/` = `{success, failed, pending, failed_value, paid_no_order, mode_mix:[{mode,count,value}]}`.
 > Refresh: data refreshes at 10:00 and 18:00 IST only. Every envelope `meta` also carries `last_refresh_at` and `next_refresh_at`.
 > `POST /data-health/sync/` accepts `source=all`. There is no `/overview/live/` endpoint.
@@ -154,6 +154,14 @@ Monthly ASM targets workbook (one tab per month, TD Target in lakhs): `manage.py
 - `GET/POST /alerts/rules/`, `PATCH/DELETE /alerts/rules/{id}/` — `{id,code,name,is_active,threshold,params,channels:["email","whatsapp","in_app"],recipients:[emails/phones]}`
 - `GET /alerts/events/` paginated `{id,rule,severity,message,triggered_at,acknowledged}`; `POST /alerts/events/{id}/ack/`
 - `GET /alerts/mis/preview/` → HTML of today's daily MIS; `POST /alerts/mis/send-now/`
+
+## Distributor settlements (finance tracker) — perm `view_settlements`
+Source: `SETTLEMENT_TRACKER` = CSV export of "Technodirect Order Tracking - Tracker" (`masters/settlement.py`, `manage.py import_settlement`; re-imported by the scheduled refresh when the file changes). Payable = order value − customer refund (loyalty not deducted). Payee = the sheet's distributor (mapped by alias / majority of its app orders). Overdue = delivered > 15 days ago and not settled.
+Module params: `date_basis=order|payout` (what the period filters), `settlement_status=settled,not_settled,pending,cancelled`, `pay_status=approved,not_approved,pending,cancelled`, `payout_date=YYYY-MM-DD,...`, `payment_mode`.
+- `GET /settlements/summary/` → `{available, basis, sla_days, data:{from,until,last_payout}, kpis:Agg, by_status, by_payment, weekly:[{week,orders,settled,due,not_yet_due}], payouts:[{date,orders,amount,distributors,median_days}], ageing:[{bucket,orders,amount}], issues:[{issue,orders}]}`; `Agg = {orders,order_value,refunds,loyalty,payable,pg_charges,settled,settled_orders,settled_pct,due,due_orders,overdue,overdue_orders,not_yet_due,not_yet_due_orders,cancelled,cancelled_orders,median_days,p90_days,last_payout}`.
+- `GET /settlements/distributors/` → `{rows:[{id,distributor,asm,state,orders,order_value,refunds,payable,settled,settled_pct,due,due_orders,overdue,overdue_orders,not_yet_due,payouts,last_payout,median_days}], total:Agg}`.
+- `GET /settlements/orders/?view=due|overdue|issues&search=&ordering=` → paged order rows (export with `?export=csv|xlsx`).
+- `/meta/filters/` gains `payout_dates` (newest first).
 
 ## BlueOrigin (distributor sheets) — perm `view_blueorigin`
 Source: quarterly sheets `FY??_qtr?.csv` in `BLUEORIGIN_DIR` (`masters/blueorigin.py`, `manage.py import_blueorigin`; re-imported by the scheduled refresh when the files change). Tier = sheet "New Tier" (blank = Untiered). Hierarchy: distributor (name/alias; unknown → `Distributor.bo_only`), state (sheet → pincode → distributor), region from state, ASM = distributor's ASM today, RSM from ASM. The sheet value includes app orders: app sales are a part of it, never added.

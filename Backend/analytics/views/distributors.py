@@ -56,6 +56,9 @@ def dispatch_stats(qs, group_field):
     return {g: (pct(shipped[g], tot[g]), median(durations[g])) for g in tot}
 
 
+STOCK_SYNC_DAYS = 3  # Stock sync filter: synced within 3 days / more than 3 days / never
+
+
 class DistributorsView(AnalyticsView):
     permission_code = "view_distributors"
     sources = ["medusa", "payu", "channel_konnect"]
@@ -128,7 +131,8 @@ class DistributorsView(AnalyticsView):
         rows.sort(key=lambda r: -r["sales"])
         sync = request.query_params.get("stock_sync")
         if sync in ("fresh", "stale", "never"):
-            cutoff = timezone.now() - dt.timedelta(hours=24)
+            # within 3 days = current ("fresh"), older = "stale", no sync at all = "never"
+            cutoff = timezone.now() - dt.timedelta(days=STOCK_SYNC_DAYS)
 
             def bucket(r):
                 at = stock.get(r["id"])

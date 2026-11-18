@@ -171,6 +171,7 @@ function MasterTable({ def }: { def: MasterDef }) {
         rowKey={(r) => r.id}
         exportName={def.key}
         exportPath={def.path}
+          exportGlobal={false}
         pageSize={50}
         toolbar={
           <>

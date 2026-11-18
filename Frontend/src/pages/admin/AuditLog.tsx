@@ -49,6 +49,7 @@ export default function AuditLog() {
           onRowClick={setOpen}
           exportName="audit_log"
           exportPath="/admin/audit-log/"
+          exportGlobal={false}
           exportParams={{ search: debounced || undefined }}
           server={{ count: q.data?.count ?? 0, page, pageSize: 50, onPage: setPage, ordering, onOrdering: setOrdering }}
           toolbar={

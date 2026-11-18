@@ -644,3 +644,57 @@ class BoRetailerMonth(TimeStamped):
         ordering = ["month"]
         constraints = [models.UniqueConstraint(fields=["bo_retailer", "month"], name="uniq_bo_retailer_month")]
         indexes = [models.Index(fields=["month"]), models.Index(fields=["asm"]), models.Index(fields=["distributor"])]
+
+
+# ----------------------------------------------------------------------------- distributor settlement
+SETTLEMENT_STATUSES = ["settled", "not_settled", "pending", "cancelled"]  # pending = not yet reviewed by finance
+SETTLEMENT_PAYMENT_STATUSES = ["approved", "not_approved", "pending", "cancelled"]
+
+
+class DistributorSettlement(TimeStamped):
+    """One order row of the finance team's 'Technodirect Order Tracking - Tracker' sheet (masters/settlement.py).
+
+    The distributor is paid order value - customer refund (loyalty points are NOT deducted), in payout batches
+    roughly twice a week. `distributor` is the payee named in the sheet (it can differ from the app order's
+    distributor when an order was reassigned); hierarchy copies follow the payee.
+    """
+    order_ref = models.CharField(max_length=32, unique=True, help_text="Order display id without '#'")
+    order = models.ForeignKey(Order, null=True, blank=True, on_delete=models.SET_NULL, related_name="settlements")
+    sheet_distributor = models.CharField(max_length=200, blank=True)
+    distributor = models.ForeignKey(Distributor, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    region = models.ForeignKey(Region, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    state = models.ForeignKey(State, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    asm = models.ForeignKey(Asm, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    customer = models.CharField(max_length=200, blank=True)
+    destination = models.CharField(max_length=200, blank=True)
+    order_date = models.DateField(db_index=True)
+    dispatch_date = models.DateField(null=True, blank=True)
+    delivered_date = models.DateField(null=True, blank=True)
+    fulfilment = models.CharField(max_length=16, blank=True, help_text="delivered / in_transit / not_dispatched / cancelled")
+    multi_distributor = models.BooleanField(default=False)
+    courier_charge = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    order_value = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    payu_value = models.DecimalField(max_digits=14, decimal_places=2, default=0, help_text="Check Value from PayU")
+    customer_refund = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    refund_date = models.DateField(null=True, blank=True)
+    pg_settlement = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True,
+                                        help_text="'Customer Settlement': PayU -> TechnoSport after gateway charges")
+    pg_settlement_date = models.DateField(null=True, blank=True)
+    loyalty_points = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    payable = models.DecimalField(max_digits=14, decimal_places=2, default=0, help_text="'Distributor Settlement'")
+    payable_derived = models.BooleanField(default=False, help_text="Sheet value unreadable: order value - refund used")
+    payment_mode = models.CharField(max_length=16, blank=True)
+    transaction_id = models.CharField(max_length=64, blank=True)
+    payment_status = models.CharField(max_length=16, default="pending", db_index=True)
+    settlement_status = models.CharField(max_length=16, default="pending", db_index=True)
+    settled_on = models.DateField(null=True, blank=True, db_index=True, help_text="Distributor Settlement Date")
+    remark = models.CharField(max_length=255, blank=True)
+    issues = models.JSONField(default=list, blank=True, help_text="Data-quality notes from the import")
+
+    class Meta:
+        ordering = ["-order_date", "order_ref"]
+        indexes = [models.Index(fields=["distributor", "order_date"]), models.Index(fields=["asm"]),
+                   models.Index(fields=["settlement_status", "order_date"])]
+
+    def __str__(self):
+        return f"#{self.order_ref}"

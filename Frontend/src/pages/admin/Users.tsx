@@ -86,6 +86,7 @@ export default function Users() {
           rowKey={(r) => r.id}
           exportName="users"
           exportPath="/admin/users/"
+          exportGlobal={false}
           initialSort={{ key: 'full_name', dir: 'asc' }}
           toolbar={<input className="input w-56 py-1 text-xs" placeholder="Search name or email…" value={search} onChange={(e) => setSearch(e.target.value)} />}
           columns={[

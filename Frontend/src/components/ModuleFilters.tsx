@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { useFilterOptions } from '@/api/hooks';
 import type { FilterOptions } from '@/api/types';
 import { SEGMENTS, useFilters, type ModuleKey } from '@/lib/filters';
-import { MODE_LABELS } from '@/lib/format';
+import { MODE_LABELS, date as fmtDate } from '@/lib/format';
 import { navItemFor } from '@/nav';
 import { MultiSelect } from './MultiSelect';
 import { IconX } from './Icons';
@@ -84,8 +84,8 @@ const MODULES: Record<string, FieldDef[]> = {
       label: 'Stock sync',
       single: true,
       options: [
-        { value: 'fresh', label: 'Fresh (< 24 h)' },
-        { value: 'stale', label: 'Stale (> 24 h)' },
+        { value: 'fresh', label: 'Within 3 days' },
+        { value: 'stale', label: 'More than 3 days' },
         { value: 'never', label: 'Never synced' },
       ],
     },
@@ -101,6 +101,15 @@ const MODULES: Record<string, FieldDef[]> = {
   '/inventory': [CAT_L1, CAT_L2, CAT_L3, STYLE, { key: 'size', label: 'Size', options: (o) => (o?.sizes ?? []).map((s) => ({ value: s, label: s })), width: 'w-32' }],
   '/retention': [SEGMENT],
   '/blueorigin': [TIER],
+  // finance tracker: the period filters the order date, or the payout date when "Date basis" says so
+  '/settlements': [
+    { key: 'date_basis', label: 'Date basis', single: true, width: 'w-44', options: [{ value: 'order', label: 'Period = order date' }, { value: 'payout', label: 'Period = payout date' }] },
+    { key: 'pay_status', label: 'Payment status', width: 'w-40', options: [{ value: 'approved', label: 'Approved' }, { value: 'not_approved', label: 'Not approved' }, { value: 'pending', label: 'Not reviewed' }, { value: 'cancelled', label: 'Cancelled' }] },
+    { key: 'settlement_status', label: 'Settlement status', width: 'w-44', options: [{ value: 'settled', label: 'Settled' }, { value: 'not_settled', label: 'Not settled' }, { value: 'pending', label: 'Not reviewed' }, { value: 'cancelled', label: 'Cancelled' }] },
+    { key: 'payout_date', label: 'Distributor settlement date', width: 'w-56', options: (o) => (o?.payout_dates ?? []).map((d) => ({ value: d, label: fmtDate(d, 'ddd, DD MMM YYYY') })) },
+    { key: 'payment_mode', label: 'Payment mode', width: 'w-40', options: (o) => (o?.payment_modes ?? []).map((s) => ({ value: s, label: MODE_LABELS[s] ?? s })) },
+    { key: 'is_split', label: 'Cart type', single: true, width: 'w-48', options: [{ value: 'false', label: 'Single distributor' }, { value: 'true', label: 'Split (multi-distributor)' }] },
+  ],
   '/loyalty': [
     {
       key: 'event_type',

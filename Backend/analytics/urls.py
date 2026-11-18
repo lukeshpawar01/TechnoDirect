@@ -11,6 +11,7 @@ from .views.orders import OrderDetailView, OrderListView, OrderRetailersView, Or
 from .views.overview import OverviewView
 from .views.products import InventoryItemsView, InventoryView, ProductsView, ProductTreeView
 from .views.retention import RetentionView
+from .views.settlement import SettlementDistributorDetailView, SettlementDistributorsView, SettlementOrderListView, SettlementSummaryView
 from .views.trends import MomTrendView
 
 urlpatterns = [
@@ -26,6 +27,10 @@ urlpatterns = [
     path("blueorigin/summary/", BoSummaryView.as_view()),
     path("blueorigin/hierarchy/", BoHierarchyView.as_view()),
     path("blueorigin/retailers/", BoRetailerListView.as_view()),
+    path("settlements/summary/", SettlementSummaryView.as_view()),
+    path("settlements/distributors/", SettlementDistributorsView.as_view()),
+    path("settlements/distributors/<int:pk>/", SettlementDistributorDetailView.as_view()),
+    path("settlements/orders/", SettlementOrderListView.as_view()),
     path("distributors/", DistributorsView.as_view()),
     path("distributors/insights/", DistributorInsightsView.as_view()),
     path("distributors/network/", DistributorNetworkView.as_view()),

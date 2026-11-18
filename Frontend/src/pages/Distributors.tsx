@@ -15,10 +15,14 @@ import { linkWithFilters, useFilters } from '@/lib/filters';
 import { asPct, inr, monthLabel, num, pct, relTime, sharePct, monthTick } from '@/lib/format';
 import { MiniStat } from '@/components/KpiTile';
 
+/** stock counts as current when synced within this many days (Stock sync filter, badges, Inventory) */
+export const STOCK_SYNC_DAYS = 3;
+
 export function StalenessBadge({ at }: { at: string | null | undefined }) {
   if (!at) return <Badge tone="bad" icon>Never synced</Badge>;
   const h = (Date.now() - new Date(at).getTime()) / 36e5;
-  const tone = h <= 24 ? 'good' : h <= 72 ? 'warn' : 'bad';
+  // same 3-day rule as the Stock sync filter
+  const tone = h <= STOCK_SYNC_DAYS * 24 ? 'good' : 'warn';
   return (
     <Badge tone={tone} icon title={new Date(at).toLocaleString('en-IN')}>
       {relTime(at)}

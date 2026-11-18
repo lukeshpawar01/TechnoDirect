@@ -18,6 +18,7 @@ from warehouse.models import (
     Asm,
     Rsm,
     DataQualityIssue,
+    DistributorSettlement,
     Distributor,
     Order,
     Product,
@@ -181,6 +182,9 @@ class FilterOptionsView(APIView):
             # base style codes (OR99 covers OR99/B11 etc.) with the latest name and category, for the Style filter
             "styles": style_options(),
             "tiers": ["Platinum", "Gold", "Silver", "Green", "Yellow", "Untiered"],
+            # distributor payout batches (finance tracker "Distributor Settlement Date"), newest first
+            "payout_dates": [d.isoformat() for d in DistributorSettlement.objects.exclude(settled_on=None).values_list(
+                "settled_on", flat=True).distinct().order_by("-settled_on")],
         })
 
 

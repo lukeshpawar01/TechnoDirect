@@ -14,12 +14,26 @@ from ..metrics import num
 from .base import AnalyticsView
 
 
+# The BlueOrigin page shows distributor-sheet data only: app (TechnoDirect) comparisons are left out of the
+# payloads and exports. App retailers still get their tier on the Retailers pages.
+APP_KEYS = {"on_app", "on_app_pct", "app_buyers", "app_buyers_pct", "app_sales", "app", "td_retailer_id",
+            "td_retailer", "app_orders"}
+
+
+def bo_only(x):
+    if isinstance(x, dict):
+        return {k: bo_only(v) for k, v in x.items() if k not in APP_KEYS}
+    if isinstance(x, list):
+        return [bo_only(v) for v in x]
+    return x
+
+
 class BoSummaryView(AnalyticsView):
     permission_code = "view_blueorigin"
     export_key = "by_tier"
 
     def compute(self, f, request, **kw):
-        return bo.summary(f)
+        return bo_only(bo.summary(f))
 
 
 class BoHierarchyView(AnalyticsView):
@@ -27,7 +41,7 @@ class BoHierarchyView(AnalyticsView):
     export_key = "rows"
 
     def compute(self, f, request, **kw):
-        return bo.hierarchy(f, request.query_params.get("group_by") or "asm")
+        return bo_only(bo.hierarchy(f, request.query_params.get("group_by") or "asm"))
 
 
 ORDERING = {"purchase": "purchase", "name": "name", "tier": "tier_rank", "distributor": "distributor__name",
@@ -54,8 +68,6 @@ class BoRetailerListView(ExportListMixin, generics.ListAPIView):
         if q.get("search"):
             s = q["search"].strip()
             qs = qs.filter(Q(name__icontains=s) | Q(bo_id__icontains=s) | Q(phone__icontains=s))
-        if q.get("on_app") in ("true", "1", "false", "0"):
-            qs = qs.filter(td_retailer__isnull=q["on_app"] in ("false", "0"))
         month_sum = (BoRetailerMonth.objects.filter(bo_retailer=OuterRef("pk"), month__gte=w["start"],
                                                     month__lte=w["end"]).values("bo_retailer")
                      .annotate(s=Sum("value")).values("s")[:1])
@@ -70,7 +82,7 @@ class BoRetailerListView(ExportListMixin, generics.ListAPIView):
         key = (q.get("ordering") or "-purchase").strip()
         field = ORDERING.get(key.lstrip("-"), "purchase")
         desc = key.startswith("-") if key.lstrip("-") in ORDERING else True
-        return qs.select_related("distributor", "asm__rsm", "state", "td_retailer").order_by(
+        return qs.select_related("distributor", "asm__rsm", "state").order_by(
             ("-" if desc else "") + field, "bo_id")
 
     def get_serializer(self, *args, **kwargs):
@@ -89,7 +101,6 @@ class _Rows:
             hist.setdefault(bid, []).append({"quarter": fy_quarter_label(q), "tier": t})
         out = []
         for r in items:
-            td = r.td_retailer
             out.append({
                 "id": r.id, "bo_id": r.bo_id, "retailer": r.name, "phone": mask_phone(r.phone, can),
                 "district": r.district or None, "state": r.state.name if r.state_id else None,
@@ -99,7 +110,5 @@ class _Rows:
                 "rsm": r.asm.rsm.name if r.asm_id and r.asm.rsm_id else None,
                 "tier": r.tier_now, "tier_history": hist.get(r.id, [])[-4:],
                 "purchase": num(r.purchase),
-                "on_app": td is not None, "td_retailer_id": td.id if td else None,
-                "td_retailer": td.name if td else None, "app_orders": td.orders_count if td else None,
             })
         self.data = out if many else (out[0] if out else {})

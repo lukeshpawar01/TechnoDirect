@@ -278,15 +278,30 @@ def _bo(fn):
     return getattr(blueorigin, fn)()
 
 
+def _settlement_asms():
+    from masters.settlement import sync_settlement_asms
+
+    return sync_settlement_asms()
+
+
+def _split_carts():
+    from masters.splits import mark_split_carts
+
+    return mark_split_carts()
+
+
 def run_all_derivations():
     from .cache import bump_cache_version
 
     from ingestion.payments_link import reconcile_payments
 
     details = {
+        # first: split carts change split_group, which every order count below uses
+        "split_carts": _split_carts(),
         "payments_reconciled": reconcile_payments(),
         "retailers_asm_synced": sync_retailer_asms(),
         "blueorigin_asm_synced": _bo("sync_bo_asms"),
+        "settlement_asm_synced": _settlement_asms(),
         "orders_asm_from_distributor": attribute_orders_to_distributor_asm(),
         "retailers_updated": refresh_retailer_aggregates(),
         # new sign-ups / phone changes: re-match app retailers to BlueOrigin (tier, warm)

@@ -128,7 +128,7 @@ class BlueOriginTests(TestCase):
         rows = self.c.get("/api/blueorigin/retailers/?preset=custom&date_from=2026-07-01&date_to=2026-09-30").json()
         self.assertEqual(rows["count"], 3)
         self.assertEqual(rows["results"][0]["bo_id"], "HEE-1")  # biggest purchase first
-        self.assertTrue(rows["results"][0]["on_app"])
+        self.assertNotIn("on_app", rows["results"][0])  # BlueOrigin page = sheet data only
         td = self.c.get("/api/retailers/?preset=all_time&tier=Gold").json()
         self.assertEqual([r["id"] for r in td["results"]], [self.w["ret1"].id])
         d = self.c.get(f"/api/retailers/{self.w['ret1'].id}/?preset=all_time").json()["data"]

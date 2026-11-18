@@ -41,6 +41,14 @@ def refresh_all_inline(triggered_by="schedule"):
     except Exception as exc:  # noqa: BLE001
         log.exception("blueorigin step failed")
         steps.append({"source": "blueorigin", "status": "failed", "rows": 0, "run_id": None, "error": str(exc)[:200]})
+    # finance team's distributor settlement tracker: re-imported only when the file changed
+    from masters.settlement import refresh_if_changed as refresh_settlement
+
+    try:
+        steps.append(refresh_settlement(triggered_by=triggered_by))
+    except Exception as exc:  # noqa: BLE001
+        log.exception("settlement step failed")
+        steps.append({"source": "settlement", "status": "failed", "rows": 0, "run_id": None, "error": str(exc)[:200]})
 
     deriv = SyncRun.objects.create(source="derivations", status="running", triggered_by=triggered_by)
     try:
