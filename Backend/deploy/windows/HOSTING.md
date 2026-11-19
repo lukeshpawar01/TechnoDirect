@@ -7,10 +7,8 @@
  Task Scheduler: "TechnoDirect Dashboard" (at boot) - the server itself refreshes the data at 10:00 and 18:00 IST
 ```
 
-No router or firewall ports are opened. TD data comes from Supabase. The other data files stay where they are:
-- `Desktop\TD_Data\DATA` (settlement tracker, distributor stock sheet)
-- the Dropbox folders
-- `db.sqlite3`
+No router or firewall ports are opened. TD data and the sheets come from Supabase / Google Sheets, BlueOrigin from
+Dropbox; only `db.sqlite3` lives on this PC.
 
 ## One-time setup (PowerShell → *Run as administrator*)
 
@@ -122,9 +120,11 @@ Distributors*. They are read through the Google Sheets API at every refresh (`in
    - `DISTRIBUTOR_SYNC_SHEET_URL`
 7. Run `python manage.py sheets_check`. Once it shows OK, the 10:00 / 18:00 refresh reads the sheets live.
 
-Until the links are set, the two sheets come from their copy in Supabase (`reference.settlement_tracker` and
-`reference.distributor_sync`); no file on this PC is read. When the team updates a sheet, re-upload it with
-`python manage.py reference_sheet upload settlement_tracker "<csv>"` (or `distributor_sync`).
+On Render, where there is no key file, set `GOOGLE_SERVICE_ACCOUNT_JSON` to the key's whole JSON text (as a secret
+environment variable) instead of a path.
+
+These two sheets are read only from Google (no copy is kept in Supabase). The tab is picked by name
+(`SETTLEMENT_SHEET_TAB=Tracker`, `DISTRIBUTOR_SYNC_SHEET_TAB=TechnoD Distributors`); a `#gid=` in the link overrides it.
 
 **Fixed sheets** (monthly targets tabs, the targets workbook, the Beat Plan, the HR sales team, distributor names and
 states) are stored once in Supabase, schema `reference` (`ingestion/reference_sheets.py`).

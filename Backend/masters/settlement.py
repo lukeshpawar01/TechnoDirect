@@ -266,7 +266,7 @@ def refresh_if_changed(path=None, triggered_by="schedule", force=False):
     if not path and url and gsheets.configured():
         # the live Google Sheet
         try:
-            rows = normalize_rows(gsheets.read_table(url))
+            rows = normalize_rows(gsheets.read_table(url, getattr(settings, "SETTLEMENT_SHEET_TAB", "")))
         except Exception as exc:  # noqa: BLE001 - the previous import stays on the dashboard
             run = SyncRun.objects.create(source="settlement", status="failed", triggered_by=triggered_by,
                                          error=f"Google Sheet: {exc}"[:4000], finished_at=timezone.now())
@@ -282,25 +282,8 @@ def refresh_if_changed(path=None, triggered_by="schedule", force=False):
         def load():
             return import_file(path)
     else:
-        # the copy stored in Supabase (reference_sheet upload) - no file on this PC is read
-        from ingestion import reference_sheets
-
-        ref = getattr(settings, "SETTLEMENT_REFERENCE_SHEET", "")
-        if not ref or not reference_sheets.configured():
-            return {"source": "settlement", "status": "not_configured", "rows": 0, "run_id": None}
-        try:
-            raw = reference_sheets.table_rows(ref)
-        except Exception as exc:  # noqa: BLE001 - the previous import stays on the dashboard
-            run = SyncRun.objects.create(source="settlement", status="failed", triggered_by=triggered_by,
-                                         error=f"Supabase sheet {ref}: {exc}"[:4000], finished_at=timezone.now())
-            return {"source": "settlement", "status": "failed", "rows": 0, "run_id": run.pk}
-        if raw is None:
-            return {"source": "settlement", "status": "not_configured", "rows": 0, "run_id": None}
-        rows = normalize_rows(raw)
-        sig, via = "sb:" + gsheets.signature(rows), f"supabase:{ref}"
-
-        def load():
-            return import_rows(rows)
+        # only the live Google Sheet - set SETTLEMENT_SHEET_URL and GOOGLE_SERVICE_ACCOUNT_JSON
+        return {"source": "settlement", "status": "not_configured", "rows": 0, "run_id": None}
     wm = SyncWatermark.objects.filter(key="settlement:file").first()
     if not force and wm and wm.cursor == sig:
         return {"source": "settlement", "status": "skipped", "rows": 0, "run_id": None}

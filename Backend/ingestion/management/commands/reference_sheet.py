@@ -3,6 +3,7 @@
     python manage.py reference_sheet upload <name> <file.csv|.tsv|.xlsx> [--columns "A,B"]   store / replace a sheet
     python manage.py reference_sheet list                                  what is stored
     python manage.py reference_sheet download <name> [--to file]           get it back as a file
+    python manage.py reference_sheet delete <name>                         remove a stored sheet
 
 Then any importer reads it from Supabase:  python manage.py import_sales_team supabase:sales_team
 """
@@ -17,7 +18,7 @@ class Command(BaseCommand):
     help = "Store fixed sheets in Supabase (schema reference) and read them back"
 
     def add_arguments(self, parser):
-        parser.add_argument("action", choices=["upload", "list", "download"])
+        parser.add_argument("action", choices=["upload", "list", "download", "delete"])
         parser.add_argument("name", nargs="?")
         parser.add_argument("file", nargs="?")
         parser.add_argument("--to", default="", help="download: where to save the file")
@@ -45,6 +46,13 @@ class Command(BaseCommand):
                     tab = f" / tab {r['tab']}" if r["tab"] else ""
                     self.stdout.write(f"  {r['name']:<28}{tab:<26} {r['rows']:>6,} rows  from {r['source_file']}  "
                                       f"({r['loaded_at']:%Y-%m-%d %H:%M})")
+            elif o["action"] == "delete":
+                if not o["name"]:
+                    raise CommandError("delete needs a name")
+                tables = R.SupabaseReference().delete(o["name"])
+                if not tables:
+                    raise CommandError(f"Nothing stored under '{o['name']}'")
+                self.stdout.write(self.style.SUCCESS(f"Removed '{o['name']}' from Supabase ({', '.join(tables)})"))
             else:
                 if not o["name"]:
                     raise CommandError("download needs a name")

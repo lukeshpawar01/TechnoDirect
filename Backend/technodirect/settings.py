@@ -287,16 +287,14 @@ DROPBOX_APP_SECRET = env_str("DROPBOX_APP_SECRET")
 DROPBOX_REFRESH_TOKEN = env_str("DROPBOX_REFRESH_TOKEN")
 DROPBOX_BO_PATH = env_str("DROPBOX_BO_PATH", "/Power BI")  # the folder as seen in Dropbox (not the PC path)
 DROPBOX_BO_MIRROR = env_str("DROPBOX_BO_MIRROR")  # local copy; default Backend/data/blueorigin_dropbox
-# finance team's distributor settlement tracker and the "TechnoD Distributors" stock-sync sheet: read live from
-# Google Sheets (*_SHEET_URL below) or, until that is set up, from their copy in Supabase (schema reference, the
-# names below; refresh with `reference_sheet upload`). No file on this PC is read.
-SETTLEMENT_REFERENCE_SHEET = env_str("SETTLEMENT_REFERENCE_SHEET", "settlement_tracker") or "settlement_tracker"
-# "TechnoDirect Data - TechnoD Distributors": per-distributor "Inventory Updated" = stock sync date
-DISTRIBUTOR_SYNC_REFERENCE_SHEET = env_str("DISTRIBUTOR_SYNC_REFERENCE_SHEET", "distributor_sync") or "distributor_sync"
-# The same two sheets read LIVE from Google Sheets (browser link incl. #gid=<tab>; needs GOOGLE_SERVICE_ACCOUNT_JSON
-# and the sheet shared with that account). When set, they replace the Supabase copies above (ingestion/gsheets.py).
+# finance team's distributor settlement tracker ("Technodirect Order Tracking" / Tracker) and the "TechnoD
+# Distributors" stock-sync sheet ("Inventory Updated" = stock sync date): read LIVE from Google Sheets only, at every
+# refresh (ingestion/gsheets.py; needs GOOGLE_SERVICE_ACCOUNT_JSON and the sheet shared with that account).
 SETTLEMENT_SHEET_URL = env_str("SETTLEMENT_SHEET_URL")
 DISTRIBUTOR_SYNC_SHEET_URL = env_str("DISTRIBUTOR_SYNC_SHEET_URL")
+# which tab of each spreadsheet (by name; a #gid in the link overrides it)
+SETTLEMENT_SHEET_TAB = env_str("SETTLEMENT_SHEET_TAB", "Tracker")
+DISTRIBUTOR_SYNC_SHEET_TAB = env_str("DISTRIBUTOR_SYNC_SHEET_TAB", "TechnoD Distributors")
 PAYU_MERCHANT_KEY = env_str("PAYU_MERCHANT_KEY")
 PAYU_MERCHANT_SALT = env_str("PAYU_MERCHANT_SALT")
 PAYU_BASE_URL = env_str("PAYU_BASE_URL", "https://info.payu.in")

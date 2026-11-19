@@ -28,6 +28,34 @@ class LinkTests(SimpleTestCase):
         self.assertNotEqual(gsheets.signature(rows), gsheets.signature(rows[:1]))
 
 
+    def test_key_as_path_or_inline_json(self):
+        import json
+        key = {"type": "service_account", "client_email": "x@p.iam.gserviceaccount.com"}
+        with override_settings(GOOGLE_SERVICE_ACCOUNT_JSON=json.dumps(key)):
+            self.assertTrue(gsheets.configured())
+            self.assertEqual(gsheets.service_account_email(), key["client_email"])
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "k.json")
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(key, fh)
+            with override_settings(GOOGLE_SERVICE_ACCOUNT_JSON=path):
+                self.assertEqual(gsheets.service_account_email(), key["client_email"])
+        for bad in ("", "REPLACE_ME_path_to_service_account.json", "{not json", '{"type": "authorized_user"}'):
+            with override_settings(GOOGLE_SERVICE_ACCOUNT_JSON=bad):
+                self.assertFalse(gsheets.configured())
+
+
+    def test_tab_by_name(self):
+        class WS:
+            def __init__(self, t): self.title = t
+        class SH:
+            def worksheets(self): return [WS("Sheet1"), WS("Tracker "), WS("TechnoD  Distributors")]
+        self.assertEqual(gsheets._find_tab(SH(), "tracker").title, "Tracker ")
+        self.assertEqual(gsheets._find_tab(SH(), "TechnoD Distributors").title, "TechnoD  Distributors")
+        with self.assertRaises(gsheets.SheetError):
+            gsheets._find_tab(SH(), "Missing")
+
+
 class LiveSheetRefreshTests(TestCase):
     def test_distributor_sync_reads_the_google_sheet(self):
         from ingestion.models import SyncRun
@@ -140,31 +168,15 @@ class ReferenceSheetTests(SimpleTestCase):
 
 
 class SupabaseSheetRefreshTests(TestCase):
-    """Without a Google link, the two sheets come from their copy in Supabase - no file on the PC."""
+    """The two live sheets come only from Google - no Supabase copy, no file on the PC."""
 
-    def test_distributor_sync_from_supabase(self):
-        from ingestion.models import SyncRun
-        from masters import distributor_sync
-        from warehouse.models import Distributor, Region
+    def test_without_google_link_not_configured(self):
+        from masters import distributor_sync, settlement
 
-        reg = Region.objects.create(code="S", name="South")
-        Distributor.objects.create(code="HE", name="Heera Exports", region=reg)
-        rows = [{"Distributor": "Heera Exports", "Inventory Updated": "18/11/2026", "Status": "Active",
-                 "Taken By": "Excel", "Frequency": "Daily"}]
-        with override_settings(DISTRIBUTOR_SYNC_SHEET_URL="", DISTRIBUTOR_SYNC_REFERENCE_SHEET="distributor_sync"), \
-                mock.patch.object(R, "configured", return_value=True), \
-                mock.patch.object(R, "table_rows", return_value=rows) as tr:
-            step = distributor_sync.refresh_if_changed()
-            self.assertEqual(step["status"], "success")
-            tr.assert_called_once_with("distributor_sync")
-            self.assertEqual(SyncRun.objects.get(pk=step["run_id"]).details["via"], "supabase:distributor_sync")
-            self.assertEqual(Distributor.objects.get(code="HE").stock_updated_on, dt.date(2026, 11, 18))
-            self.assertEqual(distributor_sync.refresh_if_changed()["status"], "skipped")  # unchanged copy
-            self.assertEqual(distributor_sync.refresh_if_changed(force=True)["status"], "success")
-        with override_settings(DISTRIBUTOR_SYNC_SHEET_URL="", DISTRIBUTOR_SYNC_REFERENCE_SHEET="distributor_sync"), \
-                mock.patch.object(R, "configured", return_value=True), \
-                mock.patch.object(R, "table_rows", return_value=None):
-            self.assertEqual(distributor_sync.refresh_if_changed()["status"], "not_configured")  # not uploaded
+        with override_settings(DISTRIBUTOR_SYNC_SHEET_URL="", SETTLEMENT_SHEET_URL=""),                 mock.patch.object(R, "table_rows") as tr:
+            self.assertEqual(distributor_sync.refresh_if_changed()["status"], "not_configured")
+            self.assertEqual(settlement.refresh_if_changed()["status"], "not_configured")
+            tr.assert_not_called()
 
     def test_table_rows(self):
         store = FakeReference()

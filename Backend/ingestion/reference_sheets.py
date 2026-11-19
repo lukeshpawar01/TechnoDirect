@@ -164,6 +164,17 @@ class SupabaseReference:
         return [{"tab": tab, "table": f"{SCHEMA}.{(name if kind == 'table' else f'{name}__{_slug(tab)}'[:63])}",
                  "rows": len(rows)} for tab, kind, headers, rows in parts]
 
+    def delete(self, name):
+        """Drop a stored sheet (all its tabs) and its catalog entry. Returns the dropped table names."""
+        self.ensure_catalog()
+        with transaction.atomic(using=self.alias), self._cur() as c:
+            c.execute(f"SELECT table_name FROM {CATALOG} WHERE name = %s", [name])
+            tables = [t for (t,) in c.fetchall()]
+            for t in tables:
+                c.execute(f"DROP TABLE IF EXISTS {_q(SCHEMA)}.{_q(t)}")
+            c.execute(f"DELETE FROM {CATALOG} WHERE name = %s", [name])
+        return tables
+
     def catalog(self, name=None):
         self.ensure_catalog()
         with self._cur() as c:

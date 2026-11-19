@@ -24,10 +24,7 @@ $sheets = @(
     @("distributor_network", (Join-Path $imp "distributor_network.csv"), ""),
     # TD P&L - Quarter-on-Quarter (QoQ) Analysis: once with the values, once with every formula (=G4-G5) as written
     @("pnl_qoq", (Join-Path $td "TD_P&L_QoQ_Rev.xlsx"), ""),
-    @("pnl_qoq_formulas", (Join-Path $td "TD_P&L_QoQ_Rev.xlsx"), "--formulas"),
-    # the two "live" sheets, until their Google Sheet links are set in .env: re-upload when the team updates them
-    @("settlement_tracker", (Join-Path $td "Technodirect Order Tracking - Tracker.csv"), ""),
-    @("distributor_sync", (Join-Path $td "TechnoDirect Data - TechnoD Distributors (2).csv"), "")
+    @("pnl_qoq_formulas", (Join-Path $td "TD_P&L_QoQ_Rev.xlsx"), "--formulas")
 )
 foreach ($s in $sheets) {
     $name, $file, $cols = $s

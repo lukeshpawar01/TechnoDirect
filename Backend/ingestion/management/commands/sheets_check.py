@@ -13,8 +13,8 @@ from django.core.management.base import BaseCommand
 from ingestion import gsheets, reference_sheets
 
 LIVE = [
-    ("Settlement tracker", "SETTLEMENT_SHEET_URL", ["order id", "distributor", "order value"]),
-    ("TechnoD Distributors", "DISTRIBUTOR_SYNC_SHEET_URL", ["distributor", "inventory updated"]),
+    ("Settlement tracker", "SETTLEMENT_SHEET_URL", "SETTLEMENT_SHEET_TAB", ["order id", "distributor", "order value"]),
+    ("TechnoD Distributors", "DISTRIBUTOR_SYNC_SHEET_URL", "DISTRIBUTOR_SYNC_SHEET_TAB", ["distributor", "inventory updated"]),
 ]
 
 
@@ -29,15 +29,15 @@ class Command(BaseCommand):
             ok(f"service account key found - share the live sheets (Viewer) with: {gsheets.service_account_email()}")
         else:
             bad("GOOGLE_SERVICE_ACCOUNT_JSON is not set or the key file is missing (see deploy/windows/HOSTING.md)")
-        for label, key, needed in LIVE:
+        for label, key, tab_key, needed in LIVE:
             url = getattr(settings, key, "")
             if not url:
-                self.stdout.write(f"  --   {label}: {key} not set (its copy in Supabase is used)")
+                self.stdout.write(f"  --   {label}: {key} not set - not imported")
                 continue
             if not gsheets.configured():
                 continue
             try:
-                rows = gsheets.read_table(url)
+                rows = gsheets.read_table(url, getattr(settings, tab_key, ""))
             except Exception as exc:  # noqa: BLE001
                 bad(f"{label}: {exc}")
                 continue
