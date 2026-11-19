@@ -108,11 +108,14 @@ def file_signature(path):
     return hashlib.sha1(f"{os.path.basename(path)}|{st.st_size}|{int(st.st_mtime)}".encode()).hexdigest()
 
 
-def read_rows(path):
-    with open(path, encoding="utf-8-sig", newline="") as fh:
-        rows = list(csv.DictReader(fh))
+def normalize_rows(rows):
     # headers carry stray spaces (" Distributor") and a typo ("Distributor Settlememnt")
     return [{(k or "").strip().lower(): (v or "").strip() for k, v in r.items()} for r in rows]
+
+
+def read_rows(path):
+    with open(path, encoding="utf-8-sig", newline="") as fh:
+        return normalize_rows(list(csv.DictReader(fh)))
 
 
 def _payees(rows, orders):
@@ -148,10 +151,16 @@ def _payees(rows, orders):
 
 def import_file(path):
     """Full rebuild of DistributorSettlement from the tracker CSV. Returns a reconciliation report."""
+    return import_rows(read_rows(path))
+
+
+def import_rows(rows):
+    """Full rebuild of DistributorSettlement from the tracker rows (normalised headers): the live Google Sheet or the
+    CSV export. Returns a reconciliation report."""
     from analytics.cache import bump_cache_version
     from warehouse.models import DistributorSettlement, Order
 
-    rows = [r for r in read_rows(path) if r.get("order id")]
+    rows = [r for r in rows if r.get("order id")]
     refs = [r["order id"].lstrip("#") for r in rows]
     orders = {}
     for o in Order.objects.filter(display_id__in=refs).select_related("distributor"):
@@ -251,18 +260,38 @@ def refresh_if_changed(path=None, triggered_by="schedule"):
 
     from ingestion.models import SyncRun, SyncWatermark
 
-    path = path or getattr(settings, "SETTLEMENT_TRACKER", "")
-    if not path or not os.path.isfile(path):
-        return {"source": "settlement", "status": "not_configured", "rows": 0, "run_id": None}
-    sig = file_signature(path)
+    from ingestion import gsheets
+
+    url = getattr(settings, "SETTLEMENT_SHEET_URL", "")
+    if not path and url and gsheets.configured():
+        # the live Google Sheet (the CSV file is not used)
+        try:
+            rows = normalize_rows(gsheets.read_table(url))
+        except Exception as exc:  # noqa: BLE001 - the previous import stays on the dashboard
+            run = SyncRun.objects.create(source="settlement", status="failed", triggered_by=triggered_by,
+                                         error=f"Google Sheet: {exc}"[:4000], finished_at=timezone.now())
+            return {"source": "settlement", "status": "failed", "rows": 0, "run_id": run.pk}
+        sig, via = "gs:" + gsheets.signature(rows), "google_sheet"
+
+        def load():
+            return import_rows(rows)
+    else:
+        path = path or getattr(settings, "SETTLEMENT_TRACKER", "")
+        if not path or not os.path.isfile(path):
+            return {"source": "settlement", "status": "not_configured", "rows": 0, "run_id": None}
+        sig, via = file_signature(path), "file"
+
+        def load():
+            return import_file(path)
     wm = SyncWatermark.objects.filter(key="settlement:file").first()
     if wm and wm.cursor == sig:
         return {"source": "settlement", "status": "skipped", "rows": 0, "run_id": None}
     run = SyncRun.objects.create(source="settlement", status="running", triggered_by=triggered_by)
     try:
-        rep = import_file(path)
+        rep = load()
         run.status, run.rows = "success", rep["rows"]
         run.details = {k: rep[k] for k in ("rows", "orders_matched", "settlement_status", "issues", "unknown_distributors")}
+        run.details["via"] = via
         SyncWatermark.put("settlement:file", timezone.now(), cursor=sig)
     except Exception as exc:  # noqa: BLE001
         log.exception("Settlement import failed")

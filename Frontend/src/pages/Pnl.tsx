@@ -191,20 +191,20 @@ function BridgeCard({ q, quarters, focus, setFocus }: { q: Quarter; quarters: Qu
             { label: 'Gross Revenue', value: v.gross_revenue ?? 0, total: true },
             { label: 'Returns', value: -(v.returns ?? 0) },
             { label: 'COGS', value: -(v.cogs ?? 0) },
-            { label: 'Payment gateway', value: -(v.payment_gateway ?? 0) },
+            { label: 'Gateway', value: -(v.payment_gateway ?? 0) },
             { label: 'Loyalty', value: -(v.loyalty ?? 0) },
             { label: 'Technology', value: -(v.tech ?? 0) },
             { label: 'Manpower', value: -(v.manpower ?? 0) },
             { label: 'Misc', value: -(v.misc ?? 0) },
             { label: 'EBITDA', value: v.ebitda ?? 0, total: true },
-          ])
+          ], { unsigned: true, down: t.series[3] })
         : null,
     [t, v, ready],
   );
   return (
     <Card
       title={`Where the revenue goes · ${q.label}`}
-      subtitle="Gross Revenue to EBITDA, each cost in turn"
+      subtitle="Gross Revenue (blue) less each cost (amber) leaves EBITDA (blue)"
       actions={
         <select className="input py-1 text-xs" value={focus ?? ''} onChange={(e) => setFocus(e.target.value)} aria-label="Quarter">
           {quarters.map((x) => <option key={x.start} value={x.start}>{x.label}</option>)}

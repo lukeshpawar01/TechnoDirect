@@ -11,10 +11,13 @@ class Command(BaseCommand):
     help = "Import RSMs, ASM -> RSM reporting lines and field staff from the Master ASM Tracker CSV."
 
     def add_arguments(self, parser):
-        parser.add_argument("file")
+        parser.add_argument("file", help="CSV / xlsx path, or supabase:<name> (a sheet stored with reference_sheet upload)")
         parser.add_argument("--dry-run", action="store_true", help="Show the matching without saving")
 
     def handle(self, *args, **o):
+        from ingestion.reference_sheets import command_file
+
+        o["file"] = command_file(o["file"])  # a file path, or supabase:<name> = the copy stored in Supabase
         if not Path(o["file"]).is_file():
             raise CommandError(f"File not found: {o['file']}")
         res = import_sales_team(o["file"], dry_run=o["dry_run"])

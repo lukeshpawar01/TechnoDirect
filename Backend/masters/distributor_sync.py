@@ -39,14 +39,23 @@ def file_signature(path):
     return hashlib.sha1(f"{os.path.basename(path)}|{st.st_size}|{int(st.st_mtime)}".encode()).hexdigest()
 
 
+def normalize_rows(rows):
+    return [{(k or "").strip().lower(): (v or "").strip() for k, v in r.items()} for r in rows]
+
+
 def import_file(path):
-    """Update stock_updated_on / inventory_status / stock_upload_mode / stock_update_frequency. Returns a report."""
+    """The sheet's CSV export -> import_rows."""
+    with open(path, encoding="utf-8-sig", newline="") as fh:
+        return import_rows(normalize_rows(list(csv.DictReader(fh))))
+
+
+def import_rows(rows):
+    """Update stock_updated_on / inventory_status / stock_upload_mode / stock_update_frequency from the sheet rows
+    (normalised headers): the live Google Sheet or the CSV export. Returns a report."""
     from analytics.cache import bump_cache_version
     from ingestion.normalize import norm
     from warehouse.models import Distributor
 
-    with open(path, encoding="utf-8-sig", newline="") as fh:
-        rows = [{(k or "").strip().lower(): (v or "").strip() for k, v in r.items()} for r in csv.DictReader(fh)]
     dists = list(Distributor.objects.all())
     index = {}
     for d in dists:
@@ -92,18 +101,38 @@ def refresh_if_changed(path=None, triggered_by="schedule"):
 
     from ingestion.models import SyncRun, SyncWatermark
 
-    path = path or getattr(settings, "DISTRIBUTOR_SYNC_SHEET", "")
-    if not path or not os.path.isfile(path):
-        return {"source": "distributor_sync", "status": "not_configured", "rows": 0, "run_id": None}
-    sig = file_signature(path)
+    from ingestion import gsheets
+
+    url = getattr(settings, "DISTRIBUTOR_SYNC_SHEET_URL", "")
+    if not path and url and gsheets.configured():
+        # the live Google Sheet (the CSV file is not used)
+        try:
+            rows = normalize_rows(gsheets.read_table(url))
+        except Exception as exc:  # noqa: BLE001 - the previous import stays on the dashboard
+            run = SyncRun.objects.create(source="distributor_sync", status="failed", triggered_by=triggered_by,
+                                         error=f"Google Sheet: {exc}"[:4000], finished_at=timezone.now())
+            return {"source": "distributor_sync", "status": "failed", "rows": 0, "run_id": run.pk}
+        sig, via = "gs:" + gsheets.signature(rows), "google_sheet"
+
+        def load():
+            return import_rows(rows)
+    else:
+        path = path or getattr(settings, "DISTRIBUTOR_SYNC_SHEET", "")
+        if not path or not os.path.isfile(path):
+            return {"source": "distributor_sync", "status": "not_configured", "rows": 0, "run_id": None}
+        sig, via = file_signature(path), "file"
+
+        def load():
+            return import_file(path)
     wm = SyncWatermark.objects.filter(key="distributor_sync:file").first()
     if wm and wm.cursor == sig:
         return {"source": "distributor_sync", "status": "skipped", "rows": 0, "run_id": None}
     run = SyncRun.objects.create(source="distributor_sync", status="running", triggered_by=triggered_by)
     try:
-        rep = import_file(path)
+        rep = load()
         run.status, run.rows = "success", rep["updated"]
         run.details = {k: (str(v) if k == "latest" else v) for k, v in rep.items()}
+        run.details["via"] = via
         SyncWatermark.put("distributor_sync:file", timezone.now(), cursor=sig)
     except Exception as exc:  # noqa: BLE001
         log.exception("Distributor sync sheet import failed")

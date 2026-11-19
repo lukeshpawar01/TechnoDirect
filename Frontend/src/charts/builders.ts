@@ -328,7 +328,8 @@ export interface WaterfallStep {
  * (an invisible base bar + the visible change). Increases and decreases carry a sign in the label,
  * so direction is never colour-only.
  */
-export function waterfall(t: ChartTokens, steps: WaterfallStep[], o: { format?: ValueFormat; up?: string; down?: string } = {}): EChartsOption {
+/** `unsigned`: label every bar with its plain (positive) amount, e.g. a P&L bridge where the costs are read as costs. */
+export function waterfall(t: ChartTokens, steps: WaterfallStep[], o: { format?: ValueFormat; up?: string; down?: string; unsigned?: boolean } = {}): EChartsOption {
   const f = o.format ?? 'inr';
   const base = baseOption(t);
   const ax = axisStyle(t);
@@ -359,7 +360,7 @@ export function waterfall(t: ChartTokens, steps: WaterfallStep[], o: { format?: 
         const arr = (Array.isArray(ps) ? ps : [ps]) as { dataIndex: number }[];
         const i = arr[0]?.dataIndex ?? 0;
         const v = visible[i];
-        const sign = v.total ? '' : v.raw >= 0 ? '+' : '−';
+        const sign = v.total || o.unsigned ? '' : v.raw >= 0 ? '+' : '−';
         return `<div style="font-weight:600">${steps[i].label}</div>${sign}${fmtValue(Math.abs(v.raw), f)}`;
       },
     },
@@ -379,7 +380,8 @@ export function waterfall(t: ChartTokens, steps: WaterfallStep[], o: { format?: 
           fontSize: 11,
           formatter: (p: { dataIndex: number }) => {
             const v = visible[p.dataIndex];
-            return v.total ? fmtValue(v.raw, f) : `${v.raw >= 0 ? '+' : '−'}${fmtValue(Math.abs(v.raw), f)}`;
+            if (v.total) return fmtValue(v.raw, f);
+            return o.unsigned ? fmtValue(Math.abs(v.raw), f) : `${v.raw >= 0 ? '+' : '−'}${fmtValue(Math.abs(v.raw), f)}`;
           },
         },
       },

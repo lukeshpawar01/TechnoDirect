@@ -14,7 +14,8 @@ How the sheet is read:
   * Writes ASM targets, distributor targets (ASM-less rows), region totals and the overall (the sheet's
     Total row; none when the tab has no Total). Months that already have a distributor-level tracker
     (e.g. Apr-26, Nov-26) keep it: only ASMs with no target there are added.
-Only months from Jan 2026 (SINCE) are loaded: that is when ASM targets are managed on the dashboard.
+Only months from Jan 2026 (SINCE) are loaded, plus months asked for by name (--month 2025-10: October 2025
+was added on request, 19 Nov 2026).
 Re-runnable: unchanged values stay, a changed value becomes a new target version.
 """
 import datetime as dt
@@ -54,6 +55,8 @@ ROW_RULES = [
     ("mumbai", {"2026-05"}, ("distributor", "td:37", None)),  # Ajay Hosiery between Rohit and Suresh
     ("mumbai", {"2026-06"}, ("asm", "Suresh")),               # Suresh joined 1 Jun 26
     ("ranjeeth", None, ("unassigned", None, None)),
+    # 2025: Imran worked alone (Virat Sports Wear) - his own ASM, not the joint "Imran & Anil" of 2026
+    ("imran", {"2025-10", "2025-11", "2025-12"}, ("asm", "Imran")),
 ]
 NOTE = "ASM targets workbook ({tab}, TD Target in lakhs)"
 
@@ -113,7 +116,8 @@ def read_workbook(path):
 SINCE = dt.date(2026, 1, 1)  # ASM targets are managed from Jan 2026 (earlier months are not tracked)
 
 
-def import_asm_targets(path, dry_run=False, put_target=None, since=SINCE):
+def import_asm_targets(path, dry_run=False, put_target=None, since=SINCE, months=None):
+    """months: only these months ("YYYY-MM"), even before SINCE (e.g. Oct 2025, loaded on request)."""
     from masters.management.commands.import_asm_tracker import Command
 
     put = put_target or Command.put_target
@@ -121,7 +125,10 @@ def import_asm_targets(path, dry_run=False, put_target=None, since=SINCE):
     report, written = [], Counter()
     for tab, sheet in read_workbook(path).items():
         month, key = sheet["month"], sheet["month"].isoformat()[:7]
-        if month < since:
+        if months is not None:
+            if key not in months:
+                continue
+        elif month < since:
             continue
         has_dist_tracker = Target.objects.filter(month=month, scope_type="distributor").exclude(
             notes__startswith="ASM Beat Plan").exclude(notes__startswith="ASM targets workbook").exists()

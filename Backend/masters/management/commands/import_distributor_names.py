@@ -29,10 +29,13 @@ class Command(BaseCommand):
     help = "Store each distributor's spelling in every source system as aliases."
 
     def add_arguments(self, parser):
-        parser.add_argument("file")
+        parser.add_argument("file", help="CSV / xlsx path, or supabase:<name> (a sheet stored with reference_sheet upload)")
         parser.add_argument("--dry-run", action="store_true")
 
     def handle(self, *args, **o):
+        from ingestion.reference_sheets import command_file
+
+        o["file"] = command_file(o["file"])  # a file path, or supabase:<name> = the copy stored in Supabase
         path = Path(o["file"])
         if not path.is_file():
             raise CommandError(f"File not found: {path}")

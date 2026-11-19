@@ -50,7 +50,7 @@ class Command(BaseCommand):
     help = "Import a monthly ASM performance tracker: ASMs, distributor ASM / region, monthly sales targets."
 
     def add_arguments(self, parser):
-        parser.add_argument("file")
+        parser.add_argument("file", help="CSV / xlsx path, or supabase:<name> (a sheet stored with reference_sheet upload)")
         parser.add_argument("--month", required=True, help="Target month, YYYY-MM (e.g. 2026-11)")
         parser.add_argument("--dry-run", action="store_true", help="Show the matching without saving")
         parser.add_argument("--targets-only", action="store_true",
@@ -58,6 +58,9 @@ class Command(BaseCommand):
                                  "and pincode mappings. ASM targets are kept only for ASMs that exist today.")
 
     def handle(self, *args, **o):
+        from ingestion.reference_sheets import command_file
+
+        o["file"] = command_file(o["file"])  # a file path, or supabase:<name> = the copy stored in Supabase
         path = Path(o["file"])
         if not path.is_file():
             raise CommandError(f"File not found: {path}")

@@ -33,7 +33,7 @@ type Draft = {
 };
 
 const monthNow = () => new Date().toISOString().slice(0, 7);
-const FIRST_MONTH = '2026-01';
+const FIRST_MONTH = '2025-10'; // Oct 2025 targets were added on request; tracking otherwise starts Jan 2026
 
 function useTracker(month: string, enabled: boolean) {
   return useQuery({

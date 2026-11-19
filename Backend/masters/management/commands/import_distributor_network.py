@@ -56,10 +56,13 @@ class Command(BaseCommand):
     help = "Import the team's distributor network list (name, state); unmatched names are the pipeline."
 
     def add_arguments(self, parser):
-        parser.add_argument("file")
+        parser.add_argument("file", help="CSV / xlsx path, or supabase:<name> (a sheet stored with reference_sheet upload)")
         parser.add_argument("--dry-run", action="store_true")
 
     def handle(self, *args, **o):
+        from ingestion.reference_sheets import command_file
+
+        o["file"] = command_file(o["file"])  # a file path, or supabase:<name> = the copy stored in Supabase
         try:
             with open(o["file"], encoding="utf-8-sig", newline="") as fh:
                 rows = [r for r in csv.DictReader(fh) if (r.get("Links") or "").strip()]

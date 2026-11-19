@@ -12,11 +12,16 @@ class Command(BaseCommand):
     help = "Import monthly ASM targets (TD Target, lakhs) from the order-tracking workbook; --check compares achieved."
 
     def add_arguments(self, parser):
-        parser.add_argument("file")
+        parser.add_argument("file", help="CSV / xlsx path, or supabase:<name> (a sheet stored with reference_sheet upload)")
         parser.add_argument("--dry-run", action="store_true")
         parser.add_argument("--check", action="store_true", help="Compare the sheet's achieved with dashboard sales")
+        parser.add_argument("--month", action="append", default=None,
+                            help="Only this month, YYYY-MM (repeatable); allows months before Jan 2026, e.g. 2025-10")
 
     def handle(self, *args, **o):
+        from ingestion.reference_sheets import command_file
+
+        o["file"] = command_file(o["file"])  # a file path, or supabase:<name> = the copy stored in Supabase
         if not Path(o["file"]).is_file():
             raise CommandError(f"File not found: {o['file']}")
         if o["check"]:
@@ -28,7 +33,7 @@ class Command(BaseCommand):
             self.stdout.write(f"  within 10% (or 0.5 L): {close} of {len(rows)}")
             return
         with transaction.atomic():
-            res = import_asm_targets(o["file"], dry_run=o["dry_run"])
+            res = import_asm_targets(o["file"], dry_run=o["dry_run"], months=set(o["month"]) if o["month"] else None)
             if o["dry_run"]:
                 transaction.set_rollback(True)
         for m in res["months"]:

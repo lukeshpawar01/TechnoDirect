@@ -34,7 +34,7 @@ def parse_month(value):
         raise ValueError("month must be YYYY-MM") from None
 
 
-FIRST_MONTH = dt.date(2026, 1, 1)  # ASM targets & performance are managed from Jan 2026
+FIRST_MONTH = dt.date(2025, 10, 1)  # ASM targets & performance: Oct 2025 (added on request) and from Jan 2026
 
 
 def asm_in_charge(dists, day):

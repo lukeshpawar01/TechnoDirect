@@ -56,6 +56,8 @@ LAYOUT = [
     ("masters.PnlQuarter", "pnl", "quarters"),
 ]
 SCHEMAS = sorted({s for _, s, _ in LAYOUT})
+# also owned by the edits login: fixed sheets stored in Supabase (ingestion/reference_sheets.py)
+SETUP_SCHEMAS = sorted(set(SCHEMAS) | {"reference"})
 TRACKED = [m for m, _, _ in LAYOUT]
 SKIP_M2M = {"groups", "user_permissions"}  # Django's built-in groups are not used (roles are)
 PG_TYPES = {
@@ -312,9 +314,9 @@ def setup_sql():
     grants = "\n".join(
         f"create schema if not exists {s};\n"
         f"grant usage, create on schema {s} to td_dashboard_rw;\n"
-        f"revoke all on schema {s} from anon, authenticated;" for s in SCHEMAS)
+        f"revoke all on schema {s} from anon, authenticated;" for s in SETUP_SCHEMAS)
     return f"""-- TechnoDirect dashboard: where the dashboard's own edits are kept, one folder (schema) per module:
---   {", ".join(SCHEMAS)}
+--   {", ".join(SETUP_SCHEMAS)}  (reference = fixed sheets)
 -- Run in Supabase > SQL Editor. The login td_dashboard_rw creates its tables there itself; it cannot touch anything
 -- else (your TD tables in `public` included). Safe to run again.
 -- First time only: replace CHANGE_ME_STRONG_PASSWORD (letters and digits). If the login already exists its password

@@ -291,6 +291,10 @@ DROPBOX_BO_MIRROR = env_str("DROPBOX_BO_MIRROR")  # local copy; default Backend/
 SETTLEMENT_TRACKER = env_str("SETTLEMENT_TRACKER")
 # "TechnoDirect Data - TechnoD Distributors" sheet (CSV): per-distributor "Inventory Updated" = stock sync date
 DISTRIBUTOR_SYNC_SHEET = env_str("DISTRIBUTOR_SYNC_SHEET")
+# The same two sheets read LIVE from Google Sheets (browser link incl. #gid=<tab>; needs GOOGLE_SERVICE_ACCOUNT_JSON
+# and the sheet shared with that account). When set, they replace the CSV files above (ingestion/gsheets.py).
+SETTLEMENT_SHEET_URL = env_str("SETTLEMENT_SHEET_URL")
+DISTRIBUTOR_SYNC_SHEET_URL = env_str("DISTRIBUTOR_SYNC_SHEET_URL")
 PAYU_MERCHANT_KEY = env_str("PAYU_MERCHANT_KEY")
 PAYU_MERCHANT_SALT = env_str("PAYU_MERCHANT_SALT")
 PAYU_BASE_URL = env_str("PAYU_BASE_URL", "https://info.payu.in")

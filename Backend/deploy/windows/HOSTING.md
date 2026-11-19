@@ -103,6 +103,36 @@ TD data (orders, sales, customers, distributors, products, inventory and loyalty
 5. Restart the "TechnoDirect Dashboard" task. From then on, the server pulls from Supabase by itself at 10:00 and
    18:00 IST, as part of the normal refresh.
 
+## Sheets: live from Google Sheets, fixed ones in Supabase
+
+**Live sheets** (they change daily): the finance *Order Tracking – Tracker* and *TechnoDirect Data – TechnoD
+Distributors*. They are read through the Google Sheets API at every refresh (`ingestion/gsheets.py`).
+
+1. Go to https://console.cloud.google.com, click **New Project** (for example "TechnoDirect Dashboard") and select it.
+2. Open **APIs & Services → Library**, find **Google Sheets API** and click **Enable**.
+3. Open **APIs & Services → Credentials → Create credentials → Service account**. Name it `td-dashboard-sheets` and
+   click **Done**. It needs no roles.
+4. Open the service account, go to **Keys → Add key → JSON**, and save the file outside the project, for example
+   `C:\Users\IT\Documents\keys\td-sheets-key.json`. Never commit it.
+5. Copy its email (`...@....iam.gserviceaccount.com`). In each live sheet, click **Share**, paste the email, choose
+   **Viewer** and click **Share**.
+6. In each sheet, open the right tab and copy the browser link (it ends in `#gid=...`). Then set these in `Backend\.env`:
+   - `GOOGLE_SERVICE_ACCOUNT_JSON` (the path to the key file)
+   - `SETTLEMENT_SHEET_URL`
+   - `DISTRIBUTOR_SYNC_SHEET_URL`
+7. Run `python manage.py sheets_check`. Once it shows OK, the 10:00 / 18:00 refresh reads the sheets live, and the CSV
+   files are no longer needed.
+
+**Fixed sheets** (monthly targets tabs, the targets workbook, the Beat Plan, the HR sales team, distributor names and
+states) are stored once in Supabase, schema `reference` (`ingestion/reference_sheets.py`).
+
+1. Run `deploy/supabase_edits.sql` again in Supabase. It adds the `reference` folder.
+2. Run `deploy\windows\upload_reference_sheets.ps1`. Only the columns the sales hierarchy needs are stored from the
+   HR sheet, so no phone numbers, emails or addresses.
+3. Importers read them with `supabase:<name>`, for example
+   `python manage.py import_asm_tracker supabase:asm_tracker_2026_11 --month 2026-11`. To add a new month, run
+   `python manage.py reference_sheet upload asm_tracker_2026_12 "<file>"` and import it the same way.
+
 ## Notes
 
 - **The PC must stay on and connected.** The dashboard is offline while it is shut down. Set Windows Update active
