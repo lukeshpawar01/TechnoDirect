@@ -120,8 +120,11 @@ Distributors*. They are read through the Google Sheets API at every refresh (`in
    - `GOOGLE_SERVICE_ACCOUNT_JSON` (the path to the key file)
    - `SETTLEMENT_SHEET_URL`
    - `DISTRIBUTOR_SYNC_SHEET_URL`
-7. Run `python manage.py sheets_check`. Once it shows OK, the 10:00 / 18:00 refresh reads the sheets live, and the CSV
-   files are no longer needed.
+7. Run `python manage.py sheets_check`. Once it shows OK, the 10:00 / 18:00 refresh reads the sheets live.
+
+Until the links are set, the two sheets come from their copy in Supabase (`reference.settlement_tracker` and
+`reference.distributor_sync`); no file on this PC is read. When the team updates a sheet, re-upload it with
+`python manage.py reference_sheet upload settlement_tracker "<csv>"` (or `distributor_sync`).
 
 **Fixed sheets** (monthly targets tabs, the targets workbook, the Beat Plan, the HR sales team, distributor names and
 states) are stored once in Supabase, schema `reference` (`ingestion/reference_sheets.py`).

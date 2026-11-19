@@ -137,3 +137,41 @@ class ReferenceSheetTests(SimpleTestCase):
     def test_names(self):
         with self.assertRaises(R.ReferenceError):
             R.upload("Bad Name!", __file__, store=FakeReference())
+
+
+class SupabaseSheetRefreshTests(TestCase):
+    """Without a Google link, the two sheets come from their copy in Supabase - no file on the PC."""
+
+    def test_distributor_sync_from_supabase(self):
+        from ingestion.models import SyncRun
+        from masters import distributor_sync
+        from warehouse.models import Distributor, Region
+
+        reg = Region.objects.create(code="S", name="South")
+        Distributor.objects.create(code="HE", name="Heera Exports", region=reg)
+        rows = [{"Distributor": "Heera Exports", "Inventory Updated": "18/11/2026", "Status": "Active",
+                 "Taken By": "Excel", "Frequency": "Daily"}]
+        with override_settings(DISTRIBUTOR_SYNC_SHEET_URL="", DISTRIBUTOR_SYNC_REFERENCE_SHEET="distributor_sync"), \
+                mock.patch.object(R, "configured", return_value=True), \
+                mock.patch.object(R, "table_rows", return_value=rows) as tr:
+            step = distributor_sync.refresh_if_changed()
+            self.assertEqual(step["status"], "success")
+            tr.assert_called_once_with("distributor_sync")
+            self.assertEqual(SyncRun.objects.get(pk=step["run_id"]).details["via"], "supabase:distributor_sync")
+            self.assertEqual(Distributor.objects.get(code="HE").stock_updated_on, dt.date(2026, 11, 18))
+            self.assertEqual(distributor_sync.refresh_if_changed()["status"], "skipped")  # unchanged copy
+            self.assertEqual(distributor_sync.refresh_if_changed(force=True)["status"], "success")
+        with override_settings(DISTRIBUTOR_SYNC_SHEET_URL="", DISTRIBUTOR_SYNC_REFERENCE_SHEET="distributor_sync"), \
+                mock.patch.object(R, "configured", return_value=True), \
+                mock.patch.object(R, "table_rows", return_value=None):
+            self.assertEqual(distributor_sync.refresh_if_changed()["status"], "not_configured")  # not uploaded
+
+    def test_table_rows(self):
+        store = FakeReference()
+        d = tempfile.mkdtemp()
+        src = os.path.join(d, "s.csv")
+        with open(src, "w", encoding="utf-8", newline="") as fh:
+            fh.write("ORDER ID, Distributor\n#1,Heera\n")
+        R.upload("settlement_tracker", src, store=store)
+        self.assertEqual(R.table_rows("settlement_tracker", store=store), [{"ORDER ID": "#1", " Distributor": "Heera"}])
+        self.assertIsNone(R.table_rows("nothing", store=store))

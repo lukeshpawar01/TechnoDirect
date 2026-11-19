@@ -94,7 +94,7 @@ def import_rows(rows):
             "latest": max((d.stock_updated_on for d in Distributor.objects.exclude(stock_updated_on=None)), default=None)}
 
 
-def refresh_if_changed(path=None, triggered_by="schedule"):
+def refresh_if_changed(path=None, triggered_by="schedule", force=False):
     """Scheduled refresh step: re-import when the sheet export changed."""
     from django.conf import settings
     from django.utils import timezone
@@ -105,7 +105,7 @@ def refresh_if_changed(path=None, triggered_by="schedule"):
 
     url = getattr(settings, "DISTRIBUTOR_SYNC_SHEET_URL", "")
     if not path and url and gsheets.configured():
-        # the live Google Sheet (the CSV file is not used)
+        # the live Google Sheet
         try:
             rows = normalize_rows(gsheets.read_table(url))
         except Exception as exc:  # noqa: BLE001 - the previous import stays on the dashboard
@@ -116,16 +116,34 @@ def refresh_if_changed(path=None, triggered_by="schedule"):
 
         def load():
             return import_rows(rows)
-    else:
-        path = path or getattr(settings, "DISTRIBUTOR_SYNC_SHEET", "")
-        if not path or not os.path.isfile(path):
-            return {"source": "distributor_sync", "status": "not_configured", "rows": 0, "run_id": None}
+    elif path:
+        # an explicit file (manage.py import_... --file): a one-off import
         sig, via = file_signature(path), "file"
 
         def load():
             return import_file(path)
+    else:
+        # the copy stored in Supabase (reference_sheet upload) - no file on this PC is read
+        from ingestion import reference_sheets
+
+        ref = getattr(settings, "DISTRIBUTOR_SYNC_REFERENCE_SHEET", "")
+        if not ref or not reference_sheets.configured():
+            return {"source": "distributor_sync", "status": "not_configured", "rows": 0, "run_id": None}
+        try:
+            raw = reference_sheets.table_rows(ref)
+        except Exception as exc:  # noqa: BLE001 - the previous import stays on the dashboard
+            run = SyncRun.objects.create(source="distributor_sync", status="failed", triggered_by=triggered_by,
+                                         error=f"Supabase sheet {ref}: {exc}"[:4000], finished_at=timezone.now())
+            return {"source": "distributor_sync", "status": "failed", "rows": 0, "run_id": run.pk}
+        if raw is None:
+            return {"source": "distributor_sync", "status": "not_configured", "rows": 0, "run_id": None}
+        rows = normalize_rows(raw)
+        sig, via = "sb:" + gsheets.signature(rows), f"supabase:{ref}"
+
+        def load():
+            return import_rows(rows)
     wm = SyncWatermark.objects.filter(key="distributor_sync:file").first()
-    if wm and wm.cursor == sig:
+    if not force and wm and wm.cursor == sig:
         return {"source": "distributor_sync", "status": "skipped", "rows": 0, "run_id": None}
     run = SyncRun.objects.create(source="distributor_sync", status="running", triggered_by=triggered_by)
     try:

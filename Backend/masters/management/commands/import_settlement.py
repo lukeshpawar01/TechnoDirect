@@ -1,29 +1,36 @@
-"""Import the finance team's distributor settlement tracker (full rebuild). See masters/settlement.py."""
+"""Import the finance team's distributor settlement tracker (full rebuild). See masters/settlement.py.
+
+    python manage.py import_settlement                 from the live Google Sheet, else the copy in Supabase
+    python manage.py import_settlement --file x.csv    a one-off import of a CSV export
+"""
 import json
 
-from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
 
 class Command(BaseCommand):
-    help = "Import 'Technodirect Order Tracking - Tracker.csv' (distributor settlements)"
+    help = "Import the distributor settlement tracker (live Google Sheet / Supabase copy / --file)"
 
     def add_arguments(self, parser):
-        parser.add_argument("--file", default="", help="Tracker CSV (default: .env SETTLEMENT_TRACKER)")
+        parser.add_argument("--file", default="", help="Tracker CSV (default: the live Google Sheet, else the copy in Supabase)")
 
     def handle(self, *args, **opts):
-        from masters.settlement import file_signature, import_file
+        from masters.settlement import file_signature, import_file, refresh_if_changed
 
-        path = opts["file"] or getattr(settings, "SETTLEMENT_TRACKER", "")
-        if not path:
-            raise CommandError("Pass --file or set SETTLEMENT_TRACKER in .env")
-        rep = import_file(path)
+        if not opts["file"]:
+            step = refresh_if_changed(triggered_by="manual", force=True)
+            if step["status"] == "not_configured":
+                raise CommandError("No source: set SETTLEMENT_SHEET_URL (Google) or upload the sheet to Supabase "
+                                   "(reference_sheet upload settlement_tracker <file>), or pass --file")
+            self.stdout.write(json.dumps(step, indent=2))
+            return
+        rep = import_file(opts["file"])
         try:  # remember the file so the scheduled refresh does not re-import it unchanged
             from django.utils import timezone
 
             from ingestion.models import SyncWatermark
 
-            SyncWatermark.put("settlement:file", timezone.now(), cursor=file_signature(path))
+            SyncWatermark.put("settlement:file", timezone.now(), cursor=file_signature(opts["file"]))
         except Exception:  # noqa: BLE001
             pass
         self.stdout.write(json.dumps(rep, indent=2, ensure_ascii=False))

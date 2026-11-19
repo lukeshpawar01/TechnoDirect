@@ -287,12 +287,14 @@ DROPBOX_APP_SECRET = env_str("DROPBOX_APP_SECRET")
 DROPBOX_REFRESH_TOKEN = env_str("DROPBOX_REFRESH_TOKEN")
 DROPBOX_BO_PATH = env_str("DROPBOX_BO_PATH", "/Power BI")  # the folder as seen in Dropbox (not the PC path)
 DROPBOX_BO_MIRROR = env_str("DROPBOX_BO_MIRROR")  # local copy; default Backend/data/blueorigin_dropbox
-# finance team's distributor settlement tracker (CSV export of the "Tracker" sheet)
-SETTLEMENT_TRACKER = env_str("SETTLEMENT_TRACKER")
-# "TechnoDirect Data - TechnoD Distributors" sheet (CSV): per-distributor "Inventory Updated" = stock sync date
-DISTRIBUTOR_SYNC_SHEET = env_str("DISTRIBUTOR_SYNC_SHEET")
+# finance team's distributor settlement tracker and the "TechnoD Distributors" stock-sync sheet: read live from
+# Google Sheets (*_SHEET_URL below) or, until that is set up, from their copy in Supabase (schema reference, the
+# names below; refresh with `reference_sheet upload`). No file on this PC is read.
+SETTLEMENT_REFERENCE_SHEET = env_str("SETTLEMENT_REFERENCE_SHEET", "settlement_tracker") or "settlement_tracker"
+# "TechnoDirect Data - TechnoD Distributors": per-distributor "Inventory Updated" = stock sync date
+DISTRIBUTOR_SYNC_REFERENCE_SHEET = env_str("DISTRIBUTOR_SYNC_REFERENCE_SHEET", "distributor_sync") or "distributor_sync"
 # The same two sheets read LIVE from Google Sheets (browser link incl. #gid=<tab>; needs GOOGLE_SERVICE_ACCOUNT_JSON
-# and the sheet shared with that account). When set, they replace the CSV files above (ingestion/gsheets.py).
+# and the sheet shared with that account). When set, they replace the Supabase copies above (ingestion/gsheets.py).
 SETTLEMENT_SHEET_URL = env_str("SETTLEMENT_SHEET_URL")
 DISTRIBUTOR_SYNC_SHEET_URL = env_str("DISTRIBUTOR_SYNC_SHEET_URL")
 PAYU_MERCHANT_KEY = env_str("PAYU_MERCHANT_KEY")

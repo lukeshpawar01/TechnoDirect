@@ -260,3 +260,15 @@ def command_file(arg):
         return resolve_file(arg)
     except ReferenceError as exc:
         raise CommandError(str(exc)) from None
+
+
+def table_rows(name, store=None):
+    """A stored CSV sheet as rows of {header: text} (like csv.DictReader), or None when no sheet has that name."""
+    store = store or SupabaseReference()
+    entries = store.catalog(name)
+    if not entries:
+        return None
+    if entries[0]["kind"] != "table":
+        raise ReferenceError(f"'{name}' is a workbook, not a sheet with column headers")
+    headers, rows = store.grid(entries[0])
+    return [{h: (v if v is not None else "") for h, v in zip(headers, r[1:])} for r in rows]

@@ -32,7 +32,7 @@ class Command(BaseCommand):
         for label, key, needed in LIVE:
             url = getattr(settings, key, "")
             if not url:
-                self.stdout.write(f"  --   {label}: {key} not set (the CSV file is used)")
+                self.stdout.write(f"  --   {label}: {key} not set (its copy in Supabase is used)")
                 continue
             if not gsheets.configured():
                 continue
