@@ -140,7 +140,11 @@ export default function Overview() {
               ) : d?.target ? (
                 <TargetBullet t={d.target} basis={basis} />
               ) : (
-                <EmptyState title="No target set for this scope" hint="Add one in Admin → Targets." height={160} />
+                d?.target_note ? (
+                  <EmptyState title="Target not compared" hint={d.target_note} height={160} />
+                ) : (
+                  <EmptyState title="No target set for this scope" hint="Add one in Admin → Targets." height={160} />
+                )
               )}
             </Card>
             <ChartCard

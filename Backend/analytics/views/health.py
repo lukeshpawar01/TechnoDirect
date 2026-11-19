@@ -38,8 +38,8 @@ from .base import AnalyticsView
 VIA_LABEL = {"google_sheet": "Google Sheets API", "dropbox": "Dropbox API", "supabase": "Supabase",
              "file": "a local file (one-off)", "folder": "a local folder"}
 
-CHECKED_IN_REFRESH = {"settlement", "distributor_sync", "blueorigin"}
-DEFAULT_VIA = {"supabase": "Supabase (Postgres)", "payu": "PayU API", "channel_konnect": "Channel Konnect API"}
+CHECKED_IN_REFRESH = {"settlement", "distributor_sync", "blueorigin", "targets_sheet"}
+DEFAULT_VIA = {"google_sheets": "Google Sheets API", "supabase": "Supabase (Postgres)", "payu": "PayU API", "channel_konnect": "Channel Konnect API"}
 
 SEVERITY_ORDER = {"high": 0, "medium": 1, "low": 2}
 
@@ -76,7 +76,8 @@ class DataHealthView(AnalyticsView):
         sources = []
         refresh_ok = source_state(REFRESH_SOURCE)[1]
         # the sheet / file sources run inside "Refresh All" but get their own card, with where they were read from
-        for s in list(CONNECTORS) + ["settlement", "distributor_sync", "blueorigin", "derivations", REFRESH_SOURCE]:
+        for s in list(CONNECTORS) + ["settlement", "distributor_sync", "targets_sheet", "blueorigin", "derivations",
+                                     REFRESH_SOURCE]:
             last_run, last_success = source_state(s)
             status = evaluate_status(last_run, last_success)
             if last_run is not None and last_run.status == "not_configured":

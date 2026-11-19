@@ -7,6 +7,7 @@ import { colorFor } from '@/charts/palette';
 import { AsmTrackerActions } from '@/components/AsmTracker';
 import { ChartCard } from '@/components/ChartCard';
 import { DataTable } from '@/components/DataTable';
+import { ExecutivePerformance } from '@/components/ExecutivePerformance';
 import { PageHeader } from '@/components/PageHeader';
 import { SalesTeam } from '@/components/SalesTeam';
 import { Card, Delta, Meter, Segmented } from '@/components/ui';
@@ -167,6 +168,7 @@ export default function Territory() {
         />
         <p className="mt-2 text-2xs text-muted">Click a row to filter the whole dashboard to that {groupLabel.toLowerCase()}.</p>
       </Card>
+      <ExecutivePerformance month={q.data?.meta?.period?.to?.slice(0, 7)} />
     </div>
   );
 }

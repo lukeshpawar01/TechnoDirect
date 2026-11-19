@@ -60,6 +60,12 @@ services:
         sync: false
       - key: DISTRIBUTOR_SYNC_SHEET_TAB
         value: TechnoD Distributors
+      - key: CRM_SHEET_URL
+        sync: false
+      - key: TARGETS_SHEET_URL
+        sync: false
+      - key: TARGETS_SHEET_TAB
+        value: Monthly Tracker
       # --- Dropbox (BlueOrigin) ----------------------------------------------------------------------------
       - key: DROPBOX_APP_KEY
         sync: false

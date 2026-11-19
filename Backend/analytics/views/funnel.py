@@ -29,12 +29,9 @@ def retailer_base(f):
         qs = qs.filter(kyc_status__in=f.kyc_statuses)
     if f.kyc_verified is not None:  # "KYC Verified" module filter (Retailers, Funnel)
         qs = qs.filter(kyc_status="approved") if f.kyc_verified else qs.exclude(kyc_status="approved")
-    if f.tiers:  # BlueOrigin tier (latest sheet); "None" = not found in BlueOrigin
-        tiers = [t for t in f.tiers if t != "None"]
-        q = Q(tier__in=tiers)
-        if "None" in f.tiers:
-            q |= Q(tier="")
-        qs = qs.filter(q)
+    tq = f.tier_q()  # BlueOrigin tier (latest sheet); "None" = not found in BlueOrigin
+    if tq is not None:
+        qs = qs.filter(tq)
     return qs
 
 
@@ -260,7 +257,8 @@ def retailer_row(r, can_pii, today, rsm_ctx=None, rfm_rows=None):
         "lifetime_orders": r.orders_count, "lifetime_sales": num(r.total_sales),
         "segment": retailer_segment(r, today),
         "rfm_segment": rfm_seg,
-        "rfm_label": rfm.SEGMENTS[rfm_seg][0] if rfm_seg else None,
+        "rfm_label": rfm.label(rfm_rows.get(r.id)) if rfm_rows is not None else None,
+        "rfm_priority": (rfm_rows.get(r.id) or {}).get("priority") if rfm_rows is not None else None,
         "warm_match": r.warm_match,
         "tier": r.tier or None,
     }
@@ -467,11 +465,15 @@ class RfmView(AnalyticsView):
         buyers = len(rows)
         total_value = sum(r["value"] for r in rows.values()) or 0.0
         agg = defaultdict(lambda: {"retailers": 0, "value": 0.0})
+        prio = defaultdict(lambda: {"retailers": 0, "value": 0.0})
         grid = defaultdict(int)
         for r in rows.values():
             a = agg[r["segment"]]
             a["retailers"] += 1
             a["value"] += r["value"]
+            if r.get("priority"):
+                prio[r["priority"]]["retailers"] += 1
+                prio[r["priority"]]["value"] += r["value"]
             if r.get("r_score"):
                 grid[(r["r_score"], r["fm"])] += 1
         segments = []
@@ -486,6 +488,12 @@ class RfmView(AnalyticsView):
                 "value": round(v, 2), "pct_value": pct(v, total_value) if key != "prospect" else None,
                 "scored": key in rfm.SCORED,
             })
+            if key == "at_risk":  # the value priority inside At Risk - who to call first
+                segments[-1]["priorities"] = [
+                    {"priority": p, "segment": f"at_risk_{p}", "label": p_label, "action": p_action,
+                     "retailers": prio[p]["retailers"], "pct_buyers": pct(prio[p]["retailers"], buyers),
+                     "value": round(prio[p]["value"], 2), "pct_value": pct(prio[p]["value"], total_value)}
+                    for p, (p_label, p_action) in rfm.PRIORITIES.items()]
         cut = snap.get("cutoffs") or {}
         return {
             "as_of": snap["as_of"].isoformat() if snap.get("as_of") else None,

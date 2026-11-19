@@ -310,8 +310,14 @@ PAYU_CLIENT_ID = env_str("PAYU_CLIENT_ID")
 PAYU_CLIENT_SECRET = env_str("PAYU_CLIENT_SECRET")
 
 GOOGLE_SERVICE_ACCOUNT_JSON = env_str("GOOGLE_SERVICE_ACCOUNT_JSON")
+# CRM issues tracker ("B2B Order Tracker CRM"): the browser link incl. #gid (or the sheet id + tab name)
+CRM_SHEET_URL = env_str("CRM_SHEET_URL")
 CRM_SHEET_ID = env_str("CRM_SHEET_ID")
 CRM_SHEET_TAB = env_str("CRM_SHEET_TAB")
+# monthly ASM / executive targets ("TD_ASM_Executive_Incentive_Tracker", masters/target_sheet.py): only the months
+# written in the sheet are changed
+TARGETS_SHEET_URL = env_str("TARGETS_SHEET_URL")
+TARGETS_SHEET_TAB = env_str("TARGETS_SHEET_TAB", "Monthly Tracker")
 
 CK_BASE_URL = env_str("CK_BASE_URL")
 CK_API_KEY = env_str("CK_API_KEY")

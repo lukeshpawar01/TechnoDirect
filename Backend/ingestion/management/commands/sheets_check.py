@@ -15,6 +15,7 @@ from ingestion import gsheets, reference_sheets
 LIVE = [
     ("Settlement tracker", "SETTLEMENT_SHEET_URL", "SETTLEMENT_SHEET_TAB", ["order id", "distributor", "order value"]),
     ("TechnoD Distributors", "DISTRIBUTOR_SYNC_SHEET_URL", "DISTRIBUTOR_SYNC_SHEET_TAB", ["distributor", "inventory updated"]),
+    ("CRM issues", "CRM_SHEET_URL", "CRM_SHEET_TAB", ["date", "order id", "status"]),
 ]
 
 
@@ -46,6 +47,22 @@ class Command(BaseCommand):
             (bad if missing or not rows else ok)(
                 f"{label}: {len(rows):,} rows" + (f" - missing columns: {', '.join(missing)} (is the right tab linked?)"
                                                   if missing else ""))
+        url = getattr(settings, "TARGETS_SHEET_URL", "")
+        if not url:
+            self.stdout.write("  --   Monthly targets: TARGETS_SHEET_URL not set - not imported")
+        elif gsheets.configured():
+            try:
+                from django.utils import timezone
+
+                from masters import target_sheet
+
+                rows = target_sheet.parse(gsheets.read_values(url, settings.TARGETS_SHEET_TAB), timezone.localdate())
+                months = sorted({r["month"].isoformat()[:7] for r in rows})
+                total = sum(float(r["target"]) for r in rows)
+                target_sheet.plan(rows)  # names must all match
+                ok(f"Monthly targets: {len(rows)} people, months {', '.join(months)}, total {total:,.0f}")
+            except Exception as exc:  # noqa: BLE001
+                bad(f"Monthly targets: {exc}")
         self.stdout.write("Fixed sheets (Supabase, schema reference)")
         if not reference_sheets.configured():
             bad("SUPABASE_EDITS_USER / SUPABASE_EDITS_PASSWORD are not set")

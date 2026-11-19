@@ -36,12 +36,8 @@ const RFM_ROWS: { title: string; keys: [string, string][] }[] = [
       ['loyal', 'Loyal Customers'],
       ['potential_loyalists', 'Potential Loyalists'],
       ['new_customers', 'New Customers'],
-      ['promising', 'Promising'],
       ['needs_attention', 'Needs Attention'],
-      ['about_to_sleep', 'About to Sleep'],
-      ['cant_lose', "Can't Lose Them"],
       ['at_risk', 'At Risk'],
-      ['hibernating', 'Hibernating'],
     ],
   },
   {
@@ -76,7 +72,7 @@ const LIFE_ROWS: { title: string; keys: [string, string][] }[] = [
   },
 ];
 /** more of these is bad news: deltas are coloured the other way round */
-const LOWER_IS_BETTER = new Set(['lost', 'inactive_30', 'inactive_60', 'inactive_90', 'never_ordered', 'churned', 'no_orders_in_range', 'hibernating', 'at_risk', 'cant_lose', 'about_to_sleep', 'needs_attention']);
+const LOWER_IS_BETTER = new Set(['lost', 'inactive_30', 'inactive_60', 'inactive_90', 'never_ordered', 'churned', 'no_orders_in_range', 'at_risk', 'needs_attention']);
 const LIFECYCLE_KEYS = new Set(LIFE_ROWS.flatMap((g) => g.keys.map((k) => k[0])));
 const RFM_KEYS = new Set(RFM_ROWS.flatMap((g) => g.keys.map((k) => k[0])));
 const GRAIN_LABEL: Record<Grain, string> = { day: 'Daily', week: 'Weekly', month: 'Monthly', quarter: 'Quarterly' };

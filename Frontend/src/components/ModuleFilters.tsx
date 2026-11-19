@@ -70,7 +70,7 @@ const TIER_TD: FieldDef = { ...TIER, options: (o, sp) => [...(TIER.options as (o
 
 /** Page-specific filters, keyed by the nav path that owns them. Sent to the API only from that page. */
 const MODULES: Record<string, FieldDef[]> = {
-  '/overview': [SEGMENT],
+  '/overview': [SEGMENT, TIER_TD],
   '/funnel': [KYC_STATUS, KYC_VERIFIED],
   '/retailers': [
     KYC_STATUS,

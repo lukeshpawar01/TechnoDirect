@@ -116,7 +116,14 @@ class OverviewView(AnalyticsView):
                                        spark(mon, months12, lambda d: d.get("distributors"))),
         }
 
-        target, tmap = target_block(f, base)
+        # targets exist per territory (region / ASM / distributor), not per retailer tier or RFM segment: comparing a
+        # tier's sales with the whole target would read as a false shortfall, so no target is shown then
+        target_note = None
+        if f.tiers or f.segment:
+            target, tmap = None, {}
+            target_note = "Targets are set per territory, not per tier or segment. Clear that filter to compare with target."
+        else:
+            target, tmap = target_block(f, base)
 
         # daily trend
         daily = {r["placed_date"]: r for r in cur_qs.values("placed_date").annotate(
@@ -189,7 +196,7 @@ class OverviewView(AnalyticsView):
                        "share": share(r["s"], total)} for r in by_state[:10]]
 
         return {
-            "kpis": kpis, "target": target, "daily_trend": trend, "monthly": monthly,
+            "kpis": kpis, "target": target, "target_note": target_note, "daily_trend": trend, "monthly": monthly,
             "order_funnel": order_funnel, "concentration": concentration,
             "top_distributors": top_distributors, "top_states": top_states,
             "exceptions": self.exceptions(f, target),

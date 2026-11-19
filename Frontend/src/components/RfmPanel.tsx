@@ -13,12 +13,11 @@ export const RFM_GROUP: Record<string, 'thriving' | 'new' | 'slipping' | 'risk' 
   loyal: 'thriving',
   potential_loyalists: 'thriving',
   new_customers: 'new',
-  promising: 'new',
   needs_attention: 'slipping',
-  about_to_sleep: 'slipping',
-  cant_lose: 'risk',
   at_risk: 'risk',
-  hibernating: 'risk',
+  at_risk_high: 'risk',
+  at_risk_medium: 'risk',
+  at_risk_low: 'risk',
   no_orders_in_range: 'lapsed',
   churned: 'lapsed',
   prospect: 'lapsed',
@@ -37,7 +36,7 @@ const MEASURE: Record<string, { label: string; fmt: (v: number) => string; hint:
 };
 
 const GROUPS: { title: string; keys: string[] }[] = [
-  { title: 'Active buyers · scored', keys: ['champions', 'loyal', 'potential_loyalists', 'new_customers', 'promising', 'needs_attention', 'about_to_sleep', 'cant_lose', 'at_risk', 'hibernating'] },
+  { title: 'Active buyers · scored', keys: ['champions', 'loyal', 'potential_loyalists', 'new_customers', 'needs_attention', 'at_risk'] },
   { title: 'Lapsed', keys: ['no_orders_in_range', 'churned'] },
   { title: 'Never ordered', keys: ['prospect'] },
 ];
@@ -124,10 +123,40 @@ export function RfmPanel({ selected, onSelect }: { selected: string; onSelect: (
                               )}
                             </td>
                             <td className="max-w-[16rem] truncate py-1.5 pl-2 text-xs text-ink2" title={s.action}>
-                              {s.action}
+                              {s.priorities ? 'Call in order of value, below.' : s.action}
                             </td>
                           </tr>
                         );
+                      }).flatMap((row, i) => {
+                        const s = rows[i];
+                        if (!s.priorities) return [row];
+                        return [row, ...s.priorities.map((p) => {
+                          const on = selected === p.segment;
+                          return (
+                            <tr
+                              key={p.segment}
+                              onClick={() => onSelect(p.segment)}
+                              className={cx('cursor-pointer', on ? 'bg-brand/10' : 'hover:bg-sunken/70')}
+                              title={`At Risk, ${p.label.toLowerCase()}: ${p.action}`}
+                              aria-selected={on}
+                            >
+                              <td className="py-1 pl-6 pr-2 text-ink2">{p.label}</td>
+                              <td className="px-2 py-1 text-right text-ink2">{num(p.retailers)}</td>
+                              <td className="px-2 py-1 text-right text-muted">{p.pct_buyers === null ? '–' : pct(p.pct_buyers, 1)}</td>
+                              <td className="px-2 py-1">
+                                <span className="flex items-center gap-2">
+                                  <span className="h-1.5 w-20 overflow-hidden rounded-full bg-sunken" aria-hidden>
+                                    <span className="block h-full rounded-full bg-ink2/30" style={{ width: `${Math.min(100, p.pct_value ?? 0)}%` }} />
+                                  </span>
+                                  <span className="w-12 text-right text-ink2">{p.pct_value === null ? '–' : pct(p.pct_value, 1)}</span>
+                                </span>
+                              </td>
+                              <td className="max-w-[16rem] truncate py-1 pl-2 text-xs text-ink2" title={p.action}>
+                                {p.action}
+                              </td>
+                            </tr>
+                          );
+                        })];
                       })}
                     </Fragment>
                   );
@@ -152,14 +181,16 @@ export function RfmPanel({ selected, onSelect }: { selected: string; onSelect: (
                   {[1, 2, 3, 4, 5].map((fm) => {
                     const c = d.grid.find((x) => x.r === r && x.fm === fm);
                     if (!c) return <div key={fm} />;
-                    const label = by.get(c.segment)?.label ?? c.segment;
-                    const on = selected === c.segment;
+                    const prio = c.segment === 'at_risk' ? (fm >= 4 ? 'high' : fm === 3 ? 'medium' : 'low') : null;
+                    const key = prio ? `at_risk_${prio}` : c.segment;
+                    const label = (by.get(c.segment)?.label ?? c.segment) + (prio ? ` (${prio})` : '');
+                    const on = selected === key || selected === c.segment;
                     const a = c.retailers / maxCell;
                     return (
                       <button
                         key={fm}
                         type="button"
-                        onClick={() => onSelect(c.segment)}
+                        onClick={() => onSelect(key)}
                         title={`R${r} · FM${fm} → ${label}: ${num(c.retailers)} retailers`}
                         className={cx('relative flex h-14 flex-col items-start justify-between rounded-md border px-1.5 py-1 text-left', on ? 'border-brand ring-1 ring-brand' : 'border-line hover:border-ink2/40')}
                         style={{ background: `rgb(var(--brand) / ${(0.05 + a * 0.35).toFixed(3)})` }}

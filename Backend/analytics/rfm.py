@@ -36,42 +36,60 @@ MIN_TENURE_M = 3
 SHRINK_K = 2
 DAYS_PER_MONTH = 30.4375
 
-# (label, recommended action) in display order; keys are the API values
+# (label, meaning, recommended action) in display order; keys are the API values.
+# Simplified 2026-11-19 (user): Promising is merged into Potential Loyalists, and About to Sleep / Can't Lose Them /
+# Hibernating into At Risk. The scoring (R x FM grid, cut-offs, churn rule) is unchanged - only the cell labels are.
+# At Risk keeps the value distinction as a PRIORITY (FM 4-5 high, 3 medium, 1-2 low) so the high-value retailers
+# (the old "Can't Lose Them") are still called first.
 SEGMENTS = {
     "champions": ("Champions", "Ordering at or ahead of their usual rhythm, high frequency and value.",
                   "Early access to new styles, priority dispatch, referral asks."),
     "loyal": ("Loyal Customers", "High frequency and value, ordering roughly on rhythm.",
               "Upsell new categories, volume slabs."),
-    "potential_loyalists": ("Potential Loyalists", "Recent, mid frequency and value.",
-                            "Nudge into a regular reorder cycle; loyalty-point boosts."),
+    "potential_loyalists": ("Potential Loyalists", "Ordering on rhythm, but low to mid frequency and value so far.",
+                            "Grow them into regulars: bigger-basket offers, best-seller bundles, loyalty-point boosts."),
     "new_customers": ("New Customers", f"First order within the last {NEW_DAYS} days.",
                       "Onboarding call; second-order offer within 2-3 weeks."),
-    "promising": ("Promising", "Recent but low frequency and value.", "Bigger-basket offers, best-seller bundles."),
     "needs_attention": ("Needs Attention", "Slightly behind rhythm, mid frequency and value.",
                         "Distributor follow-up; check stock-outs on their usual styles."),
-    "about_to_sleep": ("About to Sleep", "Slightly behind rhythm, low frequency and value.",
-                       "Reminder before their usual reorder date."),
-    "cant_lose": ("Can't Lose Them", "Well behind rhythm but historically high value.",
-                  "Personal call from distributor or ASM this week."),
-    "at_risk": ("At Risk", "Well behind rhythm, mid value.", "Win-back offer; ask why they stopped."),
-    "hibernating": ("Hibernating", "Well behind rhythm, low value.", "Low-cost automated reminders."),
+    "at_risk": ("At Risk", "Behind their usual ordering rhythm. Priority by value: high, medium, low.",
+                "High value: personal call from distributor or ASM this week. Medium: win-back offer, ask why they "
+                "stopped. Low: automated reorder reminders."),
     "no_orders_in_range": ("No Orders in Range", f"Not churned, but no order in the last {WINDOW_MONTHS} months.",
                            "Check if still trading; reactivation call."),
     "churned": ("Churned", f"Silent for over {CHURN_RATIO:g}x their usual gap and longer than 90% of all reorder gaps.",
                 "Win-back campaign; call the high-value ones."),
     "prospect": ("Prospect", "Registered, never ordered.", "Activation funnel: KYC, first-order offer."),
 }
-SCORED = ["champions", "loyal", "potential_loyalists", "new_customers", "promising", "needs_attention",
-          "about_to_sleep", "cant_lose", "at_risk", "hibernating"]
+SCORED = ["champions", "loyal", "potential_loyalists", "new_customers", "needs_attention", "at_risk"]
+# old segment keys (links / saved filters from before the merge) -> the segment they are now part of
+LEGACY = {"promising": "potential_loyalists", "cant_lose": "at_risk_high",  # Can't Lose Them = At Risk, high value
+          "about_to_sleep": "at_risk_low", "hibernating": "at_risk_low"}
 
 # rows R5..R1, columns FM1..FM5
 GRID = {
-    5: ["promising", "promising", "potential_loyalists", "champions", "champions"],
-    4: ["promising", "promising", "potential_loyalists", "champions", "champions"],
-    3: ["about_to_sleep", "about_to_sleep", "needs_attention", "loyal", "loyal"],
-    2: ["hibernating", "hibernating", "at_risk", "cant_lose", "cant_lose"],
-    1: ["hibernating", "hibernating", "at_risk", "cant_lose", "cant_lose"],
+    5: ["potential_loyalists", "potential_loyalists", "potential_loyalists", "champions", "champions"],
+    4: ["potential_loyalists", "potential_loyalists", "potential_loyalists", "champions", "champions"],
+    3: ["at_risk", "at_risk", "needs_attention", "loyal", "loyal"],
+    2: ["at_risk", "at_risk", "at_risk", "at_risk", "at_risk"],
+    1: ["at_risk", "at_risk", "at_risk", "at_risk", "at_risk"],
 }
+# At Risk priority by the frequency-and-value score
+PRIORITIES = {"high": ("High value", "Personal call from distributor or ASM this week."),
+              "medium": ("Medium value", "Win-back offer; ask why they stopped."),
+              "low": ("Low value", "Automated reorder reminders.")}
+
+
+def priority_for(fm):
+    return "high" if fm >= 4 else "medium" if fm == 3 else "low"
+
+
+def label(row):
+    """Display label of one retailer's row: 'At Risk (high value)' etc.; None row -> Prospect."""
+    seg = row["segment"] if row else "prospect"
+    if row and row.get("priority"):
+        return f"{SEGMENTS[seg][0]} ({PRIORITIES[row['priority']][0].lower()})"
+    return SEGMENTS[seg][0]
 
 
 def add_months(d, k):
@@ -195,6 +213,8 @@ def compute(as_of=None, orders=None, window_months=WINDOW_MONTHS, churn_ratio=CH
                 r["segment"] = "new_customers"
             else:
                 r["segment"] = GRID[r["r_score"]][r["fm"] - 1]
+                if r["segment"] == "at_risk":
+                    r["priority"] = priority_for(r["fm"])
     for r in rows.values():
         r.setdefault("segment", r["lifecycle"])
         if "f" in r:
@@ -222,7 +242,7 @@ def snapshot(as_of):
     """compute(as_of), cached until the data changes (bump_cache_version)."""
     from .cache import cache_version, get_or_compute
 
-    return get_or_compute(f"rfm:v{cache_version()}:{as_of.isoformat()}", lambda: compute(as_of=as_of))
+    return get_or_compute(f"rfm2:v{cache_version()}:{as_of.isoformat()}", lambda: compute(as_of=as_of))
 
 
 def retailer_ids(segment, as_of):
@@ -230,6 +250,10 @@ def retailer_ids(segment, as_of):
     from warehouse.models import Retailer
 
     rows = snapshot(as_of)["rows"]
+    segment = LEGACY.get(segment, segment)
+    if segment.startswith("at_risk_"):  # at_risk_high / _medium / _low - the call list by value
+        p = segment[len("at_risk_"):]
+        return [rid for rid, r in rows.items() if r["segment"] == "at_risk" and r.get("priority") == p]
     if segment == "prospect":
         return Retailer.objects.exclude(id__in=list(rows)).values("id")
     return [rid for rid, r in rows.items() if r["segment"] == segment]
@@ -240,6 +264,10 @@ def describe(row):
     seg = row["segment"] if row else "prospect"
     label, meaning, action = SEGMENTS[seg]
     out = {"segment": seg, "label": label, "meaning": meaning, "action": action}
+    if row and row.get("priority"):
+        p_label, p_action = PRIORITIES[row["priority"]]
+        out.update({"priority": row["priority"], "priority_label": p_label, "action": p_action,
+                    "label": f"{label} ({p_label.lower()})"})
     if row:
         out.update({k: row.get(k) for k in ("lifecycle", "days_since", "expected_gap", "recency_ratio", "orders",
                                             "value", "tenure_months", "f", "m", "r_score", "f_score", "m_score", "fm")})
@@ -264,4 +292,4 @@ def backtest(as_of, months=6):
                               "returned_pct": round(agg[s][1] * 100 / agg[s][0], 1)}
                              for s in SEGMENTS if agg[s][0]]}
 
-    return get_or_compute(f"rfm-bt:v{cache_version()}:{as_of.isoformat()}:{months}", _calc)
+    return get_or_compute(f"rfm2-bt:v{cache_version()}:{as_of.isoformat()}:{months}", _calc)

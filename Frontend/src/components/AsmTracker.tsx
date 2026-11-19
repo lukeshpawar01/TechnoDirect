@@ -142,6 +142,7 @@ function Editor({ open, onClose, initialMonth }: { open: boolean; onClose: () =>
   const shown = rows.filter((r) => !filter || `${r.distributor} ${r.asm} ${r.region}`.toLowerCase().includes(filter.toLowerCase()));
   const asmNames = useMemo(() => [...new Set([...(q.data?.asms ?? []), ...extraAsms.map((a) => a.name), ...rows.map((r) => r.asm.trim()).filter(Boolean)])].sort(), [q.data, rows, extraAsms]);
   const ach = (sales: number, target: number | null) => (target ? (sales / target) * 100 : null);
+  const splitOf = (id: number) => q.data?.rows.find((x) => x.distributor_id === id)?.split ?? [];
 
   return (
     <Modal
@@ -164,12 +165,17 @@ function Editor({ open, onClose, initialMonth }: { open: boolean; onClose: () =>
       footer={
         <>
           <span className="mr-auto text-xs text-muted">
+            {q.data?.managed_by_sheet ? (
+              <span className="font-medium text-warn">
+                {monthLabel(month)} targets come from the live incentive sheet (TD_ASM_Executive_Incentive_Tracker). Change them in the sheet; the dashboard picks it up at the next refresh.{' '}
+              </span>
+            ) : null}
             Targets in ₹ for {monthLabel(month)}. An ASM's target is the sum of its distributors' targets; for an ASM without distributor targets, set it in the ASM panel. Type a new name in ASM to add an ASM.
           </span>
           <button className="btn btn-sm" onClick={onClose} disabled={save.isPending}>
             Cancel
           </button>
-          <button className="btn-primary btn-sm" onClick={() => save.mutate()} disabled={save.isPending || !rows.length || bad}>
+          <button className="btn-primary btn-sm" onClick={() => save.mutate()} disabled={save.isPending || !rows.length || bad || !!q.data?.managed_by_sheet}>
             {save.isPending && <Spinner size={12} />} Save {monthLabel(month)}
           </button>
         </>
@@ -295,7 +301,18 @@ function Editor({ open, onClose, initialMonth }: { open: boolean; onClose: () =>
                             placeholder="–"
                             onChange={(e) => set(r.distributor_id, { target: e.target.value.replace(/[^\d.]/g, '') })}
                             aria-label={`Target for ${r.distributor}`}
+                            disabled={!!q.data?.managed_by_sheet}
                           />
+                          {!!splitOf(r.distributor_id).length && (
+                            <div className="mt-0.5 space-y-px text-right text-[10px] leading-tight text-muted">
+                              {splitOf(r.distributor_id).map((p, i) => (
+                                <div key={i} className="whitespace-nowrap">
+                                  {p.person}
+                                  {p.role === 'executive' ? ' (Exec)' : ''} {inr(p.value, { compact: true })}
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </td>
                         {fc && (
                           <td className="px-2 py-1.5 text-right">

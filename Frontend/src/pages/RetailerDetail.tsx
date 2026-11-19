@@ -122,12 +122,12 @@ export default function RetailerDetail() {
           <div className="mt-4 grid grid-cols-2 gap-4 border-t border-line pt-4 md:grid-cols-4 xl:grid-cols-8">
             <Stat
               label="Silent vs usual gap"
-              value={rf.days_since !== undefined ? `${num(rf.days_since)}d vs ${num(rf.expected_gap ?? 0)}d` : '–'}
-              sub={rf.recency_ratio !== undefined ? `${rf.recency_ratio.toFixed(2)}× their rhythm` : undefined}
+              value={rf.days_since != null ? `${num(rf.days_since)}d vs ${num(rf.expected_gap ?? 0)}d` : '–'}
+              sub={rf.recency_ratio != null ? `${rf.recency_ratio.toFixed(2)}× their rhythm` : undefined}
             />
             <Stat label="R · F · M scores" value={rf.r_score ? `${rf.r_score} · ${rf.f_score} · ${rf.m_score}` : '–'} sub={rf.r_score ? `FM ${rf.fm} (1 low – 5 high)` : titleCase(rf.lifecycle ?? '')} />
-            <Stat label="Orders / month" value={rf.f !== undefined ? rf.f.toFixed(2) : '–'} sub={rf.tenure_months ? `over ${rf.tenure_months.toFixed(1)} months` : undefined} />
-            <Stat label="Value / month" value={rf.m !== undefined ? inr(rf.m) : '–'} sub={rf.window_start ? `since ${date(rf.window_start, 'MMM YY')}` : undefined} />
+            <Stat label="Orders / month" value={rf.f != null ? rf.f.toFixed(2) : '–'} sub={rf.tenure_months ? `over ${rf.tenure_months.toFixed(1)} months` : undefined} />
+            <Stat label="Value / month" value={rf.m != null ? inr(rf.m) : '–'} sub={rf.window_start ? `since ${date(rf.window_start, 'MMM YY')}` : undefined} />
             <div className="col-span-2 md:col-span-4">
               <Stat
                 label={`What to do · as of ${date(rf.as_of)}`}

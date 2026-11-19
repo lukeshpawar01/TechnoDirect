@@ -159,6 +159,8 @@ export interface TargetBlock {
 export interface Overview {
   kpis: Record<KpiKey, KPI>;
   target: TargetBlock | null;
+  /** why no target is shown (a tier / segment filter is on) */
+  target_note?: string | null;
   daily_trend: { date: string; sales: number; orders: number; cum_sales: number; cum_target: number | null }[];
   monthly: { month: string; sales: number; orders: number; aov: number; active_retailers: number; prev_year_sales: number | null }[];
   order_funnel: { status: string; count: number; value: number }[];
@@ -222,6 +224,8 @@ export interface RfmSegment {
   value: number;
   pct_value: number | null;
   scored: boolean;
+  /** At Risk only: the value priority inside it (who to call first); segment = at_risk_high / _medium / _low */
+  priorities?: { priority: 'high' | 'medium' | 'low'; segment: string; label: string; action: string; retailers: number; pct_buyers: number | null; value: number; pct_value: number | null }[];
 }
 export interface RfmData {
   as_of: string | null;
@@ -239,21 +243,23 @@ export interface RfmData {
 export interface RetailerRfm {
   segment: string;
   label: string;
+  priority?: 'high' | 'medium' | 'low';
+  priority_label?: string;
   meaning: string;
   action: string;
   lifecycle?: string;
-  days_since?: number;
-  expected_gap?: number;
-  recency_ratio?: number;
-  orders?: number;
-  value?: number;
-  tenure_months?: number;
-  f?: number;
-  m?: number;
-  r_score?: number;
-  f_score?: number;
-  m_score?: number;
-  fm?: number;
+  days_since?: number | null;
+  expected_gap?: number | null;
+  recency_ratio?: number | null;
+  orders?: number | null;
+  value?: number | null;
+  tenure_months?: number | null;
+  f?: number | null;
+  m?: number | null;
+  r_score?: number | null;
+  f_score?: number | null;
+  m_score?: number | null;
+  fm?: number | null;
   as_of?: string | null;
   window_start?: string | null;
 }
@@ -513,7 +519,14 @@ export interface OrdersSummary {
   } | null;
   split_orders: { split_carts: number; total_carts: number };
   sla_breaches: number;
-  crm: { connected: boolean; open: number; by_type: { type: string; count: number }[] };
+  crm: {
+    connected: boolean;
+    open: number;
+    opened_in_period?: number;
+    closed_in_period?: number;
+    refund_in_period?: number;
+    by_type: { type: string; count: number; open?: number }[];
+  };
   /** paid, non-cancelled orders in the period by payment mode / platform (from the orders themselves) */
   order_payment_modes: { key: string; orders: number; value: number; share: number | null }[];
   order_platforms: { key: string; orders: number; value: number; share: number | null }[];
@@ -851,6 +864,8 @@ export interface AsmTrackerRow {
   achieved_pct: number | null;
   /** TD Target Forecaster suggestion for this month (when a forecast exists) */
   suggested?: number | null;
+  /** who carries the target, person by person (months from the live incentive sheet) */
+  split?: { person: string; role: 'asm' | 'executive'; value: number }[];
 }
 export interface AsmTrackerAsm {
   asm_id: number;
@@ -883,6 +898,8 @@ export interface AsmTrackerData {
   first_month: string;
   asm_summary: AsmTrackerAsm[];
   forecast: AsmTrackerForecast | null;
+  /** this month's targets come from the live incentive sheet - edit them there */
+  managed_by_sheet?: boolean;
   totals: { sales: number; orders: number; target: number | null; remaining: number | null; achieved_pct: number | null };
   regions: string[];
   asms: string[];

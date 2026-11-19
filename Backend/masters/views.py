@@ -551,10 +551,31 @@ class AsmTrackerView(APIView):
                 except InvalidOperation:
                     raise ValidationError({"asm_targets": f"row {i}: target must be a number"}) from None
             asm_targets.append({"asm": str(a.get("asm") or "").strip(), "target": v})
+        from .target_sheet import SHEET_MSG, sheet_managed
+
+        if sheet_managed(month):
+            raise ValidationError({"month": SHEET_MSG.format(m=month.strftime("%B %Y"))})
         result = apply_rows(rows, month, f"edited on screen by {request.user.email}", asm_targets=asm_targets)
         log_action(request, "update", None, object_type="asm_tracker", object_id=month.isoformat()[:7],
                    after={"rows": len(rows), "targets": result.get("targets")})
         return Response({"saved": len(rows), "result": result})
+
+
+class ExecutivePerformanceView(APIView):
+    """GET ?month=YYYY-MM -> executives' targets (incentive sheet) vs their distributors' sales."""
+
+    def get_permissions(self):
+        return [IsAuthenticated(), HasPerm("view_territory")()]
+
+    def get(self, request):
+        from .asm_tracker import parse_month
+        from .target_sheet import executive_performance
+
+        try:
+            month = parse_month(request.query_params.get("month"))
+        except ValueError as e:
+            raise ValidationError({"month": str(e)}) from None
+        return Response(executive_performance(month, request.user))
 
 
 class AsmTrackerUploadView(APIView):
@@ -576,6 +597,10 @@ class AsmTrackerUploadView(APIView):
             rows, total = rows_from_file(f)
         except ValueError as e:
             raise ValidationError({"file": str(e)}) from None
+        from .target_sheet import SHEET_MSG, sheet_managed
+
+        if sheet_managed(month):
+            raise ValidationError({"file": SHEET_MSG.format(m=month.strftime("%B %Y"))})
         result = apply_rows(rows, month, f"upload {f.name}", total)
         log_action(request, "upload", None, object_type="asm_tracker", object_id=f.name,
                    after={"month": month.isoformat()[:7], "rows": len(rows), "targets": result.get("targets")})

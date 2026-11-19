@@ -521,6 +521,24 @@ class Target(TimeStamped):
         ordering = ["-month", "scope_type", "scope_id"]
 
 
+class TargetSplit(TimeStamped):
+    """Who carries a distributor's monthly sales target, person by person, as in the team's incentive sheet
+    (ASM and executive lines). The distributor target is their sum; this keeps the split for display."""
+    ROLES = [("asm", "ASM"), ("executive", "Executive")]
+    month = models.DateField(help_text="First day of month")
+    distributor = models.ForeignKey("Distributor", on_delete=models.CASCADE, related_name="target_splits")
+    role = models.CharField(max_length=16, choices=ROLES)
+    person = models.CharField(max_length=120, help_text="Name as written in the sheet ('Vacant' = no one)")
+    asm = models.ForeignKey(Asm, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    field_staff = models.ForeignKey(FieldStaff, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    value = models.DecimalField(max_digits=16, decimal_places=2)
+    source = models.CharField(max_length=64, blank=True)
+
+    class Meta:
+        ordering = ["month", "distributor_id", "role", "-value"]
+        indexes = [models.Index(fields=["month"])]
+
+
 class DataQualityIssue(models.Model):
     SEVERITY = [("high", "High"), ("medium", "Medium"), ("low", "Low")]
     code = models.CharField(max_length=48, db_index=True)

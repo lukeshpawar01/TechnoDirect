@@ -134,14 +134,20 @@ class OrdersSummaryView(AnalyticsView):
         open_t = crm_qs.exclude(status="closed")
         from ingestion.connectors.google_sheets import GoogleSheetsConnector
 
+        lo, hi = day_bounds(p.start, p.end)
+        in_period = crm_qs.filter(opened_at__gte=lo, opened_at__lt=hi)
+        refunds = [t.get("refund_amount") for t in in_period.values_list("raw", flat=True)]
         crm = {
             # CRM cards are shown only once the CRM sheet is connected or tickets exist
             "connected": GoogleSheetsConnector().is_configured() or CrmTicket.objects.exists(),
             "open": open_t.count(),
-            "opened_in_period": crm_qs.filter(opened_at__gte=day_bounds(p.start, p.end)[0],
-                                              opened_at__lt=day_bounds(p.start, p.end)[1]).count(),
-            "by_type": [{"type": r["ticket_type"], "count": r["n"]} for r in
-                        open_t.values("ticket_type").annotate(n=Count("id")).order_by("-n")],
+            "opened_in_period": in_period.count(),
+            "closed_in_period": in_period.filter(status="closed").count(),
+            "refund_in_period": round(sum(float(x) for x in refunds if x), 2),
+            # every issue raised in the period, by type, open and closed (the CRM sheet is mostly closed issues)
+            "by_type": [{"type": r["ticket_type"], "count": r["n"], "open": r["o"]} for r in
+                        in_period.values("ticket_type").annotate(n=Count("id"), o=Count("id", filter=~Q(status="closed")))
+                        .order_by("-n")],
         }
         return {
             "status_counts": status_counts, "ageing": ageing, "tat": tat,
@@ -310,7 +316,7 @@ class _RetailerRows:
                 "id": r.id, "retailer": r.name, "phone": mask_phone(r.phone, can), "city": r.city or None,
                 "state": r.state.name if r.state_id else None,
                 "distributor": r.distributor.name if r.distributor_id else None,
-                "asm": r.asm.name if r.asm_id else None, "rfm_segment": key, "rfm_label": rfm.SEGMENTS[key][0],
+                "asm": r.asm.name if r.asm_id else None, "rfm_segment": key, "rfm_label": rfm.label(seg.get(r.id)),
                 "orders": i["orders"], "value": num(i["value"]),
                 "last_order": timezone.localtime(i["last_order"]).isoformat() if i["last_order"] else None,
             })

@@ -22,8 +22,10 @@ ALL_TIME_FALLBACK = dt.date(2023, 9, 1)
 LIFECYCLE_SEGMENTS = ["new", "retained", "reactivated", "inactive", "one_time", "repeat",
                       "never_ordered", "inactive_30", "inactive_60", "inactive_90"]
 # RFM segments (analytics/rfm.py), as of the end of the selected period
-RFM_SEGMENTS = ["champions", "loyal", "potential_loyalists", "new_customers", "promising", "needs_attention",
-                "about_to_sleep", "cant_lose", "at_risk", "hibernating", "no_orders_in_range", "churned", "prospect"]
+RFM_SEGMENTS = ["champions", "loyal", "potential_loyalists", "new_customers", "needs_attention", "at_risk",
+                "no_orders_in_range", "churned", "prospect", "at_risk_high", "at_risk_medium", "at_risk_low",
+                # merged on 2026-11-19 - still accepted so old links keep working (analytics/rfm.py LEGACY)
+                "promising", "about_to_sleep", "cant_lose", "hibernating"]
 SEGMENTS = LIFECYCLE_SEGMENTS + RFM_SEGMENTS
 
 
@@ -370,7 +372,20 @@ class Filters:
         seg = self.segment_retailers()
         if seg is not None:
             qs = qs.filter(retailer_id__in=seg)
+        tq = self.tier_q("retailer__")  # "Tier" module filter (Executive Overview, Retailers)
+        if tq is not None:
+            qs = qs.filter(tq)
         return qs
+
+    def tier_q(self, prefix=""):
+        """BlueOrigin tier of the retailer (latest sheet), or None when no tier is chosen. "None" = not found in
+        BlueOrigin. prefix "retailer__" for Order querysets, "" for Retailer."""
+        if not self.tiers:
+            return None
+        q = Q(**{f"{prefix}tier__in": [t for t in self.tiers if t != "None"]})
+        if "None" in self.tiers:
+            q |= Q(**{f"{prefix}tier": ""})
+        return q
 
     def has_line_filters(self):
         return bool(self.categories or self.articles or self.cat_l1 or self.cat_l2 or self.cat_l3)

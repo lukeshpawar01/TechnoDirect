@@ -82,6 +82,15 @@ def tracker(month, user):
             "achieved_pct": pct(sales, float(target)) if target else None,
         })
     rows.sort(key=lambda r: (-(r["target"] or 0), -r["sales"], r["distributor"]))
+    # person-by-person split of each distributor's target (months written by the live incentive sheet)
+    from warehouse.models import TargetSplit
+
+    splits = defaultdict(list)
+    for s in TargetSplit.objects.filter(month=month, distributor_id__in=ids):
+        splits[s.distributor_id].append({"person": s.person, "role": s.role, "value": float(s.value)})
+    for r in rows:
+        r["split"] = splits.get(r["distributor_id"], [])
+    from .target_sheet import sheet_managed
 
     # ASM summary: sales credited to the ASM in the month (handover-aware); target = the ASM's target
     asm_sales = {r["asm_id"]: r for r in month_orders.filter(asm__isnull=False).values("asm_id").annotate(
@@ -127,6 +136,8 @@ def tracker(month, user):
     return {
         "month": month.isoformat()[:7], "as_of": end.isoformat(), "first_month": FIRST_MONTH.isoformat()[:7],
         "rows": rows, "asm_summary": summary, "forecast": forecast,
+        # targets of this month come from the live incentive sheet: edit them there, not in the tracker
+        "managed_by_sheet": sheet_managed(month),
         "totals": {"sales": round(total_sales, 2), "orders": sum(r["orders"] for r in rows),
                    "target": float(overall) if overall is not None else None,
                    "remaining": max(float(overall) - total_sales, 0) if overall is not None else None,

@@ -59,6 +59,15 @@ def refresh_all_inline(triggered_by="schedule"):
         log.exception("settlement step failed")
         steps.append({"source": "settlement", "status": "failed", "rows": 0, "run_id": None, "error": str(exc)[:200]})
 
+    # monthly person-level targets (TD_ASM_Executive_Incentive_Tracker): re-applied only when the sheet changed
+    from masters.target_sheet import refresh_if_changed as refresh_targets
+
+    try:
+        steps.append(refresh_targets(triggered_by=triggered_by))
+    except Exception as exc:  # noqa: BLE001
+        log.exception("targets sheet step failed")
+        steps.append({"source": "targets_sheet", "status": "failed", "rows": 0, "run_id": None, "error": str(exc)[:200]})
+
     deriv = SyncRun.objects.create(source="derivations", status="running", triggered_by=triggered_by)
     try:
         deriv.details = run_all_derivations()

@@ -225,7 +225,7 @@ export default function Orders() {
   const crmOpt = useMemo(() => {
     const c = [...(d?.crm?.by_type ?? [])].sort((a, b) => b.count - a.count);
     if (!c.length) return null;
-    return cartesian(t, { x: c.map((x) => x.type), horizontal: true, legend: false, showBarLabels: true, series: [{ name: 'Open tickets', data: c.map((x) => x.count) }] });
+    return cartesian(t, { x: c.map((x) => x.type), horizontal: true, legend: false, showBarLabels: true, series: [{ name: 'Issues raised', data: c.map((x) => x.count) }] });
   }, [d, t]);
 
   return (
@@ -355,12 +355,12 @@ export default function Orders() {
             )}
             {crmOn && (
               <ChartCard
-                title="CRM complaints"
-                subtitle={`${num(d?.crm.open)} open tickets by type`}
+                title="CRM issues"
+                subtitle={`${num(d?.crm.opened_in_period ?? 0)} raised in this period, ${num(d?.crm.open)} still open · refunds ${inr(d?.crm.refund_in_period ?? 0, { compact: true })} · from the B2B Order Tracker CRM sheet`}
                 option={crmOpt}
                 loading={q.isLoading}
-                height={200}
-                table={d ? { columns: ['Type', 'Open'], rows: d.crm.by_type.map((c) => [c.type, num(c.count)]) } : undefined}
+                height={Math.max(200, (d?.crm.by_type.length ?? 4) * 30 + 40)}
+                table={d ? { columns: ['Issue type', 'Raised', 'Still open'], rows: d.crm.by_type.map((c) => [c.type, num(c.count), num(c.open ?? 0)]) } : undefined}
               />
             )}
           </div>

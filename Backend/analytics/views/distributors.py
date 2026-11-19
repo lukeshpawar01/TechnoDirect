@@ -232,7 +232,7 @@ class DistributorDetailView(AnalyticsView):
             key = (seg.get(r["retailer_id"]) or {}).get("segment", "prospect")
             retailers.append({
                 "id": r["retailer_id"], "name": r["retailer__name"], "state": r["retailer__state__name"],
-                "segment": key, "rfm_label": rfm.SEGMENTS[key][0], "sales": num(r["s"]), "orders": r["n"],
+                "segment": key, "rfm_label": rfm.label(seg.get(r["retailer_id"])), "sales": num(r["s"]), "orders": r["n"],
                 "last_order_date": _iso(r["last"]),
                 "days_since_last_order": (f.today - r["last"]).days if r["last"] else None})
         profile = {
@@ -289,6 +289,15 @@ class TerritoryView(AnalyticsView):
     permission_code = "view_territory"
     export_key = "rows"
 
+    # territory levels from widest to narrowest; a filter on a level below the grouping narrows each group
+    LEVELS = ["region", "rsm", "state", "asm", "distributor"]
+
+    @classmethod
+    def narrower_filter(cls, f, group_by):
+        chosen = {"region": f.regions, "rsm": f.rsms, "state": f.states, "asm": f.asms, "distributor": f.distributors}
+        below = cls.LEVELS[cls.LEVELS.index(group_by) + 1:]
+        return bool(f.retailers) or any(chosen[lvl] for lvl in below)
+
     def compute(self, f, request, **kw):
         group_by = request.query_params.get("group_by", "state")
         if group_by not in GROUPS:
@@ -317,11 +326,25 @@ class TerritoryView(AnalyticsView):
         group_ids = set(cur) | set(kyc) | set(dist_counts)
         group_ids.discard(None)
         names = dict(model.objects.filter(id__in=group_ids).values_list("id", "name"))
-        tv = target_values(group_by, list(group_ids), months_between(p.start, p.end), "sales", f.today)
-        targets = defaultdict(float)
-        for (sid, _), v in tv.items():
-            targets[sid] += float(v)
-        tsales = targeted_sales(target_window(base, f), gfield, tv)
+        months = months_between(p.start, p.end)
+        if self.narrower_filter(f, group_by):
+            # a filter finer than the grouping (e.g. one distributor while grouped by region): the group's own target
+            # covers far more than the filtered sales - use the targets of the distributors that match the filter
+            dmap = dict(prep(Distributor.objects.filter(f.dims_q(DISTRIBUTOR_DIMS, retailer_field=None)))
+                        .values_list("id", gfield))
+            tv_d = target_values("distributor", list(dmap), months, "sales", f.today)
+            targets = defaultdict(float)
+            for (did, _), v in tv_d.items():
+                targets[dmap.get(did)] += float(v)
+            tsales = defaultdict(float)
+            for did, v in targeted_sales(target_window(base, f), "distributor_id", tv_d).items():
+                tsales[dmap.get(did)] += v
+        else:
+            tv = target_values(group_by, list(group_ids), months, "sales", f.today)
+            targets = defaultdict(float)
+            for (sid, _), v in tv.items():
+                targets[sid] += float(v)
+            tsales = targeted_sales(target_window(base, f), gfield, tv)
         rows = []
         for gid in group_ids | ({None} if None in cur else set()):
             c, k = cur.get(gid, {}), kyc.get(gid, {})
