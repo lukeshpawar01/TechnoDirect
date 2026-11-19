@@ -34,6 +34,13 @@ from ..metrics import mkey, num, pct
 from ..styles import options as style_options
 from .base import AnalyticsView
 
+# where a run read its data ("via" in SyncRun.details) - shows the dashboard does not depend on files on one PC
+VIA_LABEL = {"google_sheet": "Google Sheets API", "dropbox": "Dropbox API", "supabase": "Supabase",
+             "file": "a local file (one-off)", "folder": "a local folder"}
+
+CHECKED_IN_REFRESH = {"settlement", "distributor_sync", "blueorigin"}
+DEFAULT_VIA = {"supabase": "Supabase (Postgres)", "payu": "PayU API", "channel_konnect": "Channel Konnect API"}
+
 SEVERITY_ORDER = {"high": 0, "medium": 1, "low": 2}
 
 
@@ -67,17 +74,27 @@ class DataHealthView(AnalyticsView):
     def compute(self, f, request, **kw):
         nxt = _iso(next_scheduled())
         sources = []
-        for s in list(CONNECTORS) + ["derivations", REFRESH_SOURCE]:
+        refresh_ok = source_state(REFRESH_SOURCE)[1]
+        # the sheet / file sources run inside "Refresh All" but get their own card, with where they were read from
+        for s in list(CONNECTORS) + ["settlement", "distributor_sync", "blueorigin", "derivations", REFRESH_SOURCE]:
             last_run, last_success = source_state(s)
             status = evaluate_status(last_run, last_success)
             if last_run is not None and last_run.status == "not_configured":
                 status = "not_configured"
+            # a sheet / file source is skipped when unchanged (no run is logged): if the last "Refresh All" succeeded
+            # after it and its own last run did not fail, it was checked and is current
+            if (s in CHECKED_IN_REFRESH and status == "stale" and last_run is not None and last_run.status == "success"
+                    and refresh_ok is not None and refresh_ok.finished_at and last_run.finished_at
+                    and refresh_ok.finished_at >= last_run.finished_at):
+                status = evaluate_status(refresh_ok, refresh_ok)
             sources.append({
                 "source": s, "status": status,
                 "last_run_at": _iso(last_run.finished_at if last_run else None),
                 "last_success_at": _iso(last_success.finished_at if last_success else None),
                 "last_error": (last_run.error[:500] if last_run and last_run.error else None),
                 "rows_last_run": last_run.rows if last_run else 0,
+                "via": (VIA_LABEL.get(((last_success.details or {}).get("via") or "").split(":")[0])
+                        or DEFAULT_VIA.get(s)) if last_success else None,
                 "next_run_at": nxt,
             })
         issues = []

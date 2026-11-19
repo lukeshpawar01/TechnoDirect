@@ -15,7 +15,10 @@ const SOURCE_LABEL: Record<string, string> = {
   supabase: 'TD orders & retailers (Supabase)',
   payu: 'PayU payments',
   sheets_crm: 'CRM tracker (Google Sheets)',
-  google_sheets: 'Google Sheets',
+  google_sheets: 'CRM complaints (Google Sheet, not used)',
+  settlement: 'Distributor settlement (Tracker sheet)',
+  distributor_sync: 'Stock sync (TechnoD Distributors sheet)',
+  blueorigin: 'BlueOrigin sheets',
   channel_konnect: 'Channel Konnect stock',
   clevertap: 'CleverTap events',
 };
@@ -89,6 +92,7 @@ export default function DataHealth() {
                 </div>
                 <dl className="mt-2 space-y-1 text-xs">
                   <div className="flex justify-between"><dt className="text-muted">Last success</dt><dd title={dateTime(s.last_success_at)}>{relTime(s.last_success_at)}</dd></div>
+                  {s.via && <div className="flex justify-between"><dt className="text-muted">Comes from</dt><dd>{s.via}</dd></div>}
                   <div className="flex justify-between"><dt className="text-muted">Rows last run</dt><dd>{num(s.rows_last_run)}</dd></div>
                   <div className="flex justify-between"><dt className="text-muted">Next run</dt><dd>{dateTime(s.next_run_at)}</dd></div>
                 </dl>

@@ -377,6 +377,25 @@ class EditStoreTests(TestCase):
         self.assertEqual(Target.objects.get().value, Decimal("1500000"))
         self.assertEqual(AuditLog.objects.get().user, u)
 
+    def test_empty_server_never_wipes_the_backup(self):
+        from accounts.models import AuditLog, User
+        from ingestion import edit_store
+        from warehouse.models import Pincode
+
+        store = FakeState()
+        for i in range(6):
+            Pincode.objects.create(pincode=f"56010{i}")
+        edit_store.push(store)
+        backed_up = {k: len(v) for k, v in store.tables.items()}
+        Pincode.objects.all().delete()  # a whole table empty locally: the Supabase copy is kept
+        res = edit_store.push(store)
+        self.assertIn("mappings.pincodes", res["errors"])
+        self.assertEqual(len(store.tables["mappings.pincodes"]), backed_up["mappings.pincodes"])
+        AuditLog.objects.all().delete()
+        User.objects.all().delete()  # a new server before its restore: nothing is pushed at all
+        self.assertEqual(edit_store.push(store)["skipped"], "empty local database")
+        self.assertEqual(len(store.tables["admin.users"]), 1)
+
     def test_api_change_triggers_a_backup(self):
         from unittest import mock
 

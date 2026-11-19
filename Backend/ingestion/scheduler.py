@@ -125,6 +125,12 @@ def _loop():
         connections.close_all()
     while True:
         try:
+            restore_edits_if_new()  # retried every minute until a new server has its edits back
+        except Exception:  # noqa: BLE001
+            log.exception("restoring the dashboard edits from Supabase failed - will retry")
+        finally:
+            connections.close_all()
+        try:
             tick()
         except Exception:  # noqa: BLE001 - never let the thread die; try again next minute
             log.exception("auto refresh check failed")

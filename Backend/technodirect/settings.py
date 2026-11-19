@@ -33,6 +33,10 @@ if not SECRET_KEY:
         raise RuntimeError("DJANGO_SECRET_KEY must be set when DEBUG is False")
 
 ALLOWED_HOSTS = env_list("ALLOWED_HOSTS", ["localhost", "127.0.0.1"])
+# Render sets its public hostname (xxx.onrender.com) - accept it without editing ALLOWED_HOSTS by hand
+RENDER_EXTERNAL_HOSTNAME = env_str("RENDER_EXTERNAL_HOSTNAME")
+if RENDER_EXTERNAL_HOSTNAME and RENDER_EXTERNAL_HOSTNAME not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append(RENDER_EXTERNAL_HOSTNAME)
 TIME_ZONE = env_str("TIME_ZONE", "Asia/Kolkata")
 USE_TZ = True
 USE_I18N = False
@@ -158,6 +162,8 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 # FRONTEND_DIST = Frontend/dist built with VITE_API_BASE_URL=/api. WhiteNoise serves its files; unknown paths fall
 # back to index.html (technodirect/urls.py) so links like /settlements work on reload.
 FRONTEND_DIST = env_str("FRONTEND_DIST")
+if FRONTEND_DIST and not Path(FRONTEND_DIST).is_absolute():
+    FRONTEND_DIST = str((BASE_DIR / FRONTEND_DIST).resolve())  # e.g. ../Frontend/dist on Render
 if FRONTEND_DIST and Path(FRONTEND_DIST).is_dir():
     MIDDLEWARE.insert(MIDDLEWARE.index("django.middleware.security.SecurityMiddleware") + 1,
                       "whitenoise.middleware.WhiteNoiseMiddleware")
@@ -235,6 +241,8 @@ CORS_ALLOWED_ORIGINS = env_list("CORS_ALLOWED_ORIGINS", ["http://localhost:5173"
 # Local development: Vite moves to 5174, 5175... when 5173 is busy, so allow any localhost port.
 CORS_ALLOWED_ORIGIN_REGEXES = [r"^http://(localhost|127\.0\.0\.1):\d+$"] if DEBUG else []
 CSRF_TRUSTED_ORIGINS = env_list("CSRF_TRUSTED_ORIGINS", [])
+if RENDER_EXTERNAL_HOSTNAME:
+    CSRF_TRUSTED_ORIGINS.append(f"https://{RENDER_EXTERNAL_HOSTNAME}")
 CORS_EXPOSE_HEADERS = ["Content-Disposition"]
 
 # --- Celery ------------------------------------------------------------------

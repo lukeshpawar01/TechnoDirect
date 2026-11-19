@@ -199,6 +199,10 @@ class SupabaseState:
 
 def push(store=None):
     """Send what changed locally. Returns {"sent": n, "deleted": n, "tables": {schema.table: n}}."""
+    if local_is_empty():
+        # a new server whose restore has not happened yet: pushing would wipe the Supabase copy
+        log.warning("edits backup skipped: this database has no users yet (restore from Supabase first)")
+        return {"sent": 0, "deleted": 0, "tables": {}, "errors": {}, "skipped": "empty local database"}
     store = store or SupabaseState()
     sent = deleted = 0
     per = {}
@@ -210,6 +214,10 @@ def push(store=None):
             remote = store.hashes(spec)
             send = [(vals, h) for pk, (vals, h) in local.items() if remote.get(pk) != h]
             gone = [pk for pk in remote if pk not in local]
+            if len(remote) >= 5 and not local:
+                # never empty a whole Supabase table from an empty local one (a half-restored server)
+                errors[name] = f"local table is empty - kept the {len(remote)} rows in Supabase"
+                continue
             if send:
                 store.upsert(spec, send)
             if gone:
