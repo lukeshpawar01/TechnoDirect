@@ -2,7 +2,7 @@ from django.urls import path
 
 from .views.blueorigin import BoHierarchyView, BoPotentialView, BoRetailerListView, BoSummaryView
 from .views.distributors import (DistributorDetailView, DistributorInsightsView, DistributorNetworkView,
-                                 DistributorsView, TerritoryView)
+                                 DistributorsView, TerritoryRetailersView, TerritoryView)
 from .views.growth import GrowthView
 from .views.funnel import FunnelView, RetailerDetailView, RetailerListView, RfmView, SegmentTrendView
 from .views.loyalty import LoyaltyView
@@ -38,6 +38,7 @@ urlpatterns = [
     path("distributors/network/", DistributorNetworkView.as_view()),
     path("distributors/<int:pk>/", DistributorDetailView.as_view()),
     path("territory/", TerritoryView.as_view()),
+    path("territory/retailers/", TerritoryRetailersView.as_view()),
     path("orders/summary/", OrdersSummaryView.as_view()),
     path("orders/flow/", FulfilmentFlowView.as_view()),
     path("orders/", OrderListView.as_view()),

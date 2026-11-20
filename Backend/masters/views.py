@@ -785,3 +785,44 @@ class ManualMappingsView(APIView):
         mm.remove(e, undo=bool(request.data.get("undo", True)), reason=f"removed by {request.user.email}")
         log_action(request, "delete", e, before=before, after=mm.as_dict(e))
         return Response(mm.as_dict(e))
+
+
+class IncentiveTrackerView(APIView):
+    """GET ?month=YYYY-MM -> ASM & executive incentive tracker (masters/incentives.py)."""
+
+    def get_permissions(self):
+        return [IsAuthenticated(), HasPerm("view_territory")()]
+
+    def get(self, request):
+        from .asm_tracker import parse_month
+        from .incentives import tracker
+
+        try:
+            month = parse_month(request.query_params.get("month"))
+        except ValueError as e:
+            raise ValidationError({"month": str(e)}) from None
+        return Response(tracker(month, request.user))
+
+
+class IncentiveRetailersView(APIView):
+    """GET ?month=YYYY-MM&kpi=new|gps|kyc&tier=Gold,None&distributor=<ids>&asm=<id> -> the retailers behind the counts."""
+
+    def get_permissions(self):
+        return [IsAuthenticated(), HasPerm("view_territory")()]
+
+    def get(self, request):
+        from .asm_tracker import parse_month
+        from .incentives import retailer_list
+
+        p = request.query_params
+        try:
+            month = parse_month(p.get("month"))
+        except ValueError as e:
+            raise ValidationError({"month": str(e)}) from None
+        tiers = [t.strip().title() if t.strip().lower() != "none" else "None" for t in (p.get("tier") or "").split(",") if t.strip()]
+        dist = [int(x) for x in (p.get("distributor") or "").split(",") if x.strip().isdigit()]
+        asm = p.get("asm")
+        rows = retailer_list(month, request.user, kpi=p.get("kpi") or None, tiers=tiers or None,
+                             distributor_ids=dist or None, asm_id=int(asm) if asm and asm.isdigit() else None,
+                             can_see_phone=request.user.has_code("view_pii"))
+        return Response({"month": month.isoformat()[:7], "rows": rows})

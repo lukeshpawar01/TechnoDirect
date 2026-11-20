@@ -532,6 +532,11 @@ class TargetSplit(TimeStamped):
     asm = models.ForeignKey(Asm, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
     field_staff = models.ForeignKey(FieldStaff, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
     value = models.DecimalField(max_digits=16, decimal_places=2)
+    # the sheet's other KPI targets (masters/incentives.py); empty = no target for that KPI
+    new_retailer_target = models.PositiveIntegerField(null=True, blank=True)
+    bo_gps_target = models.PositiveIntegerField(null=True, blank=True, help_text="New BO Gold/Platinum/Silver retailers")
+    kyc_target = models.PositiveIntegerField(null=True, blank=True, help_text="KYC customers converted")
+    base_incentive = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     source = models.CharField(max_length=64, blank=True)
 
     class Meta:

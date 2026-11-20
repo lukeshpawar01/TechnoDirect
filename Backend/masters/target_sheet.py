@@ -74,7 +74,10 @@ def parse(values, today):
         return None
 
     ci = {"month": col("month"), "region": col("region"), "state": col("state"), "distributor": col("distributor"),
-          "role": col("role"), "person": col("employee"), "target": col("td target")}
+          "role": col("role"), "person": col("employee"), "target": col("td target"),
+          # incentive KPIs (optional columns)
+          "nr": col("new retailer target"), "gps": col("bo g/p/s target", "bo gps target"),
+          "kyc": col("kyc conversion target"), "base": col("base incentive")}
     missing = [k for k in ("month", "distributor", "role", "person", "target") if ci[k] is None]
     if missing:
         raise TargetSheetError(f"Missing column(s): {', '.join(missing)}")
@@ -94,8 +97,15 @@ def parse(values, today):
             raise TargetSheetError(f"Month '{cell['month']}' not understood (row for {cell['person']})")
         rows.append({"month": m, "region": cell["region"], "state": cell["state"], "distributor": cell["distributor"],
                      "role": "executive" if cell["role"].lower().startswith("exec") else "asm",
-                     "person": cell["person"], "target": t})
+                     "person": cell["person"], "target": t, "nr": count(cell["nr"]), "gps": count(cell["gps"]),
+                     "kyc": count(cell["kyc"]), "base": money(cell["base"]) or None})
     return rows
+
+
+def count(raw):
+    """A KPI target cell -> int, or None when blank (no target for that KPI)."""
+    s = re.sub(r"[^\d]", "", str(raw or ""))
+    return int(s) if s else None
 
 
 def plan(rows):
@@ -176,7 +186,9 @@ def apply(planned, label="Google Sheet: Monthly Tracker"):
             TargetSplit.objects.filter(month=month).delete()
             TargetSplit.objects.bulk_create([
                 TargetSplit(month=month, distributor=r["dist"], role=r["role"], person=r["person"][:120],
-                            asm=r["asm"], field_staff=r["staff"], value=r["target"], source=label[:64])
+                            asm=r["asm"], field_staff=r["staff"], value=r["target"], source=label[:64],
+                            new_retailer_target=r.get("nr"), bo_gps_target=r.get("gps"), kyc_target=r.get("kyc"),
+                            base_incentive=r.get("base"))
                 for r in p["rows"]])
             report[month.isoformat()[:7]] = {
                 "total": float(p["total"]), "distributors": len(p["distributors"]), "asms": len(p["asms"]),

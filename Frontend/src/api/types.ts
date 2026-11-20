@@ -456,6 +456,9 @@ export interface TerritoryRow {
   orders: number;
   active_retailers: number;
   new_retailers: number;
+  /** BlueOrigin retailers converted to TD in the period (by their BO territory) / the Gold, Platinum, Silver ones */
+  bo_conversions: number;
+  bo_gps: number;
   kyc_base: number;
   adoption_pct: number;
   distributors: number;

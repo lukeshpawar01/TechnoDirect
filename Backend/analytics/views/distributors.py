@@ -330,7 +330,10 @@ class TerritoryView(AnalyticsView):
         dist_counts = dict(prep(Distributor.objects.filter(f.dims_q(DISTRIBUTOR_DIMS, retailer_field=None),
                                                            is_active=True, bo_only=False))
                            .values(gfield).annotate(n=Count("id")).values_list(gfield, "n"))
-        group_ids = set(cur) | set(kyc) | set(dist_counts)
+        from ..conversions import counts as conversion_counts
+
+        conv = conversion_counts(f, group_by)  # BlueOrigin retailers converted to TD, by their BlueOrigin territory
+        group_ids = set(cur) | set(kyc) | set(dist_counts) | {g for g, c in conv.items() if c["bo"]}
         group_ids.discard(None)
         names = dict(model.objects.filter(id__in=group_ids).values_list("id", "name"))
         months = months_between(p.start, p.end)
@@ -353,8 +356,8 @@ class TerritoryView(AnalyticsView):
                 targets[sid] += float(v)
             tsales = targeted_sales(target_window(base, f), gfield, tv)
         rows = []
-        for gid in group_ids | ({None} if None in cur else set()):
-            c, k = cur.get(gid, {}), kyc.get(gid, {})
+        for gid in group_ids | ({None} if None in cur or conv.get(None, {}).get("bo") else set()):
+            c, k, cv = cur.get(gid, {}), kyc.get(gid, {}), conv.get(gid) or {}
             sales = float(c.get("sales") or 0)
             t = targets.get(gid)
             rows.append({
@@ -362,7 +365,8 @@ class TerritoryView(AnalyticsView):
                 "target": num(t) if t else None,
                 "achievement_pct": share(tsales.get(gid, 0.0), t) if t else None,
                 "orders": c.get("orders", 0), "active_retailers": c.get("retailers", 0),
-                "new_retailers": c.get("new", 0), "kyc_base": k.get("kyc", 0),
+                "new_retailers": c.get("new", 0), "bo_conversions": cv.get("bo", 0), "bo_gps": cv.get("gps", 0),
+                "kyc_base": k.get("kyc", 0),
                 "adoption_pct": pct(k.get("ever", 0), k.get("kyc", 0)),
                 "distributors": dist_counts.get(gid, 0),
                 "sales_per_retailer": ratio(sales, c.get("retailers", 0)),
@@ -584,3 +588,30 @@ class DistributorNetworkView(AnalyticsView):
                         "selling": sum(r["selling"] for r in rows)},
             "states": rows,
         }
+
+
+
+class TerritoryRetailersView(AnalyticsView):
+    """The retailers behind a scorecard number: ?group_by=asm&id=<id|none>&kind=new|bo|gps + the page filters."""
+
+    permission_code = "view_territory"
+    export_key = "rows"
+    pii_sensitive = True  # phone numbers are masked unless the user may see them
+
+    def cache_extra(self, request, **kwargs):
+        p = request.query_params
+        return f"{super().cache_extra(request, **kwargs)}|{p.get('id', '')}|{p.get('kind', '')}"
+
+    def compute(self, f, request, **kw):
+        from ..conversions import retailers
+
+        p = request.query_params
+        group_by = p.get("group_by", "state")
+        if group_by not in GROUPS:
+            raise ValidationError({"group_by": "must be region, rsm, state, asm or distributor"})
+        kind = p.get("kind", "new")
+        if kind not in ("new", "bo", "gps"):
+            raise ValidationError({"kind": "must be new, bo or gps"})
+        raw = (p.get("id") or "").strip()
+        gid = None if raw in ("", "none", "null") else int(raw) if raw.isdigit() else None
+        return {"rows": retailers(f, group_by, gid, kind, can_see_phone=request.user.has_code("view_pii"))}
