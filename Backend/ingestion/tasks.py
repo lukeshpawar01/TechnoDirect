@@ -68,6 +68,14 @@ def refresh_all_inline(triggered_by="schedule"):
         log.exception("targets sheet step failed")
         steps.append({"source": "targets_sheet", "status": "failed", "rows": 0, "run_id": None, "error": str(exc)[:200]})
 
+    # mappings given by hand: closed when the incentive sheet now says the same, flagged when it disagrees
+    try:
+        from masters.manual_mappings import check as check_manual
+
+        check_manual()
+    except Exception:  # noqa: BLE001 - a bookkeeping step never fails the refresh
+        log.exception("manual mappings check failed")
+
     deriv = SyncRun.objects.create(source="derivations", status="running", triggered_by=triggered_by)
     try:
         deriv.details = run_all_derivations()

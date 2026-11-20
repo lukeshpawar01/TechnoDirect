@@ -1,7 +1,5 @@
 """Shared metric helpers used by analytics views."""
 import datetime as dt
-
-from django.utils.timezone import localdate  # India date (TIME_ZONE), not the server clock
 import statistics
 from collections import defaultdict
 from decimal import Decimal
@@ -9,6 +7,7 @@ from decimal import Decimal
 from django.conf import settings
 from django.db.models import Count, F, Q, Sum
 from django.db.models.functions import TruncMonth
+from django.utils.timezone import localdate  # India date (TIME_ZONE), not the server clock
 
 from warehouse.models import Target
 

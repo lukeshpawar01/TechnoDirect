@@ -30,11 +30,10 @@ Checks against the data, per quarter (they never change the P&L, they show where
   loyalty        - loyalty points actually redeemed on the quarter's orders (TD data)
 """
 import datetime as dt
-
-from django.utils.timezone import localdate  # India date (TIME_ZONE), not the server clock
 from decimal import Decimal
 
 from django.db.models import Count, F, Q, Sum
+from django.utils.timezone import localdate  # India date (TIME_ZONE), not the server clock
 
 D0 = Decimal(0)
 HUNDRED = Decimal(100)

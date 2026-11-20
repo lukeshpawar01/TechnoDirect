@@ -114,3 +114,40 @@ class PnlDataCheck(models.Model):
 
     class Meta:
         ordering = ["quarter_start"]
+
+
+class ManualMapping(models.Model):
+    """A mapping the user gave in chat or by hand (no sheet / file / database behind it), kept apart so it can be
+    retired the moment proper data arrives. It is applied to the dashboard like any mapping while it is active.
+
+    status: active    - in use
+            confirmed - proper data now says the same (closed; nothing changed on the dashboard)
+            replaced  - proper data says something else and now drives the dashboard (closed)
+            removed   - taken out by hand; its effect was undone (masters/manual_mappings.remove)
+    """
+
+    KINDS = [("distributor_asm", "Distributor's ASM"), ("asm_handover", "ASM handover (dated)"),
+             ("distributor_alias", "Distributor alias"), ("distributor_merge", "Distributors merged")]
+    STATUSES = [("active", "Active"), ("confirmed", "Confirmed by proper data"),
+                ("replaced", "Replaced by proper data"), ("removed", "Removed")]
+    kind = models.CharField(max_length=32, choices=KINDS)
+    distributor = models.ForeignKey("warehouse.Distributor", null=True, blank=True, on_delete=models.CASCADE,
+                                    related_name="manual_mappings")
+    asm = models.ForeignKey("warehouse.Asm", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    start = models.DateField(null=True, blank=True, help_text="Handover: first day in charge")
+    end = models.DateField(null=True, blank=True, help_text="Handover: last day (empty = still in charge)")
+    value = models.JSONField(default=dict, blank=True, help_text="Kind-specific: alias text, merged name, previous ASM")
+    given_on = models.DateField()
+    said = models.TextField(blank=True, help_text="What the user said / gave")
+    status = models.CharField(max_length=16, choices=STATUSES, default="active", db_index=True)
+    closed_on = models.DateField(null=True, blank=True)
+    closed_reason = models.CharField(max_length=255, blank=True)
+    conflict = models.CharField(max_length=255, blank=True, help_text="Proper data that disagrees (not applied yet)")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["status", "kind", "distributor_id", "start"]
+
+    def __str__(self):
+        return f"{self.get_kind_display()}: {self.distributor} -> {self.asm or self.value}"

@@ -25,14 +25,13 @@ Accuracy is measured as WAPE = sum|suggested - set target| / sum(set target), ag
 "same as this month's target".
 """
 import datetime as dt
-
-from django.utils.timezone import localdate  # India date (TIME_ZONE), not the server clock
 import math
 import statistics
 from collections import defaultdict
 from decimal import Decimal
 
 from django.db import transaction
+from django.utils.timezone import localdate  # India date (TIME_ZONE), not the server clock
 
 MODEL_VERSION = "td-target-forecaster-1"
 PARAMS = {"alpha": 0.5, "phi": 0.5, "anchor": "last"}  # replaced by the backtest's best (stored on each forecast)

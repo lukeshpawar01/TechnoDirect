@@ -1,9 +1,8 @@
 """Side-effects of mapping changes (pincode -> state / ASM / distributor)."""
 from collections import defaultdict
 
-from django.utils.timezone import localdate  # India date (TIME_ZONE), not the server clock
-
 from django.db.models import Q
+from django.utils.timezone import localdate  # India date (TIME_ZONE), not the server clock
 
 from ingestion.upsert import chunked
 from warehouse.models import CrmTicket, LoyaltyEvent, Order, Pincode, Retailer, RetailerMonth

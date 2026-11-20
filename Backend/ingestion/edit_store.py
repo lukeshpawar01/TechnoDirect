@@ -44,6 +44,7 @@ LAYOUT = [
     ("warehouse.Asm", "region_asm_performance", "asms"),
     ("warehouse.Distributor", "distributors", "distributors"),
     ("warehouse.AsmAssignment", "region_asm_performance", "asm_handovers"),
+    ("masters.ManualMapping", "mappings", "manual_mappings"),  # mappings given in chat, until proper data
     ("warehouse.FieldStaff", "region_asm_performance", "field_staff"),
     ("warehouse.Pincode", "mappings", "pincodes"),
     ("warehouse.TrackedDistributor", "region_asm_performance", "tracked_distributors"),

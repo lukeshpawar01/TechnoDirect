@@ -1,7 +1,5 @@
 """Admin masters: CRUD + xlsx template download + xlsx upload with row-level errors (all audited)."""
 import datetime as dt
-
-from django.utils.timezone import localdate  # India date (TIME_ZONE), not the server clock
 import io
 from decimal import Decimal, InvalidOperation
 
@@ -9,6 +7,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import Q
 from django.http import HttpResponse
+from django.utils.timezone import localdate  # India date (TIME_ZONE), not the server clock
 from rest_framework import permissions, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, ValidationError
@@ -757,3 +756,32 @@ class PnlQuarterView(APIView):
         log_action(request, "delete", obj, before=snapshot(obj))
         obj.delete()
         return Response(status=204)
+
+
+class ManualMappingsView(APIView):
+    """GET -> mappings given by hand (chat), active first. POST {id, undo} -> remove one (undo = reverse its effect)."""
+
+    def get_permissions(self):
+        if self.request.method == "POST":
+            return [IsAuthenticated(), HasPerm("manage_targets")()]
+        return [IsAuthenticated(), HasPerm("view_data_health")()]
+
+    def get(self, request):
+        from . import manual_mappings as mm
+        from .models import ManualMapping
+
+        rows = [mm.as_dict(e) for e in ManualMapping.objects.select_related("distributor", "asm")]
+        rows.sort(key=lambda r: (r["status"] != "active", r["kind"], r["distributor"] or ""))
+        return Response({"rows": rows, "active": sum(1 for r in rows if r["status"] == "active")})
+
+    def post(self, request):
+        from . import manual_mappings as mm
+        from .models import ManualMapping
+
+        e = ManualMapping.objects.filter(id=request.data.get("id"), status="active").first()
+        if e is None:
+            raise NotFound("No active manual mapping with that id")
+        before = mm.as_dict(e)
+        mm.remove(e, undo=bool(request.data.get("undo", True)), reason=f"removed by {request.user.email}")
+        log_action(request, "delete", e, before=before, after=mm.as_dict(e))
+        return Response(mm.as_dict(e))

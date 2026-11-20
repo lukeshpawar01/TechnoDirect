@@ -18,8 +18,6 @@ Order Value / No of Orders / Achieved are NOT imported: the dashboard computes a
 """
 import csv
 import datetime as dt
-
-from django.utils.timezone import localdate  # India date (TIME_ZONE), not the server clock
 import re
 from collections import Counter, defaultdict
 from decimal import Decimal, InvalidOperation
@@ -27,11 +25,13 @@ from pathlib import Path
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
+from django.utils.timezone import localdate  # India date (TIME_ZONE), not the server clock
 
 from accounts.models import User
 from analytics.cache import bump_cache_version
 from analytics.derivations import attribute_orders_to_distributor_asm, run_all_derivations
 from ingestion.normalize import nice_name, norm
+from masters.manual_mappings import superseded
 from masters.services import assign_distributor_asm, remap_retailers_for_pincodes
 from warehouse.models import Asm, Distributor, Order, Pincode, Region, State, Target
 
@@ -202,6 +202,9 @@ class Command(BaseCommand):
                 d.refresh_from_db()
             else:
                 d.asm = new_asm
+            if not r.get("_asm_unchanged"):
+                # proper data for this distributor and month: mappings given by hand (chat) for it are closed
+                superseded(d, month, new_asm, f"ASM tracker {filename}")
             if r.get("Region") and not r.get("_region_unchanged"):
                 d.region = regions[r["Region"]]
             d.save(update_fields=["asm", "region", "updated_at"])
