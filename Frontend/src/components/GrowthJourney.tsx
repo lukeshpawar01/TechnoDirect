@@ -17,7 +17,7 @@ import { inr, monthLabel, num, pct, signedPct } from '@/lib/format';
 type Range = '12' | '24' | 'all';
 const GROUP = 'growth-multiples';
 const xl = (r: GrowthMonth) => (r.is_partial ? `${monthLabel(r.month)} · MTD` : monthLabel(r.month));
-const fmtDate = (s: string) => new Date(s).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' });
+const fmtDate = (s: string) => new Date(s).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit', timeZone: 'Asia/Kolkata' });
 
 export function GrowthJourney({ d, loading }: { d: Growth | undefined; loading?: boolean }) {
   const t = useChartTokens();

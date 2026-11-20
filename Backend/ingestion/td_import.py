@@ -55,6 +55,20 @@ LOYALTY_KINDS = {"new customer": "new_customer", "points earned": "earned", "ear
 PLACED_TIME = dt.time(12, 0)
 
 
+def order_time(lines, day):
+    """Earliest line timestamp of an order (sales.timestamp, stored in UTC) when it falls on the order's IST date."""
+    stamps = []
+    for i in lines:
+        raw = (i.get("timestamp") or "").replace("Z", "")
+        if raw:
+            try:
+                stamps.append(parse_dt(raw, UTC))
+            except ValueError:
+                continue
+    real = min(stamps) if stamps else None
+    return real if real and timezone.localtime(real, IST).date() == day else None
+
+
 class TdImporter:
     """Full rebuild-by-upsert of the TD data. Subclasses provide read_rows()."""
 
@@ -388,6 +402,9 @@ class TdImporter:
                 self.warn(f"order {oid}: no order date, skipped")
                 continue
             placed = dt.datetime.combine(day, PLACED_TIME, tzinfo=IST)
+            real = order_time(lines_of.get(oid, []), day)
+            if real:  # the order's real time (sales.timestamp); orders without one keep 12:00 IST on their date
+                placed = real
             raw = (o.get("ts_order_status") or "").strip().lower()
             status = STATUS_MAP.get(raw, "received")
             shipped_at = end_of_day(to_date(o.get("dispatch_date")), placed)

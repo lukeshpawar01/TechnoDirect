@@ -41,6 +41,7 @@ const TOP_KEYS: Record<TopFilter, string[]> = {
   asm: ['asm'],
   distributor: ['distributor'],
   category: ['category'],
+  tier: ['tier'],
 };
 
 /**
@@ -95,6 +96,8 @@ export function FilterBar({ visible = ALL_TOP_FILTERS }: { visible?: TopFilter[]
     return (o?.distributors ?? []).filter((d) => !allowedStates || allowedStates.has(String(d.state_id))).map((d) => ({ value: String(d.id), label: d.name }));
   }, [o, filters.state.join(), stateOpts]); // eslint-disable-line react-hooks/exhaustive-deps
   const catOpts = useMemo(() => (o?.categories ?? []).map((c) => ({ value: c.code, label: c.name })), [o]);
+  // BlueOrigin tier (latest BO quarter); an app retailer can also be missing from BlueOrigin
+  const tierOpts = useMemo(() => [...(o?.tiers ?? []).map((t) => ({ value: t, label: t })), { value: 'None', label: 'Not in BlueOrigin' }], [o]);
 
   const active =
     (show.has('date') && filters.preset !== 'mtd') ||
@@ -103,7 +106,8 @@ export function FilterBar({ visible = ALL_TOP_FILTERS }: { visible?: TopFilter[]
     (show.has('state') && filters.state.length > 0) ||
     (show.has('asm') && filters.asm.length > 0) ||
     (show.has('distributor') && filters.distributor.length > 0) ||
-    (show.has('category') && filters.category.length > 0);
+    (show.has('category') && filters.category.length > 0) ||
+    (show.has('tier') && filters.tier.length > 0);
 
   return (
     <div className="flex flex-wrap items-center gap-2" aria-label="Global filters">
@@ -162,6 +166,7 @@ export function FilterBar({ visible = ALL_TOP_FILTERS }: { visible?: TopFilter[]
       {show.has('asm') && <MultiSelect label="ASM" options={asmOpts} value={filters.asm} onChange={(v) => update({ asm: v })} disabled={opts.isLoading} width="w-36" />}
       {show.has('distributor') && <MultiSelect label="Distributor" options={distOpts} value={filters.distributor} onChange={(v) => update({ distributor: v })} disabled={opts.isLoading} width="w-44" />}
       {show.has('category') && <MultiSelect label="Category" options={catOpts} value={filters.category} onChange={(v) => update({ category: v, cat_l2: undefined, cat_l3: undefined })} disabled={opts.isLoading} width="w-40" />}
+      {show.has('tier') && <MultiSelect label="BO Tier" options={tierOpts} value={filters.tier} onChange={(v) => update({ tier: v })} disabled={opts.isLoading} width="w-36" />}
       {active && (
         <button
           className="inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-xs text-ink2 hover:bg-sunken hover:text-ink"

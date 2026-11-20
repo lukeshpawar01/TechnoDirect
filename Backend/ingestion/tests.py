@@ -20,8 +20,10 @@ class SupabaseTablesTests(SimpleTestCase):
             ("sales", TD_SAMPLE["Sales_Data.csv"]),
             ("inventory", TD_SAMPLE["Inventory_Data.csv"]),
             ("loyalty", TD_SAMPLE["Loyality_Data.csv"]))}
+        # Supabase-only columns the CSV export does not have (sales.timestamp = the order's real time)
+        extra = {"sales": ("timestamp",)}
         for kind, cols in heads.items():
-            self.assertEqual(Q.TABLES[kind][1], cols, kind)
+            self.assertEqual([c for c in Q.TABLES[kind][1] if c not in extra.get(kind, ())], cols, kind)
 
     def test_grant_sql(self):
         from ingestion.management.commands.supabase_check import grant_sql
@@ -425,3 +427,20 @@ class EditStoreLayoutTests(SimpleTestCase):
         sql = edit_store.setup_sql()
         self.assertIn("grant usage, create on schema region_asm_performance to td_dashboard_rw;", sql)
         self.assertNotIn("public", sql.split("--")[-1].split("drop")[0])  # never granted on the TD tables
+
+
+class OrderTimeTests(SimpleTestCase):
+    """An order's time comes from sales.timestamp (UTC) and is kept only when it falls on the order's IST date."""
+
+    def test_order_time(self):
+        import datetime as dt
+
+        from django.utils import timezone
+
+        from ingestion.td_import import order_time
+
+        lines = [{"timestamp": "2026-11-11T18:53:08.145000Z"}, {"timestamp": "2026-11-11T19:10:00.000000Z"}]
+        t = order_time(lines, dt.date(2026, 11, 12))  # 00:23 IST on the 12th = 18:53 UTC on the 11th
+        self.assertEqual(timezone.localtime(t).strftime("%Y-%m-%d %H:%M"), "2026-11-12 00:23")
+        self.assertIsNone(order_time(lines, dt.date(2026, 11, 11)))  # not on the order's IST date
+        self.assertIsNone(order_time([{"timestamp": ""}], dt.date(2026, 11, 12)))

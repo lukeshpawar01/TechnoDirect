@@ -497,7 +497,7 @@ function EditQuarter({ q, isLatest, onClose, onSaved }: { q: Quarter; isLatest: 
             <button type="submit" className="btn btn-primary" disabled={save.isPending}>{save.isPending ? 'Saving…' : 'Save'}</button>
           </div>
         </div>
-        {q.updated_by && <p className="text-[11px] text-muted">Last changed by {q.updated_by}{q.updated_at ? ` on ${new Date(q.updated_at).toLocaleString('en-IN')}` : ''}</p>}
+        {q.updated_by && <p className="text-[11px] text-muted">Last changed by {q.updated_by}{q.updated_at ? ` on ${new Date(q.updated_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}` : ''}</p>}
       </form>
     </Drawer>
   );

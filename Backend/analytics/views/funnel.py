@@ -29,10 +29,7 @@ def retailer_base(f):
         qs = qs.filter(kyc_status__in=f.kyc_statuses)
     if f.kyc_verified is not None:  # "KYC Verified" module filter (Retailers, Funnel)
         qs = qs.filter(kyc_status="approved") if f.kyc_verified else qs.exclude(kyc_status="approved")
-    tq = f.tier_q()  # BlueOrigin tier (latest sheet); "None" = not found in BlueOrigin
-    if tq is not None:
-        qs = qs.filter(tq)
-    return qs
+    return qs  # BlueOrigin tier: applied by dims_q
 
 
 def mask_phone(phone, can_see):

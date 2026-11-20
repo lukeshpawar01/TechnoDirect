@@ -271,6 +271,12 @@ class Filters:
     def scope(self):
         return get_scope(self.user)
 
+    @property
+    def targets_comparable(self):
+        """Targets are set per territory (region / ASM / distributor), not per BlueOrigin tier or RFM segment: with
+        either filter on, a tier's sales against the whole territory's target would read as a false shortfall."""
+        return not (self.tiers or self.segment)
+
     def has_dim_filters(self):
         return bool(self.regions or self.rsms or self.states or self.asms or self.distributors)
 
@@ -300,6 +306,8 @@ class Filters:
             q &= rsm_q(self.rsms, mapping)
         if self.retailers and retailer_field:
             q &= Q(**{f"{retailer_field}__in": self.retailers})
+        if self.tiers and retailer_field:  # BlueOrigin tier of the retailer: a global filter on every TD page
+            q &= self.tier_q("" if retailer_field == "id" else retailer_field[:-3] + "__")
         if include_scope:
             sq = self.scope.q(mapping)
             if sq is not None:
@@ -372,10 +380,7 @@ class Filters:
         seg = self.segment_retailers()
         if seg is not None:
             qs = qs.filter(retailer_id__in=seg)
-        tq = self.tier_q("retailer__")  # "Tier" module filter (Executive Overview, Retailers)
-        if tq is not None:
-            qs = qs.filter(tq)
-        return qs
+        return qs  # (BlueOrigin tier: applied in dims_q)
 
     def tier_q(self, prefix=""):
         """BlueOrigin tier of the retailer (latest sheet), or None when no tier is chosen. "None" = not found in

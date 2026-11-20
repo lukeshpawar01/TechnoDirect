@@ -27,10 +27,11 @@ export interface SyncInfo {
 /** Calendar days since the stock was last updated (the sheet gives a date, not a time). */
 export function syncDays(at: string | null | undefined): number | null {
   if (!at) return null;
-  const a = new Date(at);
-  const today = new Date();
-  const d0 = Date.UTC(a.getFullYear(), a.getMonth(), a.getDate());
-  const d1 = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
+  // calendar days in India time (a viewer abroad would otherwise be a day off around midnight)
+  const day = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(d);
+  const a = /^\d{4}-\d{2}-\d{2}$/.test(at) ? at : day(new Date(at));
+  const d0 = Date.parse(`${a}T00:00:00Z`);
+  const d1 = Date.parse(`${day(new Date())}T00:00:00Z`);
   return Math.max(0, Math.round((d1 - d0) / 864e5));
 }
 
@@ -46,7 +47,7 @@ export function StalenessBadge({ at, info }: { at: string | null | undefined; in
   const days = syncDays(at) ?? 0;
   const tone = days <= STOCK_SYNC_DAYS ? 'good' : 'warn';
   const label = days === 0 ? 'Today' : days === 1 ? 'Yesterday' : `${days} days ago`;
-  const when = new Date(at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+  const when = new Date(at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' });
   return (
     <Badge tone={tone} icon title={[`Stock updated ${when}`, how].filter(Boolean).join('\n')}>
       {label}

@@ -1,5 +1,7 @@
 import datetime as dt
 
+from django.utils.timezone import localdate  # India date (TIME_ZONE), not the server clock
+
 from rest_framework import serializers
 
 from warehouse.models import Asm, Distributor, Pincode, Region, State, Target
@@ -45,7 +47,7 @@ class TargetSerializer(serializers.ModelSerializer):
         versions of the same scope/month/metric stay listed for the audit trail."""
         import datetime as _dt
 
-        today = _dt.date.today()
+        today = localdate()
         siblings = Target.objects.filter(scope_type=obj.scope_type, scope_id=obj.scope_id, month=obj.month,
                                          metric=obj.metric).values_list("id", "effective_from", "version")
         best = max(siblings, key=lambda s: (s[1] <= today, s[1], s[2], s[0]), default=None)
@@ -71,7 +73,7 @@ class TargetSerializer(serializers.ModelSerializer):
         if "value" in attrs and attrs["value"] < 0:
             raise serializers.ValidationError({"value": "must be >= 0"})
         if not self.instance and not attrs.get("effective_from"):
-            attrs["effective_from"] = dt.date.today()
+            attrs["effective_from"] = localdate()
         return attrs
 
 

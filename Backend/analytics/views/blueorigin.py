@@ -112,3 +112,14 @@ class _Rows:
                 "purchase": num(r.purchase),
             })
         self.data = out if many else (out[0] if out else {})
+
+
+class BoPotentialView(AnalyticsView):
+    """TD actual vs expected by BlueOrigin tier (a TD view: app sales are the point here, so not passed through
+    bo_only). Visible with the Executive Overview permission."""
+
+    permission_code = "view_overview"
+    export_key = "rows"
+
+    def compute(self, f, request, **kw):
+        return bo.potential(f, request.query_params.get("group_by") or "asm")

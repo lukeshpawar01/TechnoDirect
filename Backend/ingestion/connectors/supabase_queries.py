@@ -22,7 +22,7 @@ TABLES = {
                          "province", "updated_at"]),
     "sales": ("sales", ["sales_id", "order_key", "order_id", "order_date", "customer_id", "distributor_id",
                         "ts_order_status", "variant_id", "product_id", "size", "quantity", "pieces", "unit_price",
-                        "line_amount"]),
+                        "line_amount", "timestamp"]),  # timestamp = when the order was placed (UTC)
     # app stock: only the latest snapshot day (the table may keep history)
     "inventory": ("inventory_snapshot", ["inventory_pk", "snapshot_date", "variant_id", "location_id",
                                          "stock_location", "distributor_id", "stock", "reserved", "available"]),

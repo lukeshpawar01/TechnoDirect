@@ -1,5 +1,5 @@
+import { todayIst } from '@/lib/filters';
 import { useRef, useState } from 'react';
-import dayjs from 'dayjs';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useCollection, useFilterOptions } from '@/api/hooks';
 import type { ScopeType, Target, TargetMetric, UploadResult } from '@/api/types';
@@ -62,12 +62,12 @@ function InlineValue({ t, onSave }: { t: Target; onSave: (v: number) => Promise<
 
 export default function Targets() {
   const qc = useQueryClient();
-  const [month, setMonth] = useState(dayjs().format('YYYY-MM'));
+  const [month, setMonth] = useState(todayIst().format('YYYY-MM'));
   const [metric, setMetric] = useState<string>('');
   const targets = useCollection<Target>('/masters/targets/', { month: month || undefined, metric: metric || undefined });
   const opts = useFilterOptions();
   const [adding, setAdding] = useState(false);
-  const [form, setForm] = useState({ month: dayjs().format('YYYY-MM'), scope_type: 'overall' as ScopeType, scope_id: '', metric: 'sales' as TargetMetric, value: '', effective_from: dayjs().format('YYYY-MM-DD'), notes: '' });
+  const [form, setForm] = useState({ month: todayIst().format('YYYY-MM'), scope_type: 'overall' as ScopeType, scope_id: '', metric: 'sales' as TargetMetric, value: '', effective_from: todayIst().format('YYYY-MM-DD'), notes: '' });
   const [upload, setUpload] = useState<UploadResult | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 

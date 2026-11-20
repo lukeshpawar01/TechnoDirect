@@ -1,4 +1,16 @@
 import dayjs from 'dayjs';
+import timezone from 'dayjs/plugin/timezone';
+import utc from 'dayjs/plugin/utc';
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
+
+/** Every time on the dashboard is India time, whatever the viewer's computer is set to. */
+export const IST_TZ = 'Asia/Kolkata';
+/** A timestamp (has a time part) -> shown in IST. A plain date ("2026-11-12" / "2026-11") stays that calendar day. */
+export function ist(d: string): dayjs.Dayjs {
+  return /\dT\d|\d \d{2}:\d{2}/.test(d) ? dayjs(d).tz(IST_TZ) : dayjs(d);
+}
 
 const nf0 = new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 });
 const nf1 = new Intl.NumberFormat('en-IN', { maximumFractionDigits: 1 });
@@ -89,7 +101,7 @@ export function hours(h: number | null | undefined): string {
 
 export function date(d: string | null | undefined, fmt = 'DD MMM YYYY'): string {
   if (!d) return '–';
-  const x = dayjs(d);
+  const x = ist(d);
   return x.isValid() ? x.format(fmt) : String(d);
 }
 

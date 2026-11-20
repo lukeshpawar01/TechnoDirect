@@ -1,5 +1,7 @@
 """Admin masters: CRUD + xlsx template download + xlsx upload with row-level errors (all audited)."""
 import datetime as dt
+
+from django.utils.timezone import localdate  # India date (TIME_ZONE), not the server clock
 import io
 from decimal import Decimal, InvalidOperation
 
@@ -283,7 +285,7 @@ class TargetViewSet(MasterViewSet):
                     raise RowError(f"unknown {st} id {scope_id}")
             else:
                 scope_id = _by_code(SCOPE_MODELS[st], row.get("scope_code"), "scope_code", required=True).id
-        eff = _date(row.get("effective_from"), "effective_from", default=dt.date.today())
+        eff = _date(row.get("effective_from"), "effective_from", default=localdate())
         obj = Target.objects.filter(month=month, scope_type=st, scope_id=scope_id, metric=metric,
                                     effective_from=eff).first()
         email = self.request.user.email
@@ -717,7 +719,7 @@ class PnlQuarterView(APIView):
             raise ValidationError({"quarter_start": "use YYYY-MM-DD"}) from None
         if start is None or not is_quarter_start(start):
             raise ValidationError({"quarter_start": "must be the first day of a quarter (1 Apr / Jul / Oct / Jan)"})
-        if start > dt.date.today():
+        if start > localdate():
             raise ValidationError({"quarter_start": f"{quarter_label(start)} has not started yet"})
         if PnlQuarter.objects.filter(quarter_start=start).exists():
             raise ValidationError({"quarter_start": f"{quarter_label(start)} already exists"})

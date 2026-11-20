@@ -51,7 +51,7 @@ export function TodayStrip() {
       )}
       {asOf && (
         <span className="ml-auto text-2xs text-muted">
-          vs yesterday · as of last refresh {new Date(asOf).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}
+          vs yesterday · as of last refresh {new Date(asOf).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Kolkata' })}
         </span>
       )}
     </div>

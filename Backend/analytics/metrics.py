@@ -1,5 +1,7 @@
 """Shared metric helpers used by analytics views."""
 import datetime as dt
+
+from django.utils.timezone import localdate  # India date (TIME_ZONE), not the server clock
 import statistics
 from collections import defaultdict
 from decimal import Decimal
@@ -145,7 +147,7 @@ def target_values(scope_type, ids, months, metric="sales", as_of=None):
         return {}
     if scope_type == "rsm":
         return rsm_target_values(ids, months, metric, as_of)
-    as_of = as_of or dt.date.today()
+    as_of = as_of or localdate()
     qs = Target.objects.filter(scope_type=scope_type, metric=metric, month__in=months)
     if ids is not None:
         qs = qs.filter(scope_id__in=ids)
@@ -184,7 +186,7 @@ def rsm_target_values(ids, months, metric="sales", as_of=None):
     if direct.exists():
         best = {}
         for t in direct.values("scope_id", "month", "value", "effective_from", "version"):
-            key, rank = (t["scope_id"], t["month"]), (t["effective_from"] <= (as_of or dt.date.today()),
+            key, rank = (t["scope_id"], t["month"]), (t["effective_from"] <= (as_of or localdate()),
                                                       t["effective_from"], t["version"])
             if key not in best or rank > best[key][0]:
                 best[key] = (rank, t["value"])

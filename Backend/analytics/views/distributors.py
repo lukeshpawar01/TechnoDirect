@@ -23,10 +23,17 @@ from ..metrics import (
     ratio,
     share,
     spark_months,
-    target_values,
+    target_values as _target_values,
 )
 from .. import stocksync
 from .base import AnalyticsView
+
+
+def target_values(scope_type, ids, months, metric="sales", as_of=None, f=None):
+    """Targets for the rows, or none when a BlueOrigin tier / RFM segment filter is on (Filters.targets_comparable)."""
+    if f is not None and not f.targets_comparable:
+        return {}
+    return _target_values(scope_type, ids, months, metric, as_of)
 
 
 def _iso(v):
@@ -95,7 +102,7 @@ class DistributorsView(AnalyticsView):
         mapped = dict(Retailer.objects.filter(distributor_id__in=ids).values("distributor_id")
                       .annotate(n=Count("id")).values_list("distributor_id", "n"))
         disp = dispatch_stats(f.orders(start=p.start, end=p.end, qualifying=False), "distributor_id")
-        tv = target_values("distributor", ids, months_between(p.start, p.end), "sales", f.today)
+        tv = target_values("distributor", ids, months_between(p.start, p.end), "sales", f.today, f=f)
         targets = defaultdict(float)
         for (sid, _), v in tv.items():
             targets[sid] += float(v)
@@ -168,7 +175,7 @@ class DistributorDetailView(AnalyticsView):
                               "distributor_id").get(d.id, (None, None))
         disp_c = dispatch_stats(all_q.filter(placed_date__gte=p.cmp_start, placed_date__lte=p.cmp_end),
                                 "distributor_id").get(d.id, (None, None)) if p.cmp_start else (None, None)
-        tv = target_values("distributor", [d.id], months_between(p.start, p.end), "sales", f.today)
+        tv = target_values("distributor", [d.id], months_between(p.start, p.end), "sales", f.today, f=f)
         tgt = float(sum(tv.values())) if tv else None
         t_sales = targeted_sales(target_window(base, f), "distributor_id", tv).get(d.id, 0.0) if tgt else 0.0
         last_sync = stocksync.last_sync([d.id]).get(d.id)
@@ -183,7 +190,7 @@ class DistributorDetailView(AnalyticsView):
                 status="cancelled").values_list("placed_date", "shipped_at"):
             mdisp[pd.replace(day=1)][0] += 1
             mdisp[pd.replace(day=1)][1] += 1 if ship else 0
-        mt = target_values("distributor", [d.id], months, "sales", f.today)
+        mt = target_values("distributor", [d.id], months, "sales", f.today, f=f)
         mnew = {as_date(r["m"]): r["n"] for r in base.filter(placed_date__gte=months[0], placed_date__lte=p.end)
                 .annotate(m=TruncMonth("placed_date"), fm=TruncMonth("retailer__first_order_date"))
                 .filter(m=F("fm")).values("m").annotate(n=Count("retailer_id", distinct=True))}
@@ -332,7 +339,7 @@ class TerritoryView(AnalyticsView):
             # covers far more than the filtered sales - use the targets of the distributors that match the filter
             dmap = dict(prep(Distributor.objects.filter(f.dims_q(DISTRIBUTOR_DIMS, retailer_field=None)))
                         .values_list("id", gfield))
-            tv_d = target_values("distributor", list(dmap), months, "sales", f.today)
+            tv_d = target_values("distributor", list(dmap), months, "sales", f.today, f=f)
             targets = defaultdict(float)
             for (did, _), v in tv_d.items():
                 targets[dmap.get(did)] += float(v)
@@ -340,7 +347,7 @@ class TerritoryView(AnalyticsView):
             for did, v in targeted_sales(target_window(base, f), "distributor_id", tv_d).items():
                 tsales[dmap.get(did)] += v
         else:
-            tv = target_values(group_by, list(group_ids), months, "sales", f.today)
+            tv = target_values(group_by, list(group_ids), months, "sales", f.today, f=f)
             targets = defaultdict(float)
             for (sid, _), v in tv.items():
                 targets[sid] += float(v)
@@ -418,7 +425,7 @@ class TerritoryView(AnalyticsView):
         # an ASM who joined after the period is not part of that period's team
         asms = {k: a for k, a in asms.items() if not a.joined_on or a.joined_on <= p.end}
         keys = set(cur) | {(a.rsm_id, a.id) for a in asms.values()}
-        tv = target_values("asm", [k[1] for k in keys if k[1]], months_between(p.start, p.end), "sales", f.today)
+        tv = target_values("asm", [k[1] for k in keys if k[1]], months_between(p.start, p.end), "sales", f.today, f=f)
         tgt = defaultdict(float)
         for (aid, _), v in tv.items():
             tgt[aid] += float(v)
@@ -429,7 +436,7 @@ class TerritoryView(AnalyticsView):
             "id", "region_id")}
         dm_tgt, dm_months = defaultdict(float), defaultdict(set)
         for (did, m), v in target_values("distributor", list(no_asm), months_between(p.start, p.end), "sales",
-                                         f.today).items():
+                                         f.today, f=f).items():
             if no_asm[did] and not f.asms and (not f.rsms or no_asm[did] in f.rsms):
                 dm_tgt[no_asm[did]] += float(v)
                 dm_months[no_asm[did]].add(m)

@@ -1,6 +1,8 @@
 """Side-effects of mapping changes (pincode -> state / ASM / distributor)."""
 from collections import defaultdict
 
+from django.utils.timezone import localdate  # India date (TIME_ZONE), not the server clock
+
 from django.db.models import Q
 
 from ingestion.upsert import chunked
@@ -97,7 +99,7 @@ def current_asm_id(distributor, today=None, save=False):
 
     from warehouse.models import AsmAssignment
 
-    today = today or dt.date.today()
+    today = today or localdate()
     a = (AsmAssignment.objects.filter(distributor=distributor, start__lte=today)
          .filter(Q_(end__isnull=True) | Q_(end__gte=today)).order_by("-start").first())
     if a is None:

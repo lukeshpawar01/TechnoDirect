@@ -1,3 +1,4 @@
+import { todayIst } from '@/lib/filters';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/auth/AuthContext';
@@ -32,7 +33,7 @@ type Draft = {
   regionOrig?: string;
 };
 
-const monthNow = () => new Date().toISOString().slice(0, 7);
+const monthNow = () => todayIst().format('YYYY-MM'); // India's month (toISOString is UTC: a day late until 5:30 AM IST)
 const FIRST_MONTH = '2025-10'; // Oct 2025 targets were added on request; tracking otherwise starts Jan 2026
 
 function useTracker(month: string, enabled: boolean) {

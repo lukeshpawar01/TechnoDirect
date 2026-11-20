@@ -30,6 +30,8 @@ Checks against the data, per quarter (they never change the P&L, they show where
   loyalty        - loyalty points actually redeemed on the quarter's orders (TD data)
 """
 import datetime as dt
+
+from django.utils.timezone import localdate  # India date (TIME_ZONE), not the server clock
 from decimal import Decimal
 
 from django.db.models import Count, F, Q, Sum
@@ -186,7 +188,7 @@ def _f(v):
 def statement(today=None):
     from masters.models import PnlQuarter
 
-    today = today or dt.date.today()
+    today = today or localdate()
     quarters = list(PnlQuarter.objects.all())
     by_start = {q.quarter_start: q for q in quarters}
     computed = {q.quarter_start: compute(q) for q in quarters}

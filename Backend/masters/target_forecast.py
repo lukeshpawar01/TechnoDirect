@@ -25,6 +25,8 @@ Accuracy is measured as WAPE = sum|suggested - set target| / sum(set target), ag
 "same as this month's target".
 """
 import datetime as dt
+
+from django.utils.timezone import localdate  # India date (TIME_ZONE), not the server clock
 import math
 import statistics
 from collections import defaultdict
@@ -66,7 +68,7 @@ class History:
 
         self.orders = list(Order.objects.filter(is_qualifying=True, distributor__isnull=False).values_list(
             "distributor_id", "asm_id", "placed_date", "gross_value"))
-        last = max((o[2] for o in self.orders), default=dt.date.today())
+        last = max((o[2] for o in self.orders), default=localdate())
         months = [add_months(FIRST_TARGET_MONTH, k) for k in range(0, 36)
                   if add_months(FIRST_TARGET_MONTH, k) <= add_months(last.replace(day=1), 1)]
         self.targets = defaultdict(dict)  # asm_id -> {month: value}
@@ -236,7 +238,7 @@ def run(month=None, as_of=None, h=None, tune=True):
     from warehouse.models import TargetForecast
 
     h = h or History()
-    as_of = as_of or min(dt.date.today(), h.last_order_day)
+    as_of = as_of or min(localdate(), h.last_order_day)
     month = month or next_month_after(as_of)
     params, scores = dict(PARAMS), {}
     if tune:

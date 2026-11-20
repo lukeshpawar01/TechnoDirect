@@ -18,6 +18,8 @@ Order Value / No of Orders / Achieved are NOT imported: the dashboard computes a
 """
 import csv
 import datetime as dt
+
+from django.utils.timezone import localdate  # India date (TIME_ZONE), not the server clock
 import re
 from collections import Counter, defaultdict
 from decimal import Decimal, InvalidOperation
@@ -181,7 +183,7 @@ class Command(BaseCommand):
                 asms[a.lower()] = obj
         for key, obj in asms.items():
             obj.region = regions[asm_regions[key].most_common(1)[0][0]] if asm_regions[key] else obj.region
-            if month >= dt.date.today().replace(day=1):
+            if month >= localdate().replace(day=1):
                 obj.is_active = True  # a past month's sheet must not bring back someone who has left
             obj.save(update_fields=["region", "is_active", "updated_at"])
 
@@ -337,7 +339,7 @@ class Command(BaseCommand):
             return "unchanged"
         if cur:
             Target.objects.create(month=month, scope_type=scope, scope_id=scope_id, metric="sales", value=value,
-                                  effective_from=max(cur.effective_from, dt.date.today()), version=cur.version + 1,
+                                  effective_from=max(cur.effective_from, localdate()), version=cur.version + 1,
                                   notes=notes, updated_by="import_asm_tracker")
             return "revised"
         Target.objects.create(month=month, scope_type=scope, scope_id=scope_id, metric="sales", value=value,

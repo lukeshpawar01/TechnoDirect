@@ -273,3 +273,144 @@ def hierarchy(f, group_by="asm"):
     out.sort(key=lambda x: -x["purchase"])
     return {"available": True, "window": window_meta(w), "group_by": group_by, "rows": out,
             "total": summarize(list(rows.values()))}
+
+
+# --- Expected TD from BlueOrigin ------------------------------------------------------------------------------------
+# BO sheets carry everything a distributor sold to a retailer, app orders included, so a retailer's "TD share" is
+# app sales / BO purchase. The expected TD of a tier is what the tier would bring if every distributor reached the TD
+# share the best quarter of distributors ALREADY reach in that tier (an internal, proven benchmark - not a guess):
+#   cell = one distributor x one tier, eligible when it buys >= BENCH_MIN_MONTHLY a month from >= BENCH_MIN_RETAILERS
+#   benchmark[tier] = 75th percentile of the eligible cells' TD shares (network-wide, the same months as the window)
+#   expected[cell] = max(BO purchase x benchmark, actual TD)  - a cell already above the benchmark keeps its actual
+#   gap = expected - actual (headroom; never negative)
+# Fewer than BENCH_MIN_CELLS eligible cells in a tier -> the benchmark of all cells pooled.
+# Offline-only distributors (Distributor.bo_only: not on the app) can't take TD orders: they are left out of the
+# benchmark and carry no expected TD; their BO purchase is reported apart as "offline_only_bo".
+BENCH_PCTL = 0.75
+BENCH_MIN_MONTHLY = 200_000
+BENCH_MIN_RETAILERS = 5
+BENCH_MIN_CELLS = 4
+
+
+def _percentile(values, p):
+    v = sorted(values)
+    if not v:
+        return None
+    k = (len(v) - 1) * p
+    lo, hi = int(k), min(int(k) + 1, len(v) - 1)
+    return v[lo] + (v[hi] - v[lo]) * (k - lo)
+
+
+def _cells(rows):
+    """{(distributor_id, tier): {"purchase", "app", "retailers"}} - retailers counted when they bought in BO."""
+    cells = defaultdict(lambda: {"purchase": 0.0, "app": 0.0, "retailers": 0})
+    for r in rows:
+        c = cells[(r["distributor_id"], r["tier"])]
+        c["purchase"] += r["purchase"]
+        c["app"] += r["app_sales"]
+        c["retailers"] += 1 if r["purchase"] > 0 else 0
+    return cells
+
+
+def benchmarks(w):
+    """{tier: {"share", "cells", "basis"}} from the whole network (the user's filters and scope do not move it)."""
+    from .filters import system_filters
+
+    cells = _cells(frame(system_filters(), w).values())
+    months = w["months"] or 1
+    off = _offline_only()
+    eligible = defaultdict(list)
+    for (dist, tier), c in cells.items():
+        if dist in off:
+            continue
+        if c["purchase"] / months >= BENCH_MIN_MONTHLY and c["retailers"] >= BENCH_MIN_RETAILERS:
+            eligible[tier].append(min(c["app"] / c["purchase"], 1.0))
+    pooled = _percentile([s for v in eligible.values() for s in v], BENCH_PCTL) or 0.0
+    out = {}
+    for t in TIERS:
+        shares = eligible.get(t, [])
+        if len(shares) >= BENCH_MIN_CELLS:
+            out[t] = {"share": _percentile(shares, BENCH_PCTL), "cells": len(shares), "basis": "tier"}
+        else:
+            out[t] = {"share": pooled, "cells": len(shares), "basis": "pooled"}
+    return out
+
+
+def _offline_only():
+    from warehouse.models import Distributor
+
+    return set(Distributor.objects.filter(bo_only=True).values_list("id", flat=True))
+
+
+def _expected(rows, bench, months, off):
+    """Totals of a set of frame rows: BO purchase, actual TD, expected TD, gap (all per month)."""
+    purchase = actual = expected = offline = 0.0
+    for (dist, tier), c in _cells(rows).items():
+        if dist in off:
+            offline += c["purchase"]
+            e = c["app"]
+        else:
+            e = max(c["purchase"] * bench[tier]["share"], c["app"])
+        purchase, actual, expected = purchase + c["purchase"], actual + c["app"], expected + e
+    m = months or 1
+    retailers = [r for r in rows if r["purchase"] > 0]
+    linked = [r for r in retailers if r["td_retailer_id"]]
+    return {"bo_purchase": round(purchase / m, 2), "td_actual": round(actual / m, 2),
+            "td_expected": round(expected / m, 2), "gap": round((expected - actual) / m, 2),
+            "offline_only_bo": round(offline / m, 2), "td_share_pct": _pct(actual, purchase), "expected_share_pct": _pct(expected, purchase),
+            "bo_retailers": len(retailers), "on_td": len(linked),
+            "td_buyers": sum(1 for r in linked if r["app_sales"] > 0)}
+
+
+def potential(f, group_by="tier"):
+    """TD actual vs expected by BlueOrigin tier, and the same rolled up by tier / region / RSM / ASM / state /
+    distributor (BO's own hierarchy). Monthly averages over the BO window."""
+    from warehouse.models import Asm, Distributor, Order, Region, Rsm, State
+
+    from .rsm import region_rsm_map
+
+    w = window(f)
+    if w is None:
+        return {"available": False}
+    bench = benchmarks(w)
+    off = _offline_only()
+    rows = list(frame(f, w).values())
+    months = w["months"]
+    by_tier = []
+    for t in TIERS:
+        s = _expected([r for r in rows if r["tier"] == t], bench, months, off)
+        s.update(tier=t, benchmark_pct=round(bench[t]["share"] * 100, 1), benchmark_cells=bench[t]["cells"],
+                 benchmark_basis=bench[t]["basis"])
+        by_tier.append(s)
+    # TD retailers not found in BlueOrigin: actual only (no BO purchase to measure against)
+    end_day = add_months(w["end"], 1) - dt.timedelta(days=1)
+    not_bo = f.orders(start=w["start"], end=end_day).filter(retailer__tier="").aggregate(s=Sum("gross_value"))["s"]
+    not_in_bo = round(float(not_bo or 0) / (months or 1), 2) if (not f.tiers or "None" in f.tiers) else 0.0
+
+    group_by = group_by if group_by in GROUPS else "asm"
+    if group_by == "rsm":
+        asm_rsm = dict(Asm.objects.values_list("id", "rsm_id"))
+        reg_rsm = region_rsm_map()
+        key = lambda r: asm_rsm.get(r["asm_id"]) if r["asm_id"] else reg_rsm.get(r["region_id"])  # noqa: E731
+        names = dict(Rsm.objects.values_list("id", "name"))
+    else:
+        field = f"{group_by}_id"
+        key = lambda r: r[field]  # noqa: E731
+        model = {"region": Region, "asm": Asm, "state": State, "distributor": Distributor}[group_by]
+        names = dict(model.objects.values_list("id", "name"))
+    groups = defaultdict(list)
+    for r in rows:
+        groups[key(r)].append(r)
+    out = []
+    for k, rs in groups.items():
+        s = _expected(rs, bench, months, off)
+        if not s["bo_purchase"] and not s["td_actual"]:
+            continue
+        s.update(id=k, name=names.get(k) or ("Unassigned" if group_by in ("asm", "rsm") else "Unknown"),
+                 gap_by_tier={t: _expected([r for r in rs if r["tier"] == t], bench, months, off)["gap"] for t in TIERS})
+        out.append(s)
+    out.sort(key=lambda x: -x["gap"])
+    return {"available": True, "window": window_meta(w), "by_tier": by_tier, "total": _expected(rows, bench, months, off),
+            "not_in_bo_td": not_in_bo, "group_by": group_by, "rows": out,
+            "method": {"percentile": int(BENCH_PCTL * 100), "min_monthly": BENCH_MIN_MONTHLY,
+                       "min_retailers": BENCH_MIN_RETAILERS}}

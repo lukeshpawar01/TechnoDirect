@@ -10,6 +10,7 @@ import { MomTrend } from '@/components/MomTrend';
 import { KpiTile, endsMidMonth } from '@/components/KpiTile';
 import { PageHeader } from '@/components/PageHeader';
 import { TargetBullet } from '@/components/TargetBullet';
+import { TierPotential } from '@/components/TierPotential';
 import { TodayStrip } from '@/components/TodayStrip';
 import { Badge, Card, Delta, EmptyState, ErrorState, Meter, Skeleton } from '@/components/ui';
 import { IconCheck, IconChevron } from '@/components/Icons';
@@ -315,6 +316,8 @@ export default function Overview() {
               )}
             </Card>
           </div>
+
+          <TierPotential />
         </div>
       )}
     </div>
