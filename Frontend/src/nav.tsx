@@ -23,12 +23,9 @@ import {
 } from './components/Icons';
 
 /** Filters of the global top bar. Each page lists the ones its data actually responds to. */
-export type TopFilter = 'date' | 'region' | 'rsm' | 'state' | 'asm' | 'distributor' | 'category' | 'tier';
-// tier = BlueOrigin tier of the retailer: every page whose numbers are built from retailers' orders
-export const ALL_TOP_FILTERS: TopFilter[] = ['date', 'region', 'rsm', 'state', 'asm', 'distributor', 'category', 'tier'];
-const NO_CATEGORY: TopFilter[] = ['date', 'region', 'rsm', 'state', 'asm', 'distributor', 'tier'];
-/** distributor-level pages (settlements): a retailer's tier does not apply */
-const NO_RETAILER: TopFilter[] = ['date', 'region', 'rsm', 'state', 'asm', 'distributor'];
+export type TopFilter = 'date' | 'region' | 'rsm' | 'state' | 'asm' | 'distributor' | 'category';
+export const ALL_TOP_FILTERS: TopFilter[] = ['date', 'region', 'rsm', 'state', 'asm', 'distributor', 'category'];
+const NO_CATEGORY: TopFilter[] = ['date', 'region', 'rsm', 'state', 'asm', 'distributor'];
 
 export interface NavItem {
   to: string;
@@ -47,7 +44,7 @@ export const MAIN_NAV: NavItem[] = [
   { to: '/distributors', label: 'Distributors', icon: <IconTruck />, perms: ['view_distributors'] },
   { to: '/territory', label: 'Region & ASM Performance', icon: <IconMap />, perms: ['view_territory'] },
   { to: '/orders', label: 'Orders & Fulfilment', icon: <IconCart />, perms: ['view_orders'] },
-  { to: '/settlements', label: 'Distributor Settlements', icon: <IconWallet />, perms: ['view_settlements'], filters: NO_RETAILER },
+  { to: '/settlements', label: 'Distributor Settlements', icon: <IconWallet />, perms: ['view_settlements'], filters: NO_CATEGORY },
   // Business Head + admin only (the backend enforces it too); company-level, so no top-bar filters
   { to: '/pnl', label: 'Profit & Loss', icon: <IconRupee />, perms: ['view_pnl'], filters: [] },
   // Category I is in the top bar AND the module row here (same `category` key, so they stay in sync)

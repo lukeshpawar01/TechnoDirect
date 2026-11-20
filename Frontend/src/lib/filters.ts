@@ -38,18 +38,18 @@ export const SEGMENTS = [
 ];
 
 /** Keys of the global filter bar — kept in the URL and carried to every page (and drill-down link). */
-export const GLOBAL_KEYS = ['preset', 'date_from', 'date_to', 'region', 'rsm', 'state', 'asm', 'distributor', 'category', 'tier'] as const;
+export const GLOBAL_KEYS = ['preset', 'date_from', 'date_to', 'region', 'rsm', 'state', 'asm', 'distributor', 'category'] as const;
 /**
  * Module filters — URL params owned by one page's filter row. They are sent to the API with every request
  * from that page but are NOT carried when navigating, so another page never inherits them.
  */
 export const MODULE_KEYS = [
-  'segment', 'order_status', 'payment_status', 'platform', 'payment_mode', 'is_split', 'cat_l1', 'cat_l2', 'cat_l3', 'size', 'article',
+  'segment', 'order_status', 'payment_status', 'platform', 'payment_mode', 'is_split', 'cat_l1', 'cat_l2', 'cat_l3', 'size', 'article', 'tier',
   'kyc_status', 'kyc_verified', 'event_type', 'stock_sync', 'settlement_status', 'pay_status', 'payout_date', 'date_basis',
 ] as const;
 export type ModuleKey = (typeof MODULE_KEYS)[number];
 export type GlobalKey = (typeof GLOBAL_KEYS)[number];
-export const MULTI_KEYS = ['region', 'rsm', 'state', 'asm', 'distributor', 'category', 'tier'] as const;
+export const MULTI_KEYS = ['region', 'rsm', 'state', 'asm', 'distributor', 'category'] as const;
 export type MultiKey = (typeof MULTI_KEYS)[number];
 
 export interface GlobalFilters {
@@ -62,8 +62,6 @@ export interface GlobalFilters {
   asm: string[];
   distributor: string[];
   category: string[];
-  /** BlueOrigin tier of the retailer (Platinum … Untiered, 'None' = not in BlueOrigin) */
-  tier: string[];
   segment?: string;
   payment_status?: string;
 }
@@ -82,7 +80,6 @@ export function parseFilters(sp: URLSearchParams): GlobalFilters {
     asm: split(sp.get('asm')),
     distributor: split(sp.get('distributor')),
     category: split(sp.get('category')),
-    tier: split(sp.get('tier')),
     segment: sp.get('segment') ?? undefined,
     payment_status: sp.get('payment_status') ?? undefined,
   };

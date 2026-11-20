@@ -63,13 +63,19 @@ const STYLE: FieldDef = {
   },
 };
 
+/** BlueOrigin tier from the offline sheets (latest quarter). */
+const TIER: FieldDef = { key: 'tier', label: 'Tier', width: 'w-36', options: (o) => (o?.tiers ?? []).map((t) => ({ value: t, label: t })) };
+/** On the app's retailer pages a retailer can also be absent from BlueOrigin. */
+const TIER_TD: FieldDef = { ...TIER, options: (o, sp) => [...(TIER.options as (o: FilterOptions | undefined, sp: URLSearchParams) => Opt[])(o, sp), { value: 'None', label: 'Not in BlueOrigin' }] };
+
 /** Page-specific filters, keyed by the nav path that owns them. Sent to the API only from that page. */
 const MODULES: Record<string, FieldDef[]> = {
-  '/overview': [SEGMENT],
+  '/overview': [SEGMENT, TIER_TD],
   '/funnel': [KYC_STATUS, KYC_VERIFIED],
   '/retailers': [
     KYC_STATUS,
     KYC_VERIFIED,
+    TIER_TD,
     // segment has its own tabs on the Retailers page
   ],
   '/distributors': [
@@ -94,6 +100,7 @@ const MODULES: Record<string, FieldDef[]> = {
   '/products': [CAT_L1, CAT_L2, CAT_L3, STYLE],
   '/inventory': [CAT_L1, CAT_L2, CAT_L3, STYLE, { key: 'size', label: 'Size', options: (o) => (o?.sizes ?? []).map((s) => ({ value: s, label: s })), width: 'w-32' }],
   '/retention': [SEGMENT],
+  '/blueorigin': [TIER],
   // finance tracker: the period filters the order date, or the payout date when "Date basis" says so
   '/settlements': [
     { key: 'date_basis', label: 'Date basis', single: true, width: 'w-44', options: [{ value: 'order', label: 'Period = order date' }, { value: 'payout', label: 'Period = payout date' }] },
