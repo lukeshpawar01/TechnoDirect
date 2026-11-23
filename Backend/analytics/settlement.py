@@ -34,6 +34,7 @@ STATUS_LABELS = {"settled": "Settled", "not_settled": "Not settled", "pending": 
 PAY_LABELS = {"approved": "Approved", "not_approved": "Not approved", "pending": "Not reviewed", "cancelled": "Cancelled"}
 AGE_BUCKETS = [(0, 7, "0–7 days"), (8, 15, "8–15 days"), (16, 30, "16–30 days"), (31, 10 ** 6, "Over 30 days")]
 FIELDS = ("id", "order_ref", "order_id", "distributor_id", "distributor__name", "order_date", "delivered_date",
+          "dispatch_date",
           "fulfilment", "order_value", "payu_value", "customer_refund", "pg_settlement", "loyalty_points", "payable",
           "payment_status", "settlement_status", "settled_on", "issues", "multi_distributor", "courier_charge",
           "order__split_group", "customer")
@@ -47,14 +48,17 @@ def data_range():
     return DistributorSettlement.objects.aggregate(a=Min("order_date"), b=Max("order_date"), p=Max("settled_on"))
 
 
-def base_qs(f, with_period=True):
-    """Settlement rows in scope, filters and (optionally) the period on the chosen date basis."""
+def base_qs(f, with_period=True, basis=None):
+    """Settlement rows in scope, filters and (optionally) the period on the chosen date basis (`basis` overrides
+    the page's Date basis: "payout" / "order")."""
     from warehouse.models import DistributorSettlement
 
     qs = DistributorSettlement.objects.filter(f.dims_q(SDIMS, retailer_field=None))
     if with_period:
-        col = "settled_on" if f.date_basis == "payout" else "order_date"
-        qs = qs.filter(**{f"{col}__gte": f.period.start, f"{col}__lte": f.period.end})
+        col = "settled_on" if (basis or f.date_basis) == "payout" else "order_date"
+        # a chosen payout batch is shown whole: its orders' order dates may lie before the period
+        if not (f.payout_dates and col == "order_date"):
+            qs = qs.filter(**{f"{col}__gte": f.period.start, f"{col}__lte": f.period.end})
     if f.settle_statuses:
         qs = qs.filter(settlement_status__in=f.settle_statuses)
     if f.pay_statuses:
@@ -149,8 +153,10 @@ def bucket(r, today):
     if r["settlement_status"] == "cancelled" or r["payment_status"] == "cancelled" or r["fulfilment"] == "cancelled":
         return "cancelled", None
     if r["fulfilment"] == "delivered":
-        age = (today - r["delivered_date"]).days if r["delivered_date"] else None
-        return "due", age
+        # finance often marks an order delivered before typing the delivery date: age it from the dispatch date
+        # then (never later than the delivery), so it still ages and can turn overdue
+        since = r["delivered_date"] or r.get("dispatch_date") or r["order_date"]
+        return "due", (today - since).days
     return "not_yet_due", None
 
 
@@ -227,9 +233,12 @@ def summary(f):
                "due": round(c["due"], 2), "not_yet_due": round(c["not_yet_due"], 2)}
               for w, c in sorted(weeks.items())]
 
-    # payout batches (Distributor Settlement Date)
+    # payout batches (Distributor Settlement Date): always WHOLE batches - every order paid on a date in the period,
+    # whatever its order date (with "Period = order date" a batch used to lose the older orders paid in it, e.g. the
+    # 18 Nov 2026 batch showed Rs 1.15 Cr of its Rs 1.18 Cr: six October orders were cut)
+    payout_rows = rows if f.date_basis == "payout" else list(base_qs(f, basis="payout").values(*FIELDS))
     batches = defaultdict(lambda: {"orders": 0, "amount": 0.0, "distributors": set(), "lags": []})
-    for r in rows:
+    for r in payout_rows:
         if r["settlement_status"] == "settled" and r["settled_on"]:
             b = batches[r["settled_on"]]
             b["orders"] += 1

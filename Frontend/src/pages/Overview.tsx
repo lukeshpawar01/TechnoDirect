@@ -9,6 +9,7 @@ import { ChartCard } from '@/components/ChartCard';
 import { MomTrend } from '@/components/MomTrend';
 import { KpiTile, endsMidMonth } from '@/components/KpiTile';
 import { PageHeader } from '@/components/PageHeader';
+import { RunRateButton } from '@/components/RunRate';
 import { TargetBullet } from '@/components/TargetBullet';
 import { TierPotential } from '@/components/TierPotential';
 import { TodayStrip } from '@/components/TodayStrip';
@@ -101,7 +102,7 @@ export default function Overview() {
 
   return (
     <div>
-      <PageHeader title="Executive Overview" meta={meta} />
+      <PageHeader title="Executive Overview" meta={meta} actions={<RunRateButton />} />
       <TodayStrip />
 
       {q.error && !q.data ? (

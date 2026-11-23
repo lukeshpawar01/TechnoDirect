@@ -299,6 +299,38 @@ def retailer_list(month, user=None, kpi=None, tiers=None, distributor_ids=None, 
     return rows
 
 
+def set_achieved(split_id, kpi, value, who):
+    """Type in (value) or clear (None) one row's achieved value for a KPI (td / new / gps / kyc)."""
+    from decimal import Decimal, InvalidOperation
+
+    from django.utils import timezone
+
+    from analytics.cache import bump_cache_version
+    from warehouse.models import TargetSplit
+
+    if kpi not in TARGET_FIELD:
+        raise ValueError("kpi must be td, new, gps or kyc")
+    s = TargetSplit.objects.filter(id=split_id).first()
+    if s is None:
+        raise LookupError("row not found")
+    if value in (None, ""):
+        v = None
+    else:
+        try:
+            v = Decimal(str(value).replace(",", "").replace("₹", "").strip())
+        except InvalidOperation:
+            raise ValueError("enter a number") from None
+        if v < 0:
+            raise ValueError("the value must be 0 or more")
+        v = v.quantize(Decimal("0.01") if kpi == "td" else Decimal("0.1"))
+    before = getattr(s, f"{kpi}_actual_override")
+    setattr(s, f"{kpi}_actual_override", v)
+    s.override_by, s.override_at = who[:254], timezone.now()
+    s.save(update_fields=[f"{kpi}_actual_override", "override_by", "override_at", "updated_at"])
+    bump_cache_version()
+    return s, before, v
+
+
 def sheet_month(month):
     """The month to show: `month` when the incentive sheet has rows for it, else the latest month it has (or None)."""
     from django.db.models import Max
@@ -360,7 +392,9 @@ def sheet_table(month, user=None):
                "state": s.distributor.state.name if s.distributor.state_id else "", "distributor_id": s.distributor_id,
                "distributor": s.distributor.name, "role": "Executive" if s.role == "executive" else "ASM",
                "employee": s.person, "vacant": vacant, "asm_id": s.asm_id if s.role == "asm" else None,
-               "shared_with": [o.person for o in rs if o is not s]}
+               "shared_with": [o.person for o in rs if o is not s],
+               "edited_by": s.override_by or None,
+               "edited_at": s.override_at.isoformat() if s.override_at else None}
         for k, _, w in KPIS:
             t = float(getattr(s, TARGET_FIELD[k]) or 0)
             pool = rs if k == "td" else [o for o in rs if o.person.strip().lower() not in VACANT]
@@ -371,6 +405,11 @@ def sheet_table(month, user=None):
             if k in ("new", "gps") and row["asm_id"] and row["asm_id"] not in asm_given and asm_counts.get(row["asm_id"]):
                 a += asm_counts[row["asm_id"]][k]
                 row[f"{k}_via_bo_asm"] = asm_counts[row["asm_id"]][k]
+            ov = getattr(s, f"{k}_actual_override")
+            if ov is not None:  # typed in on the incentive table: replaces the calculated value
+                row[f"{k}_calculated"] = round(a, 2) if k == "td" else round(a, 1)
+                row[f"{k}_edited"] = True
+                a = float(ov)
             pc = a / t * 100 if t else None
             row[f"{k}_target"] = t if t else None
             row[f"{k}_actual"] = round(a, 2) if k == "td" else round(a, 1)

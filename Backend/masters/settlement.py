@@ -162,6 +162,9 @@ def import_rows(rows):
 
     rows = [r for r in rows if r.get("order id")]
     refs = [r["order id"].lstrip("#") for r in rows]
+    from django.db.models import Max
+
+    app_until = Order.objects.aggregate(m=Max("placed_date"))["m"]  # last order date in the app data
     orders = {}
     for o in Order.objects.filter(display_id__in=refs).select_related("distributor"):
         orders.setdefault(o.display_id, o)
@@ -208,7 +211,9 @@ def import_rows(rows):
         if o and d and o.distributor_id and o.distributor_id != d.id and FALLBACK_DISTRIBUTOR not in o.distributor.name.lower():
             notes.append(f"reassigned: app order is on {o.distributor.name}")
         if o is None:
-            notes.append("order not found in app data")
+            # placed on / after the last day of the app data: it arrives with the next refresh, nothing is wrong
+            notes.append("not in app data yet (newer than the last refresh)" if app_until and order_date >= app_until
+                         else "order not found in app data")
         pg = parse_money(r["customer settlement"]) if r["customer settlement"] else None
         for n in notes:
             issues[re.sub(r": app order is on .*", "", n)] += 1

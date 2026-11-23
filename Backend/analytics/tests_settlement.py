@@ -121,6 +121,19 @@ class SettlementTests(TestCase):
         k = self.c.get(f"/api/settlements/summary/?{p}&distributor={self.w['d2'].id}").json()["data"]["kpis"]
         self.assertEqual(k["orders"], 2)
 
+    def test_payout_batches_are_whole_with_order_date_basis(self):
+        # order 1 was placed 20 days ago and paid 8 days ago: a period of the last 10 days (order date basis) does not
+        # contain its order, but its payout batch is in the period and must show in full
+        t = dt.date.today()
+        q = f"preset=custom&date_from={(t - dt.timedelta(days=10)).isoformat()}&date_to={t.isoformat()}"
+        d = self.c.get(f"/api/settlements/summary/?{q}").json()["data"]
+        self.assertEqual(d["kpis"]["settled"], 0)  # no order of the period is settled ...
+        self.assertEqual([(p["date"], p["amount"]) for p in d["payouts"]],
+                         [((t - dt.timedelta(days=8)).isoformat(), 49000)])  # ... but the batch paid in it is whole
+        # clicking the batch (payout_date filter) lists all its orders, also the one ordered before the period
+        k = self.c.get(f"/api/settlements/summary/?{q}&payout_date={(t - dt.timedelta(days=8)).isoformat()}").json()["data"]["kpis"]
+        self.assertEqual((k["orders"], k["settled"]), (1, 49000))
+
     def test_payout_basis_and_order_list(self):
         paid = (dt.date.today() - dt.timedelta(days=8)).isoformat()
         k = self.c.get(f"/api/settlements/summary/?preset=last_30d&date_basis=payout").json()["data"]["kpis"]

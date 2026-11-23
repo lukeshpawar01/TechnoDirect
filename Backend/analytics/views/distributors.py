@@ -49,7 +49,7 @@ L3M_MIN_BASE = 50_000  # growth on a smaller base is noise
 
 def scoped_distributors(f):
     # offline-only (BlueOrigin) distributors are not on the app: they appear on the BlueOrigin page only
-    return Distributor.objects.filter(f.dims_q(DISTRIBUTOR_DIMS, retailer_field=None), bo_only=False)
+    return Distributor.objects.filter(f.dims_q(DISTRIBUTOR_DIMS, retailer_field=None), bo_only=False, is_internal=False)
 
 
 def dispatch_stats(qs, group_field):
@@ -480,7 +480,7 @@ class TerritoryView(AnalyticsView):
         tsales = targeted_sales(target_window(base, f), "asm_id", tv)
         # ASM-less distributors' own targets belong to the "Distributor-managed" row of their region's RSM
         reg_rsm = region_rsm_map()
-        no_asm = {d: reg_rsm.get(r) for d, r in Distributor.objects.filter(asm__isnull=True).values_list(
+        no_asm = {d: reg_rsm.get(r) for d, r in Distributor.objects.filter(asm__isnull=True, is_internal=False).values_list(
             "id", "region_id")}
         dm_tgt, dm_months = defaultdict(float), defaultdict(set)
         for (did, m), v in target_values("distributor", list(no_asm), months_between(p.start, p.end), "sales",

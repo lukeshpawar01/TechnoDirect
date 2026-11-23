@@ -278,6 +278,27 @@ class AutoRefreshSchedulerTests(TestCase):
             self.assertEqual(scheduler.tick(now + dt.timedelta(minutes=1)), [])  # already ran for 10:00
             self.assertEqual(cc.call_count, 1)
 
+    def test_settlement_sheet_every_30_minutes_between_refreshes(self):
+        from unittest import mock
+
+        from django.test import override_settings
+
+        from ingestion import gsheets, scheduler
+
+        now = self.at(2026, 11, 19, 12, 0)  # no refresh slot due
+        res = {"source": "settlement", "status": "success", "rows": 1, "run_id": 1}
+        with override_settings(TESTING=False, SETTLEMENT_SHEET_URL="https://example.invalid/sheet",
+                               SYNC_TIMES=[(10, 0), (18, 0)]), \
+                mock.patch.object(gsheets, "configured", return_value=True), \
+                mock.patch.object(scheduler, "refresh_due", return_value=None), \
+                mock.patch.object(scheduler, "forecast_due", return_value=None), \
+                mock.patch.object(scheduler, "mis_due", return_value=False), \
+                mock.patch("masters.settlement.refresh_if_changed", return_value=res) as rc:
+            self.assertEqual(scheduler.tick(now), ["settlement-sheet"])
+            self.assertEqual(scheduler.tick(now + dt.timedelta(minutes=10)), [])  # not again within 30 min
+            self.assertEqual(scheduler.tick(now + dt.timedelta(minutes=31)), ["settlement-sheet"])
+            self.assertEqual(rc.call_count, 2)
+
     def test_forecast_due_from_the_27th(self):
         from warehouse.models import TargetForecast
         from ingestion.scheduler import forecast_due

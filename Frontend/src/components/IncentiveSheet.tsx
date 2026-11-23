@@ -4,6 +4,7 @@ import { get } from '@/lib/api';
 import { useAuth } from '@/auth/AuthContext';
 import { IconEdit } from './Icons';
 import { IncentiveSheetEditor } from './IncentiveSheetEditor';
+import { AchievedEdit } from './AchievedEdit';
 import { date, inr, monthLabel, num, pct } from '@/lib/format';
 import { DataTable } from './DataTable';
 import { MultiSelect } from './MultiSelect';
@@ -45,6 +46,15 @@ interface Row {
   gps_payable: number;
   kyc_payable: number;
   payout_pct: number;
+  td_edited?: boolean;
+  new_edited?: boolean;
+  gps_edited?: boolean;
+  kyc_edited?: boolean;
+  td_calculated?: number;
+  new_calculated?: number;
+  gps_calculated?: number;
+  kyc_calculated?: number;
+  edited_by?: string | null;
   eligible: number | null;
   td_amount: number | null;
   new_amount: number | null;
@@ -119,18 +129,34 @@ export function IncentiveSheet({ month, actions }: { month?: string; actions?: R
   const count = (r: Row, k: Exclude<Kpi, 'td'>) => {
     const a = r[`${k}_actual`];
     const via = k === 'new' ? r.new_via_bo_asm : k === 'gps' ? r.gps_via_bo_asm : undefined;
-    if (!a) return <span className="text-muted">0</span>;
-    return (
+    const shownValue = !a ? (
+      <span className="text-muted">0</span>
+    ) : (
       <button
         type="button"
         className="font-medium text-ink underline decoration-dotted underline-offset-4 hover:text-brand"
-        title={`Click to see these retailers${via ? ` · ${via} credited through the BlueOrigin ASM` : ''}`}
+        title={`Click to see the retailers found in the data${via ? ` · ${via} credited through the BlueOrigin ASM` : ''}`}
         onClick={() => setDrill({ row: r, kpi: k })}
       >
         {n1(a)}
       </button>
     );
+    return edit(r, k, shownValue);
   };
+  const edit = (r: Row, k: Kpi, shownValue: ReactNode) => (
+    <AchievedEdit
+      id={r.id}
+      kpi={k}
+      value={r[`${k}_actual`]}
+      calculated={r[`${k}_calculated`]}
+      edited={r[`${k}_edited`]}
+      editedBy={r.edited_by}
+      canEdit={canEdit}
+      money={k === 'td'}
+    >
+      {shownValue}
+    </AchievedEdit>
+  );
   const named = (d?.rows ?? []).filter((r) => !r.vacant);
   const paid = named.filter((r) => r.payout_pct > 0);
   const full = named.filter((r) => r.payout_pct >= 100).length;
@@ -202,7 +228,7 @@ export function IncentiveSheet({ month, actions }: { month?: string; actions?: R
               value: (r) => r.employee,
             },
             { key: 'td_target', header: 'TD Target (₹)', align: 'right', render: (r) => target(r.td_target, true) },
-            { key: 'td_actual', header: 'TD Actual (₹)', align: 'right', render: (r) => inr(r.td_actual, { compact: false }) },
+            { key: 'td_actual', header: 'TD Actual (₹)', align: 'right', render: (r) => edit(r, 'td', inr(r.td_actual, { compact: false })) },
             { key: 'td_pct', header: 'TD Target Achievement %', align: 'right', render: (r) => achieved(r.td_pct) },
             { key: 'td_factor', header: 'TD Payout Factor', align: 'right', render: (r) => factorCell(r, 'td'), value: (r) => (r.td_pct === null ? null : r.td_factor) },
             { key: 'new_target', header: 'New Retailer Target', align: 'right', render: (r) => target(r.new_target) },
@@ -250,7 +276,7 @@ export function IncentiveSheet({ month, actions }: { month?: string; actions?: R
       <p className="mt-2 text-2xs text-muted">
         As per the TD Incentive Policy each KPI is paid on its own. Payout factor by achievement: below 70% → 0, 70% to below 90% → 0.90, 90% and above → 1.00
         (a KPI with no target pays 0). The eligible incentive is split TD 50%, New Retailer 20%, BO G/P/S 20%, KYC 10%; payout % = sum of weight × factor. Example:
-        TD 71%, New 99%, G/P/S 89%, KYC 100% → 45 + 20 + 18 + 10 = 93% (₹4,650 of ₹5,000). Hover a payout to see how it adds up. Incentive Payment = eligible incentive (₹5,000 as in the policy, unless set for the person in Edit incentive sheet) × Incentive Payout %.
+        TD 71%, New 99%, G/P/S 89%, KYC 100% → 45 + 20 + 18 + 10 = 93% (₹4,650 of ₹5,000). Hover a payout to see how it adds up. Achieved values can be typed over with the pencil (marked with a dot; Reset goes back to the calculated value) and the payout follows them. Incentive Payment = eligible incentive (₹5,000 as in the policy, unless set for the person in Edit incentive sheet) × Incentive Payout %.
       </p>
       {shown && <RetailerDrawer month={shown} drill={drill} onClose={() => setDrill(null)} />}
     </Card>

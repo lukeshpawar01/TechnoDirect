@@ -15,10 +15,13 @@ from .views.retention import RetentionView
 from .views.settlement import SettlementDistributorDetailView, SettlementDistributorsView, SettlementOrderListView, SettlementSummaryView
 from .views.trends import MomTrendView
 
+from .views.runrate import RunRateView
+
 urlpatterns = [
     path("meta/filters/", FilterOptionsView.as_view()),
     path("meta/data-version/", DataVersionView.as_view()),
     path("overview/", OverviewView.as_view()),
+    path("overview/run-rate/", RunRateView.as_view()),
     path("trends/mom/", MomTrendView.as_view()),
     path("funnel/", FunnelView.as_view()),
     path("retailers/", RetailerListView.as_view()),

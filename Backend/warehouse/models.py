@@ -131,6 +131,8 @@ class Distributor(TimeStamped):
     is_active = models.BooleanField(default=True)
     onboarded_on = models.DateField(null=True, blank=True)
     bo_only = models.BooleanField(default=False, help_text="Known only from BlueOrigin (offline) sheets, not on the app")
+    is_internal = models.BooleanField(default=False, help_text="Company-internal account (not a real distributor): its "
+                                      "orders never count as sales and it is hidden from lists")
     # from the "TechnoD Distributors" sheet (masters/distributor_sync.py): when stock was last updated on the app
     stock_updated_on = models.DateField(null=True, blank=True, help_text="Sheet 'Inventory Updated'")
     inventory_status = models.CharField(max_length=32, blank=True, help_text="Inventory Live / Inventory Pending / Not onboarded")
@@ -537,6 +539,13 @@ class TargetSplit(TimeStamped):
     bo_gps_target = models.PositiveIntegerField(null=True, blank=True, help_text="New BO Gold/Platinum/Silver retailers")
     kyc_target = models.PositiveIntegerField(null=True, blank=True, help_text="KYC customers converted")
     base_incentive = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    # achieved values typed in on the incentive table (empty = calculated from data); kept across re-saves of the month
+    td_actual_override = models.DecimalField(max_digits=16, decimal_places=2, null=True, blank=True)
+    new_actual_override = models.DecimalField(max_digits=8, decimal_places=1, null=True, blank=True)
+    gps_actual_override = models.DecimalField(max_digits=8, decimal_places=1, null=True, blank=True)
+    kyc_actual_override = models.DecimalField(max_digits=8, decimal_places=1, null=True, blank=True)
+    override_by = models.CharField(max_length=254, blank=True)
+    override_at = models.DateTimeField(null=True, blank=True)
     source = models.CharField(max_length=64, blank=True)
 
     class Meta:

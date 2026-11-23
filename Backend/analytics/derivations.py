@@ -290,6 +290,14 @@ def _split_carts():
     return mark_split_carts()
 
 
+def exclude_internal_orders():
+    """Orders of internal distributors (Distributor.is_internal) never count as sales. The import recomputes
+    is_qualifying from status / payment, so this runs after every import, before anything is aggregated."""
+    from warehouse.models import Order
+
+    return Order.objects.filter(distributor__is_internal=True, is_qualifying=True).update(is_qualifying=False)
+
+
 def run_all_derivations():
     from .cache import bump_cache_version
 
@@ -299,6 +307,8 @@ def run_all_derivations():
         # first: split carts change split_group, which every order count below uses
         "split_carts": _split_carts(),
         "payments_reconciled": reconcile_payments(),
+        # after the steps that re-save orders (save() recomputes is_qualifying), before any aggregate
+        "internal_orders_excluded": exclude_internal_orders(),
         "retailers_asm_synced": sync_retailer_asms(),
         "blueorigin_asm_synced": _bo("sync_bo_asms"),
         "settlement_asm_synced": _settlement_asms(),

@@ -81,6 +81,8 @@ def _attempt(job, now, every=RETRY_AFTER):
 
 
 EDITS_BACKUP_EVERY = dt.timedelta(minutes=15)
+# finance edits the settlement tracker all day: re-read it this often (imported only when it changed)
+SETTLEMENT_SHEET_EVERY = dt.timedelta(minutes=30)
 
 
 def tick(now=None):
@@ -117,6 +119,23 @@ def tick(now=None):
                 done.append("daily-mis")
         except Exception:  # noqa: BLE001 - retried in 30 min
             log.exception("daily MIS failed")
+    if slot is None and _attempt("settlement-sheet", now, SETTLEMENT_SHEET_EVERY):
+        from django.conf import settings
+
+        from ingestion import gsheets
+        from ingestion.locks import import_lock
+
+        if getattr(settings, "SETTLEMENT_SHEET_URL", "") and gsheets.configured() and not settings.TESTING:
+            with import_lock() as got:
+                if got:  # never alongside the full refresh
+                    try:
+                        from masters.settlement import refresh_if_changed
+
+                        res = refresh_if_changed(triggered_by="schedule")
+                        if res["status"] == "success":
+                            done.append("settlement-sheet")
+                    except Exception:  # noqa: BLE001 - retried next time
+                        log.exception("settlement sheet refresh failed")
     month = forecast_due(now)
     if month and _attempt(f"forecast:{month.isoformat()}", now):
         from ingestion.locks import import_lock

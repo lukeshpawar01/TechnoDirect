@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { SEGMENT_TABS } from '@/lib/lifecycle';
 import { useFilterOptions } from '@/api/hooks';
 import type { FilterOptions } from '@/api/types';
 import { SEGMENTS, useFilters, type ModuleKey } from '@/lib/filters';
@@ -37,6 +38,8 @@ function catLevel(level: 1 | 2 | 3) {
 const PLATFORM_LABELS: Record<string, string> = { android: 'Android app', ios: 'iOS app', web: 'Website' };
 
 const SEGMENT: FieldDef = { key: 'segment', label: 'Segment', single: true, options: SEGMENTS };
+/** Lifecycle group (same list as the Retailers page tabs); empty = all retailers. */
+const RETAILER_GROUP: FieldDef = { key: 'segment', label: 'Retailer type', single: true, width: 'w-40', options: SEGMENT_TABS.filter((t) => t.value) };
 // Category I uses the global `category` key (hidden from the top bar on pages that show it here)
 // customer `kyc` column: TRUE = verified (KYC approved)
 const KYC_STATUS: FieldDef = { key: 'kyc_status', label: 'KYC status', options: ['approved', 'pending', 'rejected', 'not_submitted'].map((v) => ({ value: v, label: title(v) })) };
@@ -71,7 +74,7 @@ const TIER_TD: FieldDef = { ...TIER, options: (o, sp) => [...(TIER.options as (o
 /** Page-specific filters, keyed by the nav path that owns them. Sent to the API only from that page. */
 const MODULES: Record<string, FieldDef[]> = {
   '/overview': [SEGMENT, TIER_TD],
-  '/funnel': [KYC_STATUS, KYC_VERIFIED, TIER_TD],
+  '/funnel': [RETAILER_GROUP, KYC_STATUS, KYC_VERIFIED, TIER_TD],
   '/retailers': [
     KYC_STATUS,
     KYC_VERIFIED,
@@ -104,10 +107,10 @@ const MODULES: Record<string, FieldDef[]> = {
   // finance tracker: the period filters the order date, or the payout date when "Date basis" says so
   '/settlements': [
     { key: 'date_basis', label: 'Date basis', single: true, width: 'w-44', options: [{ value: 'order', label: 'Period = order date' }, { value: 'payout', label: 'Period = payout date' }] },
-    { key: 'pay_status', label: 'Payment status', width: 'w-40', options: [{ value: 'approved', label: 'Approved' }, { value: 'not_approved', label: 'Not approved' }, { value: 'pending', label: 'Not reviewed' }, { value: 'cancelled', label: 'Cancelled' }] },
+    // no "Payment status": in the finance tracker it is always the same as Settlement status (approved = settled ...)
     { key: 'settlement_status', label: 'Settlement status', width: 'w-44', options: [{ value: 'settled', label: 'Settled' }, { value: 'not_settled', label: 'Not settled' }, { value: 'pending', label: 'Not reviewed' }, { value: 'cancelled', label: 'Cancelled' }] },
     { key: 'payout_date', label: 'Distributor settlement date', width: 'w-56', options: (o) => (o?.payout_dates ?? []).map((d) => ({ value: d, label: fmtDate(d, 'ddd, DD MMM YYYY') })) },
-    { key: 'payment_mode', label: 'Payment mode', width: 'w-40', options: (o) => (o?.payment_modes ?? []).map((s) => ({ value: s, label: MODE_LABELS[s] ?? s })) },
+    // no "Payment mode": how the retailer paid (UPI / card ...) does not change what the distributor is paid
     { key: 'is_split', label: 'Cart type', single: true, width: 'w-48', options: [{ value: 'false', label: 'Single distributor' }, { value: 'true', label: 'Split (multi-distributor)' }] },
   ],
   '/loyalty': [

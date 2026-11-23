@@ -44,6 +44,11 @@ SEED = [
     {"kind": "asm_handover", "distributor": "Virat Sports Wear", "asm": "Anil", "start": D(2026, 10, 1),
      "end": None, "given_on": D(2026, 11, 16),
      "said": "after October it's not Valluru Sreenivas, it's assigned to Anil only"},
+    # ASM swap - 23 Nov 2026 (the Sep-26 handover and the Nov-26 tracker had these two the other way round)
+    {"kind": "asm_handover", "distributor": "S H Hosiery", "asm": "Shankar", "start": D(2026, 9, 1), "end": None,
+     "given_on": D(2026, 11, 23), "said": "sh hosiery ASM is Shankar"},
+    {"kind": "asm_handover", "distributor": "Jodhpur Apparels", "asm": "Yatendra", "start": D(2026, 9, 1), "end": None,
+     "given_on": D(2026, 11, 23), "said": "Jodhpur Apparel is Yatendra"},
     {"kind": "distributor_alias", "distributor": "Virat Sports Wear", "value": {"alias": "Sri Sai Enterprise"},
      "given_on": D(2026, 11, 17), "said": "Sri Sai Enterprise is Virat Sports Wear"},
     {"kind": "distributor_merge", "distributor": "Heera Exports Inc", "value": {"merged": "Heera Main"},

@@ -160,3 +160,28 @@ class IncentiveSheetEditTests(IncentiveTests):
         with self.assertRaises(ts.TargetSheetError):
             rows[0]["eligible"] = "five thousand"
             ts.save_month(OCT, rows, "a@b.c")
+
+    def test_achieved_override(self):
+        from masters import target_sheet as ts
+
+        g = TargetSplit.objects.get(month=OCT, person="Gururaj")
+        calc = inc.sheet_table(OCT)["rows"][0]
+        inc.set_achieved(g.id, "new", 20, "a@b.c")  # target 20 -> 100%
+        r = inc.sheet_table(OCT)["rows"][0]
+        self.assertEqual(r["new_actual"], 20.0)
+        self.assertTrue(r["new_edited"])
+        self.assertEqual(r["new_calculated"], calc["new_actual"])
+        self.assertEqual(r["new_factor"], 1.0)
+        self.assertAlmostEqual(r["payout_pct"], calc["payout_pct"] + 20.0)
+        # re-saving the month keeps the typed-in value with the same person
+        ts.save_month(OCT, ts.editor(OCT)["rows"], "a@b.c")
+        self.assertEqual(inc.sheet_table(OCT)["rows"][0]["new_actual"], 20.0)
+        g = TargetSplit.objects.get(month=OCT, person="Gururaj")
+        inc.set_achieved(g.id, "new", None, "a@b.c")  # back to calculated
+        r = inc.sheet_table(OCT)["rows"][0]
+        self.assertEqual(r["new_actual"], calc["new_actual"])
+        self.assertNotIn("new_edited", r)
+        with self.assertRaises(ValueError):
+            inc.set_achieved(g.id, "new", "-1", "a@b.c")
+        with self.assertRaises(ValueError):
+            inc.set_achieved(g.id, "bad", 1, "a@b.c")

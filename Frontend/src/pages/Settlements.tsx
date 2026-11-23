@@ -170,14 +170,13 @@ export default function Settlements() {
               : undefined
           }
         />
-        <Card className="xl:col-span-2" title="Status" subtitle="Settlement status and payment status as recorded by finance">
-          {!d?.by_status?.length && !d?.by_payment?.length ? (
+        <Card className="xl:col-span-2" title="Status" subtitle="Settlement status as recorded by finance (payment status is always the same) · click a status to filter">
+          {!d?.by_status?.length ? (
             <div className="p-6 text-sm text-muted">{s.isLoading ? 'Loading…' : 'No orders in this selection.'}</div>
           ) : (
           <div className="space-y-4 px-4 pb-4">
             {[
               { title: 'Settlement status', rows: d?.by_status ?? [], map: SETTLE as Record<string, { label: string; tone: Tone }>, key: 'settlement_status' },
-              { title: 'Payment status', rows: d?.by_payment ?? [], map: PAY, key: 'pay_status' },
             ].map((g) => (
               <table key={g.title} className="w-full text-sm tabular">
                 <thead>
@@ -218,7 +217,7 @@ export default function Settlements() {
           subtitle={
             byPayout
               ? 'Distributor settlement dates in the period · click one to see its orders'
-              : 'Payouts of the orders placed in the period · switch Date basis to payout date for whole batches'
+              : 'Whole payout batches dated in the period (every order paid that day, whatever its order date) · click one to see its orders'
           }
         >
           <DataTable

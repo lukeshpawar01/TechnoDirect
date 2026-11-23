@@ -865,6 +865,30 @@ class IncentiveSheetEditView(APIView):
         return Response({"saved": len(rows), "report": report})
 
 
+class IncentiveAchievedView(APIView):
+    """POST {id, kpi: td|new|gps|kyc, value: number | null} -> type in (or clear) a row's achieved value; the payout
+    factor, payout % and payment follow it. Perm manage_targets."""
+
+    def get_permissions(self):
+        return [IsAuthenticated(), HasPerm("manage_targets")()]
+
+    def post(self, request):
+        from .incentives import set_achieved
+
+        try:
+            s, before, after = set_achieved(int(request.data.get("id") or 0), request.data.get("kpi"),
+                                            request.data.get("value"), request.user.email)
+        except LookupError:
+            raise NotFound("Row not found") from None
+        except ValueError as e:
+            raise ValidationError({"value": str(e)}) from None
+        log_action(request, "update", None, object_type="incentive_achieved", object_id=str(s.id),
+                   before={request.data.get("kpi"): str(before) if before is not None else None},
+                   after={request.data.get("kpi"): str(after) if after is not None else None,
+                          "person": s.person, "distributor": s.distributor.name, "month": s.month.isoformat()[:7]})
+        return Response({"id": s.id, "kpi": request.data.get("kpi"), "value": float(after) if after is not None else None})
+
+
 class IncentiveSheetView(APIView):
     """GET ?month=YYYY-MM -> the incentive sheet row for row, achievement computed (masters/incentives.sheet_table)."""
 

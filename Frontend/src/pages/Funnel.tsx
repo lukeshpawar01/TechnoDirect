@@ -9,6 +9,8 @@ import { MiniStat } from '@/components/KpiTile';
 import { PageHeader } from '@/components/PageHeader';
 import { RetailersDrill, type RetailersDrillSpec } from '@/components/RetailersDrill';
 import { Card, ErrorState, Meter } from '@/components/ui';
+import { useFilters } from '@/lib/filters';
+import { ACTION_HINT, SEGMENT_TABS } from '@/lib/lifecycle';
 import { asPct, monthLabel, num, pct, titleCase, monthTick } from '@/lib/format';
 
 const FROM = 'Retailer Funnel';
@@ -16,6 +18,8 @@ const KYC_LINE = 'KYC approved (% of sign-ups)';
 
 export default function Funnel() {
   const q = useAnalytics<FunnelData>('/funnel/');
+  const { filters } = useFilters();
+  const segment = filters.segment ?? '';
   const t = useChartTokens();
   const d = q.data?.data;
   const dim = q.isFetching && q.isPlaceholderData;
@@ -78,8 +82,17 @@ export default function Funnel() {
     <div className={dim ? 'opacity-70 transition-opacity' : ''}>
       <PageHeader title="Retailer Funnel" subtitle="Sign-up → KYC → first order → repeat · click any number, bar or row to see its retailers" meta={q.data?.meta} />
 
+      <div className="mb-3">
+        {segment && (
+          <p className="rounded-md bg-sunken px-3 py-2 text-xs text-ink2">
+            <span className="font-semibold text-ink">{SEGMENT_TABS.find((x) => x.value === segment)?.label ?? segment}:</span>{' '}
+            {ACTION_HINT[segment] ?? 'RFM segment chosen on the Retailers page.'} Every number on this page counts only these retailers.
+          </p>
+        )}
+      </div>
+
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
-        <MiniStat label="Never ordered" value={num(d?.never_ordered.total)} sub="KYC approved, zero orders" onClick={() => open('Never ordered', { stage: 'never_ordered' }, 'KYC approved, no order by the end of the period')} />
+        <MiniStat label="Never ordered" value={num(d?.never_ordered.total)} sub="Signed up in the period, KYC approved, no order yet" onClick={() => open('Never ordered', { stage: 'never_ordered' }, `Signed up (KYC) in ${periodLabel}, KYC approved, no order by the end of the period`)} />
         {d && d.never_ordered.warm_available === false ? (
           <>
             <MiniStat label="· Warm (ledger match)" value="–" sub="BlueOrigin ledger not loaded yet" />

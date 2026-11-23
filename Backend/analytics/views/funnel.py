@@ -29,6 +29,9 @@ def retailer_base(f):
         qs = qs.filter(kyc_status__in=f.kyc_statuses)
     if f.kyc_verified is not None:  # "KYC Verified" module filter (Retailers, Funnel)
         qs = qs.filter(kyc_status="approved") if f.kyc_verified else qs.exclude(kyc_status="approved")
+    seg = f.segment_retailers()  # lifecycle / RFM tab (Retailers and Retailer Funnel pages)
+    if seg is not None:
+        qs = qs.filter(id__in=seg)
     return qs  # BlueOrigin tier: applied by dims_q
 
 
@@ -43,8 +46,14 @@ def kyc_by(end):
 
 
 def never_by(end):
-    """KYC-approved by `end` with no order up to `end` (the 'Never ordered' tile as on the period's last day)."""
+    """KYC-approved by `end` with no order up to `end` (whenever they signed up)."""
     return kyc_by(end) & (Q(first_order_date__isnull=True) | Q(first_order_date__gt=end))
+
+
+def never_in(start, end):
+    """The 'Never ordered' tile: signed up (KYC sign-up date) within start..end, KYC approved, and no order up to
+    `end` - so it follows the date filter (user, 2026-11-23). An all-time period covers everyone."""
+    return never_by(end) & Q(signed_up_at__gte=_day0(start))
 
 
 def inactive_ids(f, end, lo, hi=None):
@@ -109,9 +118,9 @@ class FunnelView(AnalyticsView):
             first=Count("id", filter=Q(first_order_date__lte=p.end)),
             pending=Count("id", filter=Q(kyc_status="pending", signed_up_at__lt=end_excl)),
             rejected=Count("id", filter=Q(kyc_status="rejected", signed_up_at__lt=end_excl)),
-            never=Count("id", filter=never_by(p.end)),
-            never_warm=Count("id", filter=never_by(p.end) & Q(warm_match=True)),
-            never_flagged=Count("id", filter=never_by(p.end) & (Q(distributor__isnull=True) | Q(state__isnull=True))),
+            never=Count("id", filter=never_in(p.start, p.end)),
+            never_warm=Count("id", filter=never_in(p.start, p.end) & Q(warm_match=True)),
+            never_flagged=Count("id", filter=never_in(p.start, p.end) & (Q(distributor__isnull=True) | Q(state__isnull=True))),
         )
         agg.update({k: rb.filter(id__in=inactive_ids(f, p.end, lo, hi)).count()
                     for k, lo, hi in (("d30", 30, 60), ("d60", 60, 90), ("d90", 90, None))})
@@ -322,7 +331,7 @@ def funnel_drill(f, qs, q):
     elif stage == "kyc_rejected":
         qs = qs.filter(kyc_status="rejected", signed_up_at__lt=day0(p.end + dt.timedelta(days=1)))
     elif stage == "never_ordered":
-        qs = qs.filter(never_by(p.end))
+        qs = qs.filter(never_in(p.start, p.end))
     elif stage in ("inactive_30", "inactive_60", "inactive_90"):
         lo = int(stage[-2:])
         qs = qs.filter(id__in=inactive_ids(f, p.end, lo, None if lo == 90 else lo + 30))
@@ -339,7 +348,7 @@ def funnel_drill(f, qs, q):
         if stage == "kyc_active":
             qs = qs.filter(kyc_status="approved")
     elif stage == "never_flagged":
-        qs = qs.filter(never_by(p.end) & (Q(distributor__isnull=True) | Q(state__isnull=True)))
+        qs = qs.filter(never_in(p.start, p.end) & (Q(distributor__isnull=True) | Q(state__isnull=True)))
     elif stage == "first_order_30d":
         ids = [rid for rid, su, fo in qs.filter(
             kyc_status="approved", signed_up_at__isnull=False, first_order_date__isnull=False,

@@ -32,6 +32,9 @@ MONTHS = {m: i for i, m in enumerate(["jan", "feb", "mar", "apr", "may", "jun", 
                                       "dec"], start=1)}
 
 
+OVERRIDES = ("td_actual_override", "new_actual_override", "gps_actual_override", "kyc_actual_override")
+
+
 class TargetSheetError(ValueError):
     pass
 
@@ -184,13 +187,22 @@ def apply(planned, label="Google Sheet: Monthly Tracker"):
             removed += base.filter(scope_type="region").exclude(scope_id__in=list(region)).delete()[0]
             put(month, "overall", None, p["total"], label)
             states = sync_state_targets(month)
+            # achieved values edited on the incentive table stay with the same person on the same distributor
+            kept = {(o.distributor_id, o.role, o.person.strip().lower()): o
+                    for o in TargetSplit.objects.filter(month=month) if any(getattr(o, f) is not None for f in OVERRIDES)}
             TargetSplit.objects.filter(month=month).delete()
-            TargetSplit.objects.bulk_create([
-                TargetSplit(month=month, distributor=r["dist"], role=r["role"], person=r["person"][:120],
-                            asm=r["asm"], field_staff=r["staff"], value=r["target"], source=label[:64],
-                            new_retailer_target=r.get("nr"), bo_gps_target=r.get("gps"), kyc_target=r.get("kyc"),
-                            base_incentive=r.get("base"))
-                for r in p["rows"]])
+            new = []
+            for r in p["rows"]:
+                ts = TargetSplit(month=month, distributor=r["dist"], role=r["role"], person=r["person"][:120],
+                                 asm=r["asm"], field_staff=r["staff"], value=r["target"], source=label[:64],
+                                 new_retailer_target=r.get("nr"), bo_gps_target=r.get("gps"), kyc_target=r.get("kyc"),
+                                 base_incentive=r.get("base"))
+                old = kept.get((r["dist"].id, r["role"], r["person"][:120].strip().lower()))
+                if old is not None:
+                    for f in OVERRIDES + ("override_by", "override_at"):
+                        setattr(ts, f, getattr(old, f))
+                new.append(ts)
+            TargetSplit.objects.bulk_create(new)
             report[month.isoformat()[:7]] = {
                 "total": float(p["total"]), "distributors": len(p["distributors"]), "asms": len(p["asms"]),
                 "states": states, "people": len(p["rows"]), "removed": removed, "notes": p["notes"]}

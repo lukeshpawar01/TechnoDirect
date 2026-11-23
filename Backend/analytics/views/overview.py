@@ -69,7 +69,7 @@ def stale_stock_distributors(f):
     """Distributors whose stock was not updated within STOCK_SYNC_DAYS days (sheet date, see analytics/stocksync.py)."""
     from .. import stocksync
 
-    ids = list(Distributor.objects.filter(f.dims_q(DISTRIBUTOR_DIMS, retailer_field=None), is_active=True,
+    ids = list(Distributor.objects.filter(f.dims_q(DISTRIBUTOR_DIMS, retailer_field=None), is_active=True, is_internal=False,
                                           bo_only=False).values_list("id", flat=True))
     last = stocksync.last_sync(ids)
     return [d for d in ids if stocksync.bucket(last.get(d), f.today) != "fresh"]

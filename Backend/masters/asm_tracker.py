@@ -53,7 +53,7 @@ def asm_in_charge(dists, day):
 def tracker(month, user):
     """The monthly ASM tracker in the layout of the team's sheet (Nov 26): one row per distributor (within the
     user's data scope) with the ASM in charge that month, + a per-ASM summary."""
-    dists = Distributor.objects.select_related("asm", "region").filter(bo_only=False)  # app distributors only
+    dists = Distributor.objects.select_related("asm", "region").filter(bo_only=False, is_internal=False)  # app distributors only
     sq = get_scope(user).q(DISTRIBUTOR_DIMS)
     if sq is not None:
         dists = dists.filter(sq)

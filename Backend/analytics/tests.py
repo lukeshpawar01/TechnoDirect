@@ -262,6 +262,18 @@ class KycVerifiedFilterTests(TestCase):
         stages = {s["key"]: s["count"] for s in self.c.get("/api/funnel/?preset=all_time&kyc_verified=false").json()["data"]["stages"]}
         self.assertEqual(stages["kyc_approved"], 0)
 
+    def test_funnel_follows_the_lifecycle_tab(self):
+        def stages(seg):
+            q = f"&segment={seg}" if seg else ""
+            return {s["key"]: s["count"] for s in self.c.get(f"/api/funnel/?preset=all_time{q}").json()["data"]["stages"]}
+
+        never, repeat, one = stages("never_ordered"), stages("repeat"), stages("one_time")
+        self.assertEqual(never["first_order"], 0)  # nobody in "Never ordered" has an order
+        self.assertEqual(one["repeat_order"], 0)
+        self.assertEqual(repeat["first_order"], repeat["repeat_order"])
+        self.assertEqual(repeat["first_order"], Retailer.objects.filter(orders_count__gte=2).count())
+        self.assertLessEqual(never["signed_up"], stages("")["signed_up"])
+
     def test_funnel_drill_lists_the_retailers_behind_each_number(self):
         for preset in ("all_time", "last_90d"):
             d = self.c.get(f"/api/funnel/?preset={preset}").json()["data"]
@@ -271,7 +283,7 @@ class KycVerifiedFilterTests(TestCase):
 
             for s in d["stages"]:
                 self.assertEqual(n(f"stage={s['key']}"), s["count"], (preset, s["key"]))
-            self.assertEqual(n("segment=never_ordered&stage=kyc_approved"), d["never_ordered"]["total"])
+            self.assertEqual(n("stage=never_ordered"), d["never_ordered"]["total"])
             self.assertEqual(n("stage=kyc_ever_ordered"), d["kyc_penetration"]["ever_ordered"])
             self.assertEqual(n("stage=first_order_30d"), d["kyc_conversion"]["within_30d"])
             for m in d["acquisition_monthly"]:
@@ -418,6 +430,25 @@ class RsmRollupTests(TestCase):
         self.assertEqual(rows["Ravi South"]["achievement_pct"], 50.0)  # Nov sales 100 / Nov target 200
         t = self.c.get(f"/api/overview/?{q}&rsm={self.r_s.id}").json()["data"]["target"]
         self.assertEqual((t["achieved"], t["target"], t["target_months"]), (100, 200, ["2026-11"]))
+
+    def test_run_rate(self):
+        d = self.c.get(f"/api/overview/run-rate/?{self.q}&group_by=asm").json()["data"]
+        rows = {r["name"]: r for r in d["rows"]}
+        a = rows["Asha"]
+        # Nov target 200, 100 sold by the 14th: 14 of 30 days gone
+        self.assertEqual((a["target"], a["achieved"], a["days_elapsed"], a["days_total"], a["days_left"]), (200, 100, 14, 30, 16))
+        self.assertAlmostEqual(a["current_run_rate"], round(100 / 14, 2))
+        self.assertAlmostEqual(a["required_run_rate"], round(100 / 16, 2))
+        self.assertAlmostEqual(a["projected"], round(100 / 14 * 30, 2))
+        self.assertEqual(a["status"], "on_track")
+        self.assertEqual(a["last7_run_rate"], 0)  # the order was on the 5th, outside 8th-14th
+        self.assertIsNone(d["overall"])  # this fixture has ASM / distributor targets only
+        self.assertTrue(d["note"])
+        # a closed period that fell short is "missed"
+        q = "preset=custom&date_from=2026-11-01&date_to=2026-11-30"
+        rows = {r["name"]: r for r in self.c.get(f"/api/overview/run-rate/?{q}&group_by=distributor").json()["data"]["rows"]}
+        self.assertIn(rows["D3"]["status"], ("missed", "behind"))  # 10 of 20 (missed once Nov is over)
+        self.assertEqual(self.c.get(f"/api/overview/run-rate/?{self.q}&group_by=bad").status_code, 400)
 
     def test_short_period_achievement_is_month_to_date_like_overview(self):
         # a single day with no orders: the monthly target is measured month-to-date, not "0 of a month's target"
