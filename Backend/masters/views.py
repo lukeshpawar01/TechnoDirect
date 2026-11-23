@@ -826,3 +826,57 @@ class IncentiveRetailersView(APIView):
                              distributor_ids=dist or None, asm_id=int(asm) if asm and asm.isdigit() else None,
                              can_see_phone=request.user.has_code("view_pii"))
         return Response({"month": month.isoformat()[:7], "rows": rows})
+
+
+class IncentiveSheetEditView(APIView):
+    """GET ?month=YYYY-MM -> the month's incentive sheet rows to edit (a copy of the last month when it has none).
+    PUT {month, rows: [{distributor_id, role, person, td_target, new_target, gps_target, kyc_target}]} -> replaces the
+    month, sheet order kept. Perm manage_targets."""
+
+    def get_permissions(self):
+        return [IsAuthenticated(), HasPerm("manage_targets")()]
+
+    def _month(self, value):
+        from .asm_tracker import parse_month
+
+        try:
+            return parse_month(value)
+        except ValueError as e:
+            raise ValidationError({"month": str(e)}) from None
+
+    def get(self, request):
+        from .target_sheet import editor
+
+        return Response(editor(self._month(request.query_params.get("month"))))
+
+    def put(self, request):
+        from .target_sheet import TargetSheetError, save_month
+
+        month = self._month(request.data.get("month"))
+        rows = request.data.get("rows")
+        if not isinstance(rows, list):
+            raise ValidationError({"rows": "rows must be a list"})
+        try:
+            report = save_month(month, rows, request.user.email)
+        except TargetSheetError as e:
+            raise ValidationError({"rows": str(e)}) from None
+        log_action(request, "update", None, object_type="incentive_sheet", object_id=month.isoformat()[:7],
+                   after={"rows": len(rows), "report": report.get(month.isoformat()[:7])})
+        return Response({"saved": len(rows), "report": report})
+
+
+class IncentiveSheetView(APIView):
+    """GET ?month=YYYY-MM -> the incentive sheet row for row, achievement computed (masters/incentives.sheet_table)."""
+
+    def get_permissions(self):
+        return [IsAuthenticated(), HasPerm("view_territory")()]
+
+    def get(self, request):
+        from .asm_tracker import parse_month
+        from .incentives import sheet_table
+
+        try:
+            month = parse_month(request.query_params.get("month"))
+        except ValueError as e:
+            raise ValidationError({"month": str(e)}) from None
+        return Response(sheet_table(month, request.user))

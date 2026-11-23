@@ -149,7 +149,43 @@ class OrdersSummaryView(AnalyticsView):
                         in_period.values("ticket_type").annotate(n=Count("id"), o=Count("id", filter=~Q(status="closed")))
                         .order_by("-n")],
         }
+        # orders waiting for dispatch by the distributor responsible, with their age (requirements 4.5). Age is
+        # counted to the TD data date (as the dispatch-SLA alert does), not the clock
+        from .fulfilment import data_date
+
+        ref = timezone.make_aware(dt.datetime.combine(data_date(f.today), dt.time.max))
+        by_dist = defaultdict(lambda: {"open": 0, "over_48h": 0, "oldest_hours": 0.0, "value": 0.0})
+        for did, name, placed, v in open_orders(f, ["received", "confirmed"]).values_list(
+                "distributor_id", "distributor__name", "placed_at", "gross_value"):
+            age_h = max((ref - placed).total_seconds() / 3600, 0)
+            r = by_dist[(did, name or "Unmapped")]
+            r["open"] += 1
+            r["value"] += float(v or 0)
+            r["over_48h"] += 1 if age_h >= 48 else 0
+            r["oldest_hours"] = max(r["oldest_hours"], age_h)
+        pending_by_distributor = sorted(
+            [{"distributor_id": k[0], "distributor": k[1], **{x: (round(y, 1) if isinstance(y, float) else y)
+                                                               for x, y in r.items()}} for k, r in by_dist.items()],
+            key=lambda r: (-r["over_48h"], -r["open"]))
+        # customer refunds from the finance tracker (requirements 4.5: refunds pending and refund ageing)
+        from warehouse.models import DistributorSettlement
+
+        from ..settlement import SDIMS
+
+        rf_qs = DistributorSettlement.objects.filter(f.dims_q(SDIMS, retailer_field=None), customer_refund__gt=0)
+        rf_done = rf_qs.filter(refund_date__gte=p.start, refund_date__lte=p.end)
+        rf_days = sorted((rd - od).days for od, rd in rf_done.values_list("order_date", "refund_date") if rd >= od)
+        rf_pend = rf_qs.filter(refund_date__isnull=True).exclude(settlement_status="cancelled")
+        refunds = {
+            "refunded": rf_done.count(), "refunded_value": num(rf_done.aggregate(s=Sum("customer_refund"))["s"] or 0),
+            "median_days_to_refund": rf_days[len(rf_days) // 2] if rf_days else None,
+            "within_7_days_pct": pct(sum(1 for d in rf_days if d <= 7), len(rf_days)) if rf_days else None,
+            "pending": rf_pend.count(), "pending_value": num(rf_pend.aggregate(s=Sum("customer_refund"))["s"] or 0),
+            "pending_oldest_days": max(((f.today - od).days for od in rf_pend.values_list("order_date", flat=True)),
+                                       default=None),
+        }
         return {
+            "pending_by_distributor": pending_by_distributor, "refunds": refunds,
             "status_counts": status_counts, "ageing": ageing, "tat": tat,
             "open_window_days": settings.ORDER_OPEN_WINDOW_DAYS,
             # older orders the TD export still shows as placed / confirmed / shipped (status never updated)

@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useAnalytics } from '@/api/hooks';
 import type { DistributorDetail as DD } from '@/api/types';
@@ -9,10 +9,12 @@ import { DataTable } from '@/components/DataTable';
 import { KpiTile, endsMidMonth } from '@/components/KpiTile';
 import { RfmDot } from '@/components/RfmPanel';
 import { PageHeader } from '@/components/PageHeader';
-import { Card, ErrorState, LoadingBlock, Stat } from '@/components/ui';
+import { OrdersDrill, type OrdersDrillSpec } from '@/components/OrdersDrill';
+import { Card, ErrorState, LoadingBlock, Segmented, Stat } from '@/components/ui';
 import { linkWithFilters, useFilters } from '@/lib/filters';
 import { asPct, date, inr, monthLabel, num, pct, sharePct, titleCase } from '@/lib/format';
 import { StalenessBadge, type SyncInfo } from './Distributors';
+import { OrderDrawer } from './Orders';
 
 const KPI_FMT: Record<string, { label: string; fmt: (n: number | null | undefined) => string; money?: boolean }> = {
   sales: { label: 'Sales', fmt: (n) => inr(n), money: true },
@@ -39,12 +41,22 @@ export default function DistributorDetail() {
   const d = q.data?.data;
   const basis = q.data?.meta?.sales_basis;
 
+  const [grain, setGrain] = useState<'day' | 'week' | 'month'>('month');
+  const [drill, setDrill] = useState<OrdersDrillSpec | null>(null);
+  const [openId, setOpenId] = useState<string | number | null>(null);
+  // sales trend by day (selected period) / week (26 weeks) / month (12 months) - requirements 4.3
+  const trend = useMemo(() => {
+    if (!d) return [] as { label: string; sales: number; orders: number | null }[];
+    if (grain === 'day') return (d.daily ?? []).map((x) => ({ label: date(x.date, 'DD MMM'), sales: x.sales, orders: x.orders }));
+    if (grain === 'week') return (d.weekly ?? []).map((x) => ({ label: `w/c ${date(x.week, 'DD MMM')}`, sales: x.sales, orders: x.orders }));
+    return d.monthly.map((m) => ({ label: monthLabel(m.month), sales: m.sales, orders: m.orders ?? null }));
+  }, [d, grain]);
   const opt = useMemo(
     () =>
-      d?.monthly?.length
-        ? cartesian(t, { x: d.monthly.map((m) => monthLabel(m.month)), format: 'inr', legend: false, series: [{ name: 'Sales', data: d.monthly.map((m) => m.sales) }] })
+      trend.length
+        ? cartesian(t, { x: trend.map((m) => m.label), format: 'inr', legend: false, series: [{ name: 'Sales', data: trend.map((m) => m.sales) }] })
         : null,
-    [d, t],
+    [trend, t],
   );
 
   if (q.isLoading) return <LoadingBlock height={400} />;
@@ -92,11 +104,12 @@ export default function DistributorDetail() {
 
       <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
         <ChartCard
-          title="Monthly sales"
-          subtitle={basis}
+          title={grain === 'day' ? 'Daily sales' : grain === 'week' ? 'Weekly sales' : 'Monthly sales'}
+          subtitle={grain === 'day' ? `Every day of the selected period · ${basis ?? ''}` : grain === 'week' ? `26 weeks to the end of the period · ${basis ?? ''}` : basis}
+          actions={<Segmented value={grain} onChange={setGrain} options={[{ value: 'day', label: 'Day' }, { value: 'week', label: 'Week' }, { value: 'month', label: 'Month' }]} />}
           option={opt}
-          empty={!d.monthly?.length}
-          table={{ columns: ['Month', 'Sales', 'Orders'], rows: d.monthly.map((m) => [monthLabel(m.month), inr(m.sales), num(m.orders ?? null)]) }}
+          empty={!trend.length}
+          table={{ columns: [grain === 'day' ? 'Day' : grain === 'week' ? 'Week' : 'Month', 'Sales', 'Orders'], rows: trend.map((m) => [m.label, inr(m.sales), num(m.orders)]) }}
         />
         <Card title="Top articles">
           <DataTable
@@ -115,6 +128,42 @@ export default function DistributorDetail() {
               { key: 'share', header: 'Share', align: 'right', render: (r) => sharePct(asPct(r.share)) },
             ]}
           />
+        </Card>
+      </div>
+
+      <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-3">
+        <Card
+          title="Stock on the app"
+          subtitle={`Latest stock this distributor shows on TechnoDirect · low = ${d.stock?.low_threshold ?? 5} or fewer`}
+          actions={<Link to={linkWithFilters('/inventory', searchParams, { distributor: String(p.id) })} className="text-xs text-ink2 hover:text-ink">Inventory →</Link>}
+        >
+          {d.stock && d.stock.skus ? (
+            <div className="grid grid-cols-2 gap-3">
+              <Stat label="Live styles" value={num(d.stock.live_styles)} />
+              <Stat label="Units in stock" value={num(d.stock.units)} />
+              <Stat label="SKUs in stock" value={`${num(d.stock.in_stock)} of ${num(d.stock.skus)}`} sub={pct((d.stock.in_stock / d.stock.skus) * 100, 0)} />
+              <Stat label="Out of stock / low" value={`${num(d.stock.oos)} / ${num(d.stock.low)}`} sub="SKUs" />
+            </div>
+          ) : (
+            <p className="py-6 text-sm text-ink2">No stock uploaded on the app for this distributor.</p>
+          )}
+        </Card>
+        <Card
+          className="xl:col-span-2"
+          title="Orders"
+          subtitle="Every order of this distributor in the selected period, with status, dispatch and delivery"
+        >
+          <p className="text-sm text-ink2">
+            {num(d.kpis.orders?.value ?? null)} orders in the selected period.{' '}
+            <button
+              type="button"
+              className="font-medium text-ink underline decoration-dotted underline-offset-4 hover:text-brand"
+              onClick={() => setDrill({ title: `Orders · ${p.name}`, params: { distributor: String(p.id) } })}
+            >
+              Open the order list
+            </button>{' '}
+            to see each order, filter by retailer or open an order's details.
+          </p>
         </Card>
       </div>
 
@@ -137,6 +186,8 @@ export default function DistributorDetail() {
           ]}
         />
       </Card>
+      <OrdersDrill spec={drill} onClose={() => setDrill(null)} onOpenOrder={setOpenId} />
+      <OrderDrawer id={openId} onClose={() => setOpenId(null)} />
     </div>
   );
 }

@@ -49,6 +49,7 @@ LAYOUT = [
     ("warehouse.Pincode", "mappings", "pincodes"),
     ("warehouse.TrackedDistributor", "region_asm_performance", "tracked_distributors"),
     ("warehouse.Target", "region_asm_performance", "targets"),
+    ("warehouse.TargetSplit", "region_asm_performance", "incentive_sheet"),  # person-by-person KPI targets
     ("warehouse.TargetForecast", "region_asm_performance", "target_forecasts"),
     ("masters.MetricDefinition", "admin", "metric_definitions"),
     ("masters.ReconciliationRef", "admin", "reconciliation_refs"),

@@ -168,7 +168,7 @@ function Editor({ open, onClose, initialMonth }: { open: boolean; onClose: () =>
           <span className="mr-auto text-xs text-muted">
             {q.data?.managed_by_sheet ? (
               <span className="font-medium text-warn">
-                {monthLabel(month)} targets come from the live incentive sheet (TD_ASM_Executive_Incentive_Tracker). Change them in the sheet; the dashboard picks it up at the next refresh.{' '}
+                {monthLabel(month)} targets come from the incentive sheet (TD_ASM_Executive_Incentive_Tracker). Change them with "Edit incentive sheet" on this page.{' '}
               </span>
             ) : null}
             Targets in ₹ for {monthLabel(month)}. An ASM's target is the sum of its distributors' targets; for an ASM without distributor targets, set it in the ASM panel. Type a new name in ASM to add an ASM.

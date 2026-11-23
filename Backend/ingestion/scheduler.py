@@ -59,6 +59,19 @@ def forecast_due(now=None):
     return None if TargetForecast.objects.filter(month=month).exists() else month
 
 
+def mis_due(now=None):
+    """Today's MIS email is due: recipients set, not sent today, and a refresh succeeded today."""
+    from analytics import daily_mis
+    from ingestion.models import SyncRun
+    from ingestion.schedule import REFRESH_SOURCE
+
+    today = timezone.localtime(now or timezone.now()).date()
+    if not daily_mis.due(today):
+        return False
+    start = timezone.make_aware(dt.datetime.combine(today, dt.time.min))
+    return SyncRun.objects.filter(source=REFRESH_SOURCE, status="success", finished_at__gte=start).exists()
+
+
 def _attempt(job, now, every=RETRY_AFTER):
     last = _last_attempt.get(job)
     if last and now - last < every:
@@ -93,6 +106,17 @@ def tick(now=None):
         call_command("scheduled_refresh", stdout=out)
         log.info("auto refresh: %s", out.getvalue().strip()[-500:])
         done.append("refresh")
+    # daily MIS email: once a day, after the day's first successful refresh (only when MIS_RECIPIENTS is set)
+    if slot is None and mis_due(now) and _attempt("daily-mis", now):
+        from analytics import daily_mis
+
+        try:
+            sent = daily_mis.send()
+            if sent:
+                log.info("daily MIS sent to %s", ", ".join(sent))
+                done.append("daily-mis")
+        except Exception:  # noqa: BLE001 - retried in 30 min
+            log.exception("daily MIS failed")
     month = forecast_due(now)
     if month and _attempt(f"forecast:{month.isoformat()}", now):
         from ingestion.locks import import_lock

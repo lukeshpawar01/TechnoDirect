@@ -184,7 +184,7 @@ if REDIS_URL:
             "KEY_PREFIX": "td",
         }
     }
-elif env_str("CACHE_DIR"):
+elif env_str("CACHE_DIR") and not TESTING:  # tests keep a private in-memory cache (never the live pages)
     # Hosted on one Windows machine without Redis: a file cache shared by the web server and the scheduled refresh
     # (an in-memory cache would not see the refresh bump the data version).
     CACHES = {
@@ -339,6 +339,10 @@ LOGIN_OTP_TTL_MINUTES = env_int("LOGIN_OTP_TTL_MINUTES", 5)
 LOGIN_OTP_MAX_ATTEMPTS = env_int("LOGIN_OTP_MAX_ATTEMPTS", 5)
 LOGIN_OTP_MAX_SENDS = env_int("LOGIN_OTP_MAX_SENDS", 5)
 LOGIN_OTP_RESEND_SECONDS = env_int("LOGIN_OTP_RESEND_SECONDS", 30)
+
+# --- Daily MIS email (analytics/daily_mis.py): sent after the morning refresh, only when recipients are set ---
+MIS_RECIPIENTS = env_str("MIS_RECIPIENTS")  # comma-separated; empty = the daily MIS is not sent
+PUBLIC_DASHBOARD_URL = env_str("PUBLIC_DASHBOARD_URL")  # link shown in the email (optional)
 
 # --- Email (Gmail SMTP: smtp.gmail.com:587 + TLS, EMAIL_HOST_PASSWORD = Google App Password) ---
 EMAIL_HOST = env_str("EMAIL_HOST", "smtp.gmail.com")

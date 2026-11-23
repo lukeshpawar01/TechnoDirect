@@ -49,14 +49,18 @@ def bo_conversions(f, group_by):
     bos = BoRetailer.objects.filter(f.dims_q(BO_DIMS, retailer_field=None), id__in=before.values("bo_retailer_id"))
     if group_by == "rsm":
         bos = with_rsm(bos)
-    tiers = dict(Retailer.objects.filter(id__in=new_ids).values_list("id", "tier"))
+    from masters.incentives import tier_before
+
+    rows = list(bos.annotate(p=Sum("months__value")).order_by("-p")
+                .values("id", "td_retailer_id", TD_FIELD[group_by], "distributor__name", "asm__name"))
+    tiers = tier_before({b["id"] for b in rows}, start)
     out = {}
-    for b in (bos.annotate(p=Sum("months__value")).order_by("-p")
-              .values("td_retailer_id", TD_FIELD[group_by], "distributor__name", "asm__name", "tier")):
+    for b in rows:
         rid = b["td_retailer_id"]
         if rid in out:
             continue  # several BO rows for one retailer (same phone): the biggest offline buyer wins
-        out[rid] = {"group": b[TD_FIELD[group_by]], "bo": b, "gps": (tiers.get(rid) or "") in GPS_TIERS}
+        b["tier"] = tiers.get(b["id"]) or "Untiered"  # tier before converting (see masters.incentives.tier_before)
+        out[rid] = {"group": b[TD_FIELD[group_by]], "bo": b, "gps": b["tier"] in GPS_TIERS}
     return out
 
 
@@ -96,7 +100,8 @@ def retailers(f, group_by, group_id, kind, can_see_phone=False):
         o, b = first.get(r["id"], {}), (bo.get(r["id"]) or {}).get("bo")
         rows.append({
             "retailer_id": r["id"], "retailer": r["name"], "phone": mask_phone(r["phone"], can_see_phone),
-            "city": r["city"], "state": r["state__name"], "tier": r["tier"] or "Not in BlueOrigin",
+            "city": r["city"], "state": r["state__name"],
+            "tier": (b["tier"] if b else None) or r["tier"] or "Not in BlueOrigin",
             "bo_existing": b is not None, "bo_distributor": b["distributor__name"] if b else None,
             "bo_asm": b["asm__name"] if b else None,
             "first_order": o.get("display_id"), "first_order_date": o["placed_date"].isoformat() if o else None,

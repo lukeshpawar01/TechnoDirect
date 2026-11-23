@@ -12,6 +12,17 @@ VERSION_KEY = "analytics:data-version"
 
 
 def cache_version():
+    """The data version every cached page key carries. Kept in the DATABASE (SyncWatermark), not in the cache: each
+    server process (the background service, the dev server) has its own cache, and a refresh run by one of them must
+    retire the pages the other one cached too."""
+    try:
+        from ingestion.models import SyncWatermark
+
+        v = SyncWatermark.objects.filter(key=VERSION_KEY).values_list("cursor", flat=True).first()
+        if v and v.isdigit():
+            return int(v)
+    except Exception:  # noqa: BLE001 - e.g. during migrations: fall back to the cache
+        pass
     v = cache.get(VERSION_KEY)
     if v is None:
         v = 1
@@ -20,10 +31,18 @@ def cache_version():
 
 
 def bump_cache_version():
+    import time
+
+    from django.utils import timezone
+
+    v = int(time.time() * 1000)  # milliseconds: always higher than the last one, no read-modify-write race
     try:
-        cache.incr(VERSION_KEY)
-    except ValueError:
-        cache.set(VERSION_KEY, 2, None)
+        from ingestion.models import SyncWatermark
+
+        SyncWatermark.put(VERSION_KEY, timezone.now(), cursor=str(v))
+    except Exception:  # noqa: BLE001 - database busy: at least this process stops serving old pages
+        pass
+    cache.set(VERSION_KEY, v, None)
 
 
 def analytics_key(name, filters, extra=""):

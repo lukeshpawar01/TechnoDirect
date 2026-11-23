@@ -432,6 +432,11 @@ export interface DistributorDetail {
   };
   kpis: Partial<Record<string, KPI>>;
   monthly: { month: string; sales: number; orders?: number; active_retailers?: number }[];
+  /** every day of the selected period / the 26 weeks up to its end */
+  daily?: { date: string; sales: number; orders: number }[];
+  weekly?: { week: string; sales: number; orders: number }[];
+  /** latest app stock of this distributor */
+  stock?: { skus: number; in_stock: number; oos: number; low: number; units: number; live_styles: number; low_threshold: number };
   top_articles: ArticleRow[];
   retailers: {
     id: number;
@@ -459,6 +464,8 @@ export interface TerritoryRow {
   /** BlueOrigin retailers converted to TD in the period (by their BO territory) / the Gold, Platinum, Silver ones */
   bo_conversions: number;
   bo_gps: number;
+  /** KYC base of 300+ with adoption below 80% of the network's (requirements 4.4) */
+  low_adoption?: boolean;
   kyc_base: number;
   adoption_pct: number;
   distributors: number;
@@ -494,6 +501,7 @@ export interface TerritoryTeamRow {
 export interface Territory {
   group_by?: string;
   rows: TerritoryRow[];
+  network_adoption_pct?: number | null;
   monthly_by_group: { month: string; group: string; sales: number }[];
   breakdown?: TerritoryTeamRow[];
 }
@@ -501,6 +509,10 @@ export interface Territory {
 // ---------------------------------------------------------------- orders
 export interface OrdersSummary {
   status_counts: { status: string; count: number; value: number }[];
+  /** orders waiting for dispatch (received / confirmed), by the distributor responsible */
+  pending_by_distributor?: { distributor_id: number | null; distributor: string; open: number; over_48h: number; oldest_hours: number; value: number }[];
+  /** customer refunds from the finance tracker: refunded in the period, still pending */
+  refunds?: { refunded: number; refunded_value: number; median_days_to_refund: number | null; within_7_days_pct: number | null; pending: number; pending_value: number; pending_oldest_days: number | null };
   /** open orders placed within open_window_days, by age bucket and status */
   ageing: { bucket: string; status: string; count: number }[];
   open_window_days?: number;
@@ -640,6 +652,8 @@ export interface Products {
   new_launches: { style: string; launched_on: string; sales: number; units: number; retailers: number; name?: string }[];
   size_mix: { size: string; units: number; share: number }[];
   concentration: { top4_share: number; top12_share: number; distinct_articles: number };
+  /** Category I by region: sales, units, realisation and the category's share of the region */
+  category_by_region?: { region: string; l1: string; sales: number; units: number; realisation: number | null; share_of_region: number | null }[];
   category_mix?: { l1: string; l2: string; sales: number; units: number; orders: number; share: number; realisation: number | null; units_per_order: number | null }[];
   category_mix_monthly_l1l2?: { month: string; l1: string; l2: string; sales: number }[];
   new_articles_6m?: { since: string; articles: number; sales: number; share: number };
@@ -753,7 +767,7 @@ export interface Loyalty {
 
 // ---------------------------------------------------------------- data health
 export interface DataHealth {
-  sources: { source: string; status: FreshnessStatus | string; last_success_at: string | null; last_error: string | null; rows_last_run: number | null; next_run_at: string | null; via?: string | null }[];
+  sources: { source: string; status: FreshnessStatus | string; last_success_at: string | null; last_error: string | null; rows_last_run: number | null; next_run_at: string | null; via?: string | null; last_checked_at?: string | null; rows_loaded?: number }[];
   issues: { code: string; label: string; count: number; severity: string }[];
   reconciliation: { metric: string; period: string; dashboard_value: number; mis_value: number | null; diff_pct: number | null }[];
 }

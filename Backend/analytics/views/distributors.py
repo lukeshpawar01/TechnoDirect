@@ -250,8 +250,38 @@ class DistributorDetailView(AnalyticsView):
             "mapped_retailers": Retailer.objects.filter(distributor=d).count(),
             "median_dispatch_days": disp[1],
         }
-        return {"profile": profile, "kpis": kpis, "target": target, "monthly": monthly,
-                "top_articles": top_articles, "retailers": retailers}
+        # day / week trend (requirements 4.3): daily inside the selected period, weekly for the 26 weeks to its end
+        daily = {r["placed_date"]: r for r in cur_qs.values("placed_date").annotate(
+            s=Sum("gross_value"), n=Count("id"))}
+        days, day = [], p.start
+        while day <= p.end and len(days) < 400:
+            r = daily.get(day) or {}
+            days.append({"date": day.isoformat(), "sales": num(r.get("s") or 0), "orders": r.get("n") or 0})
+            day += dt.timedelta(days=1)
+        wk_end = p.end
+        wk_start = wk_end - dt.timedelta(days=wk_end.weekday()) - dt.timedelta(weeks=25)  # Monday, 26 weeks back
+        wk = defaultdict(lambda: {"s": 0.0, "n": 0})
+        for pd_, v in base.filter(placed_date__gte=wk_start, placed_date__lte=wk_end).values_list("placed_date",
+                                                                                                    "gross_value"):
+            w = wk[pd_ - dt.timedelta(days=pd_.weekday())]
+            w["s"] += float(v or 0)
+            w["n"] += 1
+        weekly = [{"week": (wk_start + dt.timedelta(weeks=i)).isoformat(),
+                   "sales": round(wk[wk_start + dt.timedelta(weeks=i)]["s"], 2),
+                   "orders": wk[wk_start + dt.timedelta(weeks=i)]["n"]} for i in range(26)]
+        # stock availability (requirements 4.3): the distributor's latest app stock
+        from django.conf import settings as dj_settings
+
+        inv = primary_inventory().filter(is_latest=True, distributor_id=d.id)
+        low = dj_settings.LOW_STOCK_THRESHOLD
+        stock = inv.aggregate(skus=Count("id"), in_stock=Count("id", filter=Q(quantity__gt=0)),
+                              oos=Count("id", filter=Q(quantity__lte=0)),
+                              low=Count("id", filter=Q(quantity__gt=0, quantity__lte=low)), units=Sum("quantity"))
+        stock["live_styles"] = inv.filter(quantity__gt=0).values("style").distinct().count()
+        stock["units"] = int(stock["units"] or 0)
+        stock["low_threshold"] = low
+        return {"profile": profile, "kpis": kpis, "target": target, "monthly": monthly, "daily": days,
+                "weekly": weekly, "stock": stock, "top_articles": top_articles, "retailers": retailers}
 
 
 GROWTH_MIN_BASE = 50_000  # growth % on a smaller comparison base is noise (e.g. +12,27,35,820% on a few rupees)
@@ -290,6 +320,10 @@ GROUPS = {
     "asm": (Asm, ASM_DIMS, "asm_id"),
     "rsm": (Rsm, None, "rsm_key"),  # derived: ASM's RSM, else the region's RSM (analytics/rsm.py)
 }
+
+
+LOW_ADOPTION_MIN_KYC = 300  # a territory needs this many KYC-approved retailers before low adoption is flagged
+LOW_ADOPTION_SHARE = 0.8    # ... and adoption below 80% of the network's
 
 
 class TerritoryView(AnalyticsView):
@@ -372,6 +406,15 @@ class TerritoryView(AnalyticsView):
                 "sales_per_retailer": ratio(sales, c.get("retailers", 0)),
                 "growth_pct": growth_on_base(sales, cmp.get(gid)) if p.cmp_start else None,
             })
+        # requirements 4.4: territories with a high KYC base but low transacting adoption - a KYC base of at least
+        # LOW_ADOPTION_MIN_KYC whose adoption is below LOW_ADOPTION_SHARE of the network's
+        tot_kyc = sum(k.get("kyc", 0) for k in kyc.values())
+        tot_ever = sum(k.get("ever", 0) for k in kyc.values())
+        network = tot_ever / tot_kyc * 100 if tot_kyc else None
+        for r in rows:
+            a = r["adoption_pct"]  # 0-100
+            r["low_adoption"] = bool(network and r["kyc_base"] >= LOW_ADOPTION_MIN_KYC and a is not None
+                                     and a < network * LOW_ADOPTION_SHARE)
         rows.sort(key=lambda r: (-r["sales"], str(r.get("name") or "").lower()))
         team = self.team(group_by, rows)
         months12 = spark_months(p.end)
@@ -380,7 +423,8 @@ class TerritoryView(AnalyticsView):
                    for r in base.filter(placed_date__gte=months12[0], placed_date__lte=p.end)
                    .annotate(m=TruncMonth("placed_date")).values("m", gfield).annotate(s=Sum("gross_value"))
                    .order_by("m", gfield)]
-        out = {"group_by": group_by, "rows": rows, "monthly_by_group": monthly}
+        out = {"group_by": group_by, "rows": rows, "monthly_by_group": monthly,
+               "network_adoption_pct": round(network, 1) if network else None}
         if group_by == "rsm":
             out["breakdown"] = self.rsm_breakdown(f, base, cur_qs, p)
         return out

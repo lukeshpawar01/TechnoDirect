@@ -59,6 +59,7 @@ interface Props<T> {
   dense?: boolean;
   maxHeight?: number;
   footer?: ReactNode;
+  rowClassName?: (row: T) => string | undefined;
 }
 
 function cmp(a: unknown, b: unknown): number {
@@ -215,7 +216,7 @@ export function DataTable<T>(p: Props<T>) {
                 <tr
                   key={p.rowKey(r, i)}
                   onClick={p.onRowClick ? () => p.onRowClick!(r) : undefined}
-                  className={cx('border-t border-line', p.onRowClick && 'cursor-pointer hover:bg-sunken/70')}
+                  className={cx('border-t border-line', p.onRowClick && 'cursor-pointer hover:bg-sunken/70', p.rowClassName?.(r))}
                 >
                   {p.columns.map((c) => (
                     <td key={c.key} className={cx('td', p.dense && 'py-1.5', c.align === 'right' && 'text-right', c.align === 'center' && 'text-center', c.className)}>

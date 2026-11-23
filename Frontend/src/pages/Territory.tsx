@@ -1,26 +1,23 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useAnalytics } from '@/api/hooks';
-import type { Territory as TerritoryData, TerritoryRow } from '@/api/types';
+import type { Territory as TerritoryData } from '@/api/types';
 import { cartesian } from '@/charts/builders';
 import { useChartTokens } from '@/charts/EChart';
 import { colorFor } from '@/charts/palette';
 import { AsmTrackerActions } from '@/components/AsmTracker';
 import { ChartCard } from '@/components/ChartCard';
-import { ConversionDrill, type ConversionDrillSpec } from '@/components/ConversionDrill';
-import { DataTable } from '@/components/DataTable';
 import { ExecutivePerformance } from '@/components/ExecutivePerformance';
-import { IncentiveTracker } from '@/components/IncentiveTracker';
+import { IncentiveSheet } from '@/components/IncentiveSheet';
 import { PageHeader } from '@/components/PageHeader';
 import { SalesTeam } from '@/components/SalesTeam';
-import { Card, Delta, Meter, Segmented } from '@/components/ui';
+import { Segmented } from '@/components/ui';
 import { useFilters } from '@/lib/filters';
-import { asPct, inr, monthLabel, monthTick, num, pct } from '@/lib/format';
+import { asPct, inr, monthLabel, monthTick, pct } from '@/lib/format';
 
 type GroupBy = 'region' | 'rsm' | 'state' | 'asm';
 
 export default function Territory() {
-  const { searchParams, update, apiParams } = useFilters();
-  const [drill, setDrill] = useState<ConversionDrillSpec | null>(null);
+  const { searchParams, update } = useFilters();
   const groupBy = (['region', 'rsm', 'state', 'asm'].includes(searchParams.get('group_by') ?? '') ? searchParams.get('group_by') : 'region') as GroupBy;
   const q = useAnalytics<TerritoryData>('/territory/', { group_by: groupBy });
   const t = useChartTokens();
@@ -110,93 +107,10 @@ export default function Territory() {
           }
         />
       </div>
-      <Card
-        title={`${groupLabel} scorecard`}
-        className="mt-4"
-        // ASM targets are maintained by the team in Excel: export / upload / edit the monthly tracker here
-        actions={<AsmTrackerActions month={q.data?.meta?.period?.to?.slice(0, 7)} />}
-      >
-        <DataTable
-          rows={d?.rows}
-          loading={q.isLoading}
-          fetching={q.isFetching}
-          error={q.error}
-          onRetry={() => q.refetch()}
-          rowKey={(r) => r.id}
-          exportName={`territory_by_${groupBy}`}
-          exportPath="/territory/"
-          exportParams={{ ...apiParams, group_by: groupBy }}
-          initialSort={{ key: 'sales', dir: 'desc' }}
-          onRowClick={(r) => update({ [groupBy]: String(r.id) })}
-          columns={[
-            {
-              key: 'name',
-              header: groupLabel,
-              render: (r) => (
-                <span>
-                  <span className="font-medium">{r.name}</span>
-                  {groupBy === 'asm' && r.rsm && <span className="ml-1.5 text-xs text-muted">RSM {r.rsm}</span>}
-                  {groupBy === 'rsm' && r.region && <span className="ml-1.5 text-xs text-muted">{r.region}</span>}
-                </span>
-              ),
-            },
-            { key: 'sales', header: 'Sales', align: 'right', render: (r) => inr(r.sales) },
-            { key: 'target', header: 'Target', align: 'right', render: (r) => inr(r.target) },
-            {
-              key: 'achievement_pct',
-              header: 'Achieved',
-              align: 'right',
-              render: (r) => {
-                const a = asPct(r.achievement_pct);
-                return (
-                  <div className="flex items-center justify-end gap-2">
-                    <div className="w-20"><Meter value={a} tone={a === null ? 'brand' : a >= 100 ? 'good' : a >= 80 ? 'warn' : 'bad'} /></div>
-                    <span className="w-12">{pct(a, 0)}</span>
-                  </div>
-                );
-              },
-            },
-            { key: 'growth_pct', header: 'Growth', align: 'right', render: (r) => <Delta value={r.growth_pct} suffix="" /> },
-            { key: 'orders', header: 'Orders', align: 'right', render: (r) => num(r.orders) },
-            { key: 'active_retailers', header: 'Active retailers', align: 'right', render: (r) => num(r.active_retailers) },
-            { key: 'new_retailers', header: 'New', align: 'right', render: (r) => <DrillNum n={r.new_retailers} onOpen={() => setDrill({ groupBy, id: r.id, name: r.name, kind: 'new' })} title="First-ever TD order in the period" /> },
-            { key: 'bo_conversions', header: 'BO → TD', align: 'right', render: (r) => <DrillNum n={r.bo_conversions} onOpen={() => setDrill({ groupBy, id: r.id, name: r.name, kind: 'bo' })} title="BlueOrigin retailers (offline first) who placed their first TD order in the period" /> },
-            { key: 'bo_gps', header: 'BO G/P/S', align: 'right', render: (r) => <DrillNum n={r.bo_gps} onOpen={() => setDrill({ groupBy, id: r.id, name: r.name, kind: 'gps' })} title="Gold / Platinum / Silver among the BO → TD conversions" /> },
-            { key: 'kyc_base', header: 'KYC base', align: 'right', render: (r) => num(r.kyc_base) },
-            { key: 'adoption_pct', header: 'Adoption', align: 'right', render: (r) => pct(asPct(r.adoption_pct), 0) },
-            { key: 'distributors', header: 'Distributors', align: 'right', render: (r) => num(r.distributors) },
-            ...(groupBy === 'rsm' || groupBy === 'asm'
-              ? [{ key: 'field_staff' as const, header: 'Field staff', align: 'right' as const, value: (r: TerritoryRow) => r.field_staff ?? 0, render: (r: TerritoryRow) => num(r.field_staff ?? 0) }]
-              : []),
-            { key: 'sales_per_retailer', header: 'Sales / active retailer', align: 'right', value: (r) => r.sales_per_retailer ?? null, render: (r) => inr(r.sales_per_retailer) },
-          ]}
-        />
-        <p className="mt-2 text-2xs text-muted">
-          Click a row to filter the whole dashboard to that {groupLabel.toLowerCase()}. Click a New, BO → TD or BO G/P/S number to see those retailers.
-          BO → TD = retailers buying offline in BlueOrigin before the period who placed their first TD order in it, counted under their BlueOrigin {groupLabel.toLowerCase()}.
-        </p>
-        <ConversionDrill spec={drill} onClose={() => setDrill(null)} />
-      </Card>
+      {/* the team's incentive sheet, row for row (replaces the region scorecard, 2026-11-23); ASM tracker
+          export / upload / edit stays on it */}
+      <IncentiveSheet month={q.data?.meta?.period?.to?.slice(0, 7)} actions={<AsmTrackerActions month={q.data?.meta?.period?.to?.slice(0, 7)} />} />
       <ExecutivePerformance month={q.data?.meta?.period?.to?.slice(0, 7)} />
-      <IncentiveTracker month={q.data?.meta?.period?.to?.slice(0, 7)} />
     </div>
-  );
-}
-
-/** A count that opens its retailer list (stops the row click, which filters the dashboard). */
-function DrillNum({ n, onOpen, title }: { n: number; onOpen: () => void; title: string }) {
-  if (!n) return <span className="text-muted">0</span>;
-  return (
-    <button
-      type="button"
-      className="font-medium text-ink underline decoration-dotted underline-offset-4 hover:text-brand"
-      title={`${title} - click to see them`}
-      onClick={(e) => {
-        e.stopPropagation();
-        onOpen();
-      }}
-    >
-      {num(n)}
-    </button>
   );
 }

@@ -125,6 +125,23 @@ export default function Products() {
           loading={q.isLoading}
           table={d?.category_mix ? { columns: ['Category I', 'Category II', 'Sales', 'Units', 'Share', 'Realisation/unit', 'Units/order'], rows: d.category_mix.map((c) => [cap(c.l1), c.l2, inr(c.sales), num(c.units), pct(c.share), inr(c.realisation, { compact: false }), num(c.units_per_order, 1)]) } : undefined}
         />
+        <Card title="Category by region" subtitle="Each region's sales by Category I and the category's share of that region">
+          <DataTable
+            rows={d?.category_by_region}
+            loading={q.isLoading}
+            rowKey={(r) => `${r.region}-${r.l1}`}
+            exportName="category_by_region"
+            pageSize={10}
+            dense
+            columns={[
+              { key: 'region', header: 'Region' },
+              { key: 'l1', header: 'Category I', render: (r) => cap(r.l1) },
+              { key: 'sales', header: 'Sales', align: 'right', render: (r) => inr(r.sales) },
+              { key: 'share_of_region', header: 'Share of region', align: 'right', render: (r) => pct(r.share_of_region, 1) },
+              { key: 'realisation', header: 'Realisation/unit', align: 'right', render: (r) => inr(r.realisation, { compact: false }) },
+            ]}
+          />
+        </Card>
         <ChartCard
           className="xl:col-span-2"
           title="Category mix by month"

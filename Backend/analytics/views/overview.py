@@ -227,6 +227,9 @@ class OverviewView(AnalyticsView):
                     "message": f"Run rate {fmt_inr(curr)}/day vs required {fmt_inr(req)}/day "
                                f"({target['achievement_pct']}% of {fmt_inr(target['target'])} achieved)",
                     "link": "/overview"})
+        from ..alerts import extra_exceptions
+
+        out += extra_exceptions(f)  # distributors / regions behind target, refunds pending, selling SKUs out of stock
         sev_rank = {"high": 0, "medium": 1, "low": 2}
         dq = defaultdict(lambda: [0, "low", ""])
         for code, label, sev, n in (DataQualityIssue.objects.filter(resolved_at__isnull=True)

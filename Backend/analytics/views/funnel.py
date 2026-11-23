@@ -1,7 +1,7 @@
 import datetime as dt
 from collections import defaultdict
 
-from django.db.models import Case, Count, DecimalField, F, IntegerField, OuterRef, Q, Subquery, Sum, Value, When
+from django.db.models import Case, Count, DecimalField, F, IntegerField, Max, OuterRef, Q, Subquery, Sum, Value, When
 from django.db.models.functions import Coalesce, TruncMonth
 from django.http import Http404
 from django.utils import timezone
@@ -30,6 +30,30 @@ def retailer_base(f):
     if f.kyc_verified is not None:  # "KYC Verified" module filter (Retailers, Funnel)
         qs = qs.filter(kyc_status="approved") if f.kyc_verified else qs.exclude(kyc_status="approved")
     return qs  # BlueOrigin tier: applied by dims_q
+
+
+def _day0(d):
+    return timezone.make_aware(dt.datetime.combine(d, dt.time.min))
+
+
+def kyc_by(end):
+    """Retailers whose KYC was approved by `end`. The TD data has no approval date, so the sign-up date stands in
+    (user's choice, 2026-11-15): approved today and signed up on or before `end`."""
+    return Q(kyc_status="approved", signed_up_at__lt=_day0(end + dt.timedelta(days=1)))
+
+
+def never_by(end):
+    """KYC-approved by `end` with no order up to `end` (the 'Never ordered' tile as on the period's last day)."""
+    return kyc_by(end) & (Q(first_order_date__isnull=True) | Q(first_order_date__gt=end))
+
+
+def inactive_ids(f, end, lo, hi=None):
+    """Retailer ids whose last qualifying order up to `end` is `lo`..`hi`-1 days before `end` (hi None = no limit)."""
+    last = f.orders(end=end).values("retailer_id").annotate(last=Max("placed_date"))
+    last = last.filter(last__lte=end - dt.timedelta(days=lo))
+    if hi is not None:
+        last = last.filter(last__gt=end - dt.timedelta(days=hi))
+    return last.values("retailer_id")
 
 
 def mask_phone(phone, can_see):
@@ -79,20 +103,18 @@ class FunnelView(AnalyticsView):
                   .filter(n__gte=2).count())
         agg = rb.aggregate(
             signed=Count("id", filter=Q(signed_up_at__isnull=True) | Q(signed_up_at__lt=end_excl)),
-            approved=Count("id", filter=Q(kyc_status="approved")),
+            # KYC, never-ordered and inactivity tiles: the position at the END of the selected period
+            # (Q2 -> as on 30 Sep; a period ending today -> today), not always today
+            approved=Count("id", filter=kyc_by(p.end)),
             first=Count("id", filter=Q(first_order_date__lte=p.end)),
-            pending=Count("id", filter=Q(kyc_status="pending")),
-            rejected=Count("id", filter=Q(kyc_status="rejected")),
-            never=Count("id", filter=Q(kyc_status="approved", orders_count=0)),
-            never_warm=Count("id", filter=Q(kyc_status="approved", orders_count=0, warm_match=True)),
-            never_flagged=Count("id", filter=Q(kyc_status="approved", orders_count=0) & (
-                Q(distributor__isnull=True) | Q(state__isnull=True))),
-            d30=Count("id", filter=Q(last_order_date__lte=t - dt.timedelta(days=30),
-                                     last_order_date__gt=t - dt.timedelta(days=60))),
-            d60=Count("id", filter=Q(last_order_date__lte=t - dt.timedelta(days=60),
-                                     last_order_date__gt=t - dt.timedelta(days=90))),
-            d90=Count("id", filter=Q(last_order_date__lte=t - dt.timedelta(days=90))),
+            pending=Count("id", filter=Q(kyc_status="pending", signed_up_at__lt=end_excl)),
+            rejected=Count("id", filter=Q(kyc_status="rejected", signed_up_at__lt=end_excl)),
+            never=Count("id", filter=never_by(p.end)),
+            never_warm=Count("id", filter=never_by(p.end) & Q(warm_match=True)),
+            never_flagged=Count("id", filter=never_by(p.end) & (Q(distributor__isnull=True) | Q(state__isnull=True))),
         )
+        agg.update({k: rb.filter(id__in=inactive_ids(f, p.end, lo, hi)).count()
+                    for k, lo, hi in (("d30", 30, 60), ("d60", 60, 90), ("d90", 90, None))})
         active = cur_orders.values("retailer_id").distinct().count()
         warm_ready = Retailer.objects.filter(warm_match=True).exists()
         stages = [
@@ -262,7 +284,7 @@ def retailer_row(r, can_pii, today, rsm_ctx=None, rfm_rows=None):
 
 
 FUNNEL_STAGES = ("signed_up", "kyc_approved", "first_order", "repeat_order", "active_this_period", "kyc_pending",
-                 "kyc_rejected", "never_flagged", "kyc_ever_ordered", "kyc_active", "first_order_30d")
+                 "kyc_rejected", "never_flagged", "never_ordered", "inactive_30", "inactive_60", "inactive_90", "kyc_ever_ordered", "kyc_active", "first_order_30d")
 
 
 def _month_arg(q, key):
@@ -294,11 +316,16 @@ def funnel_drill(f, qs, q):
     if stage == "signed_up":
         qs = qs.filter(Q(signed_up_at__isnull=True) | Q(signed_up_at__lt=day0(p.end + dt.timedelta(days=1))))
     elif stage == "kyc_approved":
-        qs = qs.filter(kyc_status="approved")
+        qs = qs.filter(kyc_by(p.end))
     elif stage == "kyc_pending":
-        qs = qs.filter(kyc_status="pending")
+        qs = qs.filter(kyc_status="pending", signed_up_at__lt=day0(p.end + dt.timedelta(days=1)))
     elif stage == "kyc_rejected":
-        qs = qs.filter(kyc_status="rejected")
+        qs = qs.filter(kyc_status="rejected", signed_up_at__lt=day0(p.end + dt.timedelta(days=1)))
+    elif stage == "never_ordered":
+        qs = qs.filter(never_by(p.end))
+    elif stage in ("inactive_30", "inactive_60", "inactive_90"):
+        lo = int(stage[-2:])
+        qs = qs.filter(id__in=inactive_ids(f, p.end, lo, None if lo == 90 else lo + 30))
     elif stage == "first_order":
         qs = qs.filter(first_order_date__lte=p.end)
     elif stage == "kyc_ever_ordered":
@@ -312,7 +339,7 @@ def funnel_drill(f, qs, q):
         if stage == "kyc_active":
             qs = qs.filter(kyc_status="approved")
     elif stage == "never_flagged":
-        qs = qs.filter(Q(kyc_status="approved", orders_count=0) & (Q(distributor__isnull=True) | Q(state__isnull=True)))
+        qs = qs.filter(never_by(p.end) & (Q(distributor__isnull=True) | Q(state__isnull=True)))
     elif stage == "first_order_30d":
         ids = [rid for rid, su, fo in qs.filter(
             kyc_status="approved", signed_up_at__isnull=False, first_order_date__isnull=False,

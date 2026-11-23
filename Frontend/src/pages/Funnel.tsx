@@ -79,7 +79,7 @@ export default function Funnel() {
       <PageHeader title="Retailer Funnel" subtitle="Sign-up → KYC → first order → repeat · click any number, bar or row to see its retailers" meta={q.data?.meta} />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
-        <MiniStat label="Never ordered" value={num(d?.never_ordered.total)} sub="KYC approved, zero orders" onClick={() => open('Never ordered', { segment: 'never_ordered', stage: 'kyc_approved' }, 'KYC approved, zero orders')} />
+        <MiniStat label="Never ordered" value={num(d?.never_ordered.total)} sub="KYC approved, zero orders" onClick={() => open('Never ordered', { stage: 'never_ordered' }, 'KYC approved, no order by the end of the period')} />
         {d && d.never_ordered.warm_available === false ? (
           <>
             <MiniStat label="· Warm (ledger match)" value="–" sub="BlueOrigin ledger not loaded yet" />
@@ -87,14 +87,14 @@ export default function Funnel() {
           </>
         ) : (
           <>
-            <MiniStat label="· Warm (ledger match)" value={num(d?.never_ordered.warm)} sub="Existing BlueOrigin buyers" onClick={() => open('Never ordered · warm', { segment: 'never_ordered', stage: 'kyc_approved', warm: 'true' }, 'Existing BlueOrigin buyers who have not ordered on the app')} />
-            <MiniStat label="· Cold" value={num(d?.never_ordered.cold)} onClick={() => open('Never ordered · cold', { segment: 'never_ordered', stage: 'kyc_approved', warm: 'false' }, 'Not found in the BlueOrigin ledger')} />
+            <MiniStat label="· Warm (ledger match)" value={num(d?.never_ordered.warm)} sub="Existing BlueOrigin buyers" onClick={() => open('Never ordered · warm', { stage: 'never_ordered', warm: 'true' }, 'Existing BlueOrigin buyers who have not ordered on the app')} />
+            <MiniStat label="· Cold" value={num(d?.never_ordered.cold)} onClick={() => open('Never ordered · cold', { stage: 'never_ordered', warm: 'false' }, 'Not found in the BlueOrigin ledger')} />
           </>
         )}
         <MiniStat label="· Flagged" value={num(d?.never_ordered.flagged)} sub="Data issues to fix" tone={d?.never_ordered.flagged ? 'warn' : undefined} onClick={() => open('Never ordered · flagged', { stage: 'never_flagged' }, 'No distributor or state mapped')} />
-        <MiniStat label="Inactive 30+ days" value={num(d?.inactivity.d30)} onClick={() => open('Inactive 30–59 days', { segment: 'inactive_30' })} />
-        <MiniStat label="Inactive 60+ days" value={num(d?.inactivity.d60)} onClick={() => open('Inactive 60–89 days', { segment: 'inactive_60' })} />
-        <MiniStat label="Inactive 90+ days" value={num(d?.inactivity.d90)} tone={d?.inactivity.d90 ? 'bad' : undefined} onClick={() => open('Inactive 90+ days', { segment: 'inactive_90' })} />
+        <MiniStat label="Inactive 30+ days" value={num(d?.inactivity.d30)} onClick={() => open('Inactive 30–59 days', { stage: 'inactive_30' }, 'Days since the last order, counted from the end of the period')} />
+        <MiniStat label="Inactive 60+ days" value={num(d?.inactivity.d60)} onClick={() => open('Inactive 60–89 days', { stage: 'inactive_60' }, 'Days since the last order, counted from the end of the period')} />
+        <MiniStat label="Inactive 90+ days" value={num(d?.inactivity.d90)} tone={d?.inactivity.d90 ? 'bad' : undefined} onClick={() => open('Inactive 90+ days', { stage: 'inactive_90' }, 'Days since the last order, counted from the end of the period')} />
       </div>
 
       <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-3">

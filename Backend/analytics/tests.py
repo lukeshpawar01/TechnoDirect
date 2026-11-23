@@ -212,8 +212,10 @@ class EndpointShapeTests(TestCase):
         d = self.c.get("/api/orders/summary/?preset=last_12m").json()["data"]
         self.assertEqual(set(d), {"status_counts", "ageing", "open_window_days", "stale_open", "tat", "cancellation_rate",
                                   "payment", "order_payment_modes", "order_platforms", "split_orders", "sla_breaches",
-                                  "crm"})
-        self.assertNotIn("refunds", d)
+                                  "crm", "pending_by_distributor", "refunds"})
+        # refunds come from the finance tracker (settlement sheet), not from PayU
+        self.assertEqual(set(d["refunds"]), {"refunded", "refunded_value", "median_days_to_refund", "within_7_days_pct",
+                                             "pending", "pending_value", "pending_oldest_days"})
         lst = self.c.get("/api/orders/?preset=last_12m").json()
         self.assertEqual(set(lst), {"count", "next", "previous", "results"})
         self.assertEqual(lst["count"], 3)

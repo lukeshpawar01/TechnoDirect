@@ -364,6 +364,58 @@ export default function Orders() {
               />
             )}
           </div>
+
+          <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <Card
+              className="lg:col-span-2"
+              title="Waiting for dispatch, by distributor"
+              subtitle="Placed or confirmed, not yet shipped (last 30 days) · age counted to the latest TD data · click a row for its orders"
+            >
+              <DataTable
+                rows={d?.pending_by_distributor}
+                loading={q.isLoading}
+                rowKey={(r) => `${r.distributor_id}`}
+                exportName="orders_waiting_by_distributor"
+                emptyTitle="Nothing waiting for dispatch"
+                pageSize={8}
+                dense
+                onRowClick={(r) =>
+                  r.distributor_id &&
+                  setDrill({ title: `Waiting for dispatch · ${r.distributor}`, subtitle: `${num(r.open)} orders · ${inr(r.value)}`, params: { distributor: String(r.distributor_id), order_status: 'received,confirmed' } })
+                }
+                columns={[
+                  { key: 'distributor', header: 'Distributor' },
+                  { key: 'open', header: 'Waiting', align: 'right', render: (r) => num(r.open) },
+                  { key: 'over_48h', header: 'Over 48 h', align: 'right', render: (r) => (r.over_48h ? <span className="font-semibold text-bad">{num(r.over_48h)}</span> : '0') },
+                  { key: 'oldest_hours', header: 'Oldest', align: 'right', render: (r) => hours(r.oldest_hours) },
+                  { key: 'value', header: 'Value', align: 'right', render: (r) => inr(r.value) },
+                ]}
+              />
+            </Card>
+            <Card title="Customer refunds" subtitle="From the finance Order Tracking sheet">
+              {d?.refunds ? (
+                <div className="grid grid-cols-2 gap-3">
+                  <MiniStat label="Refunded in period" value={num(d.refunds.refunded)} sub={inr(d.refunds.refunded_value)} />
+                  <MiniStat
+                    label="Days to refund"
+                    value={d.refunds.median_days_to_refund === null ? '–' : `${d.refunds.median_days_to_refund} d`}
+                    sub={d.refunds.within_7_days_pct === null ? 'median, order to refund' : `median · ${pct(d.refunds.within_7_days_pct, 0)} within 7 days`}
+                  />
+                  <div className="col-span-2">
+                    <MiniStat
+                      label="Refunds still pending"
+                      value={num(d.refunds.pending)}
+                      sub={d.refunds.pending ? `${inr(d.refunds.pending_value)} · oldest ${d.refunds.pending_oldest_days} days` : 'none'}
+                      tone={d.refunds.pending ? 'warn' : 'good'}
+                      to={linkWithFilters('/settlements', searchParams)}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <LoadingBlock height={120} />
+              )}
+            </Card>
+          </div>
         </>
       )}
 

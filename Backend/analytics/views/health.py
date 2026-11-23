@@ -75,6 +75,9 @@ class DataHealthView(AnalyticsView):
         nxt = _iso(next_scheduled())
         sources = []
         refresh_ok = source_state(REFRESH_SOURCE)[1]
+        # sources the last successful "Refresh All" checked and found unchanged (skipped: no run of their own is logged)
+        checked_ok = {st.get("source") for st in ((refresh_ok.details or {}).get("steps") or [])
+                      if st.get("status") == "skipped"} if refresh_ok is not None else set()
         # the sheet / file sources run inside "Refresh All" but get their own card, with where they were read from
         for s in list(CONNECTORS) + ["settlement", "distributor_sync", "targets_sheet", "blueorigin", "derivations",
                                      REFRESH_SOURCE]:
@@ -88,11 +91,23 @@ class DataHealthView(AnalyticsView):
                     and refresh_ok is not None and refresh_ok.finished_at and last_run.finished_at
                     and refresh_ok.finished_at >= last_run.finished_at):
                 status = evaluate_status(refresh_ok, refresh_ok)
+            # its last own run failed (e.g. no internet) but a later successful refresh read it and found it unchanged:
+            # the earlier failure is over - the data is the last successful import, still current
+            recovered = (s in checked_ok and last_run is not None and last_run.status == "failed"
+                         and refresh_ok.finished_at and last_run.finished_at
+                         and refresh_ok.finished_at >= last_run.finished_at and last_success is not None)
+            if recovered:
+                status = evaluate_status(refresh_ok, refresh_ok)
             sources.append({
                 "source": s, "status": status,
                 "last_run_at": _iso(last_run.finished_at if last_run else None),
                 "last_success_at": _iso(last_success.finished_at if last_success else None),
-                "last_error": (last_run.error[:500] if last_run and last_run.error else None),
+                # checked by a later successful refresh and found unchanged: when, and the rows of the last real import
+                "last_checked_at": _iso(refresh_ok.finished_at) if (
+                    s in checked_ok and refresh_ok is not None and refresh_ok.finished_at and last_success is not None
+                    and last_success.finished_at and refresh_ok.finished_at > last_success.finished_at) else None,
+                "rows_loaded": last_success.rows if last_success else 0,
+                "last_error": (last_run.error[:500] if last_run and last_run.error and not recovered else None),
                 "rows_last_run": last_run.rows if last_run else 0,
                 "via": (VIA_LABEL.get(((last_success.details or {}).get("via") or "").split(":")[0])
                         or DEFAULT_VIA.get(s)) if last_success else None,

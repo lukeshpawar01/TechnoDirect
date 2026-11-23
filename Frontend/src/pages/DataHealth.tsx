@@ -93,9 +93,19 @@ export default function DataHealth() {
                   <StatusBadge status={s.status} />
                 </div>
                 <dl className="mt-2 space-y-1 text-xs">
-                  <div className="flex justify-between"><dt className="text-muted">Last success</dt><dd title={dateTime(s.last_success_at)}>{relTime(s.last_success_at)}</dd></div>
+                  {s.last_checked_at ? (
+                    <>
+                      <div className="flex justify-between"><dt className="text-muted">Last checked</dt><dd title={dateTime(s.last_checked_at)}>{relTime(s.last_checked_at)} · no changes</dd></div>
+                      <div className="flex justify-between"><dt className="text-muted">Data loaded</dt><dd title={dateTime(s.last_success_at)}>{dateTime(s.last_success_at)}</dd></div>
+                    </>
+                  ) : (
+                    <div className="flex justify-between"><dt className="text-muted">Last success</dt><dd title={dateTime(s.last_success_at)}>{relTime(s.last_success_at)}</dd></div>
+                  )}
                   {s.via && <div className="flex justify-between"><dt className="text-muted">Comes from</dt><dd>{s.via}</dd></div>}
-                  <div className="flex justify-between"><dt className="text-muted">Rows last run</dt><dd>{num(s.rows_last_run)}</dd></div>
+                  <div className="flex justify-between">
+                    <dt className="text-muted">{s.last_checked_at ? 'Rows in use' : 'Rows last run'}</dt>
+                    <dd>{num(s.last_checked_at ? (s.rows_loaded ?? s.rows_last_run) : s.rows_last_run)}</dd>
+                  </div>
                   <div className="flex justify-between"><dt className="text-muted">Next run</dt><dd>{dateTime(s.next_run_at)}</dd></div>
                 </dl>
                 {s.last_error && <div className="mt-2 line-clamp-3 rounded bg-bad-bg px-2 py-1 text-2xs text-bad" title={s.last_error}>{s.last_error}</div>}

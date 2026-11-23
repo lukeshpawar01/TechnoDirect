@@ -7,7 +7,7 @@ from django.utils import timezone
 
 from analytics import conversions as cv
 from analytics.filters import system_filters
-from warehouse.models import Asm, BoRetailer, BoRetailerMonth, Distributor, Order, Retailer
+from warehouse.models import Asm, BoRetailer, BoRetailerMonth, BoRetailerQuarter, Distributor, Order, Retailer
 
 D = dt.date
 
@@ -23,6 +23,9 @@ class ConversionTests(TestCase):
         r = self._r("bo-gold", "Gold", D(2026, 10, 5), self.d1)
         b = BoRetailer.objects.create(bo_id="B1", name="x", distributor=self.d2, asm=self.a2, td_retailer=r)
         BoRetailerMonth.objects.create(bo_retailer=b, month=D(2026, 6, 1), value=Decimal(900))
+        BoRetailerQuarter.objects.create(bo_retailer=b, quarter=D(2026, 7, 1), label="Q2 FY27", tier="Gold")
+        # a later quarter (would include the TD orders themselves) must not be used for an October conversion
+        BoRetailerQuarter.objects.create(bo_retailer=b, quarter=D(2026, 10, 1), label="Q3 FY27", tier="Yellow")
         # in BO only from October: not a conversion
         r2 = self._r("bo-late", "Silver", D(2026, 10, 7), self.d1)
         b2 = BoRetailer.objects.create(bo_id="B2", name="y", distributor=self.d1, asm=self.a1, td_retailer=r2)

@@ -86,6 +86,17 @@ class ProductsView(AnalyticsView):
                     for r in line_qs(f, months12[0], p.end).annotate(m=TruncMonth("order__placed_date")).values(
                         "m", "product__category_l1", "product__category_l2").annotate(s=Sum("total")).order_by("m")]
 
+        # Category I by region (requirements 4.6: product performance by region): each region's sales of a category
+        # and that category's share of the region's sales
+        reg_tot = {r["order__region__name"]: float(r["s"] or 0) for r in lines.values("order__region__name")
+                   .annotate(s=Sum("total"))}
+        category_by_region = [{
+            "region": r["order__region__name"] or "Unmapped", "l1": r["product__category_l1"] or "Unclassified",
+            "sales": num(r["s"]), "units": r["u"] or 0, "realisation": ratio(r["s"], r["u"]),
+            "share_of_region": share(r["s"], reg_tot.get(r["order__region__name"])),
+        } for r in lines.values("order__region__name", "product__category_l1").annotate(
+            s=Sum("total"), u=Sum("quantity")).order_by("order__region__name", "-s")]
+
         # New articles: first ever sold in the last 6 months (deck slide 61)
         six_start = add_months(month_start(p.end), -5)
         # lines filtered like the rest of the page (category / style), not "every line of a matching order"
@@ -107,6 +118,7 @@ class ProductsView(AnalyticsView):
             "bottom_articles": [art(a) for a in sorted(sold, key=lambda a: a["s"])[:20]],
             "new_launches": new_launches, "size_mix": size_mix,
             "category_mix": category_mix, "category_mix_monthly_l1l2": mix_l1l2, "new_articles_6m": new_articles_6m,
+            "category_by_region": category_by_region,
             "concentration": {"top4_share": share(sum(sales_sorted[:4]), total),
                               "top12_share": share(sum(sales_sorted[:12]), total),
                               "distinct_articles": len(sold)},
