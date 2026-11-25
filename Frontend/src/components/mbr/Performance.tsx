@@ -1,10 +1,10 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { inr, monthLabel, num, pct, signedPct } from '@/lib/format';
 import { useChartTokens } from '@/charts/EChart';
 import { cartesian } from '@/charts/builders';
 import { ChartCard } from '@/components/ChartCard';
-import { Badge, Card, Meter, cx } from '@/components/ui';
+import { Badge, Card, Meter, Segmented, cx } from '@/components/ui';
 import { IconInfo } from '@/components/Icons';
 import { Change, MiniTrend, NoteBox, STATUS_TONE, SectionTitle, Verdict, fmt, statusText, useSaveReview } from './shared';
 import type { MbrNotes, ScoreRow, Scorecard } from './types';
@@ -189,13 +189,27 @@ function ScoreTable({ s }: { s: Scorecard }) {
   );
 }
 
+type Dim = keyof Scorecard['territory'];
+const DIMS: { value: Dim; label: string }[] = [
+  { value: 'region', label: 'Region' }, { value: 'rsm', label: 'RSM' }, { value: 'state', label: 'State' }, { value: 'asm', label: 'ASM' },
+];
+
 function RegionCard({ s, className }: { s: Scorecard; className?: string }) {
+  const [dim, setDim] = useState<Dim>('region');
+  const label = DIMS.find((d) => d.value === dim)!.label;
   return (
-    <Card className={className} title="Regions vs target" subtitle={`${s.compare.current}; growth vs ${s.compare.prev}`} bodyClass="p-0">
+    <Card
+      className={className}
+      title={`${label === 'Region' ? 'Regions' : label === 'State' ? 'States' : `${label}s`} vs target`}
+      subtitle={`${s.compare.current}; growth vs ${s.compare.prev}`}
+      actions={<Segmented value={dim} onChange={setDim} size="xs" options={DIMS} />}
+      bodyClass="p-0"
+    >
+      <div className={cx(s.territory[dim].length > 10 && 'max-h-[30rem] overflow-y-auto')}>
       <table className="w-full text-sm">
-        <thead>
+        <thead className="sticky top-0 bg-surface">
           <tr className="border-b border-line text-left text-xs text-muted">
-            <th className="px-4 py-2 font-medium">Region</th>
+            <th className="px-4 py-2 font-medium">{label}</th>
             <th className="px-3 py-2 text-right font-medium">Sales</th>
             <th className="w-[34%] px-3 py-2 font-medium">Of target</th>
             <th className="px-3 py-2 text-right font-medium">MoM</th>
@@ -203,7 +217,7 @@ function RegionCard({ s, className }: { s: Scorecard; className?: string }) {
           </tr>
         </thead>
         <tbody>
-          {s.regions.map((r) => {
+          {s.territory[dim].map((r) => {
             const a = r.achievement_pct;
             // mid-month, judge by where the region lands at the current daily rate
             const proj = a === null ? null : s.partial ? (a * s.days_total) / s.days_elapsed : a;
@@ -230,6 +244,7 @@ function RegionCard({ s, className }: { s: Scorecard; className?: string }) {
           })}
         </tbody>
       </table>
+      </div>
       {s.partial && <p className="px-4 py-2 text-2xs text-muted">Month in progress: % of target is so far ({s.days_total - s.days_elapsed} days to go); the bar colour follows the projected month end.</p>}
     </Card>
   );

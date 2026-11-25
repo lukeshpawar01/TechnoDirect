@@ -35,7 +35,10 @@ export function Growth({ s, notes }: { s: Scorecard; notes: MbrNotes }) {
         label={`${pct(p.goal_pct, 0)} of the ${inr(p.goal)}/month goal`}
         aside={notes.can_edit ? <GoalEditor s={s} notes={notes} /> : undefined}
       >
-        To reach <b className="font-semibold">{inr(p.goal)} a month by {p.goal_by_label}</b>, TD has to grow{' '}
+        {p.territory_share_pct !== null && (
+          <>This territory made {pct(p.territory_share_pct, 1)} of TD's sales over the last 3 months, so its share of the {inr(p.national_goal)} goal is {inr(p.goal)}.{' '}</>
+        )}
+        To reach <b className="font-semibold">{inr(p.goal)} a month by {p.goal_by_label}</b>, {p.territory_share_pct !== null ? 'it' : 'TD'} has to grow{' '}
         <b className="font-semibold">{p.monthly_growth_needed_pct ?? '–'}% every month</b> for {p.months_left} months from {p.base_label}'s {inr(p.base_sales)}.
         At today's {inr(p.spend_per_retailer)} per transacting retailer that takes <b className="font-semibold">{num(p.retailers_needed)} transacting retailers</b>,{' '}
         {num(p.retailers_gap)} more than now. Adoption of the KYC base has to go from {pct(p.adoption_pct, 1)} to {pct(p.adoption_needed_pct, 1)}.
@@ -93,13 +96,13 @@ export function Growth({ s, notes }: { s: Scorecard; notes: MbrNotes }) {
 
 function GoalEditor({ s, notes }: { s: Scorecard; notes: MbrNotes }) {
   const [open, setOpen] = useState(false);
-  const [goal, setGoal] = useState(String(s.path.goal / 1e7));
+  const [goal, setGoal] = useState(String(s.path.national_goal / 1e7));
   const [by, setBy] = useState(s.path.goal_by);
   const save = useSaveReview(s.month);
   if (!open) return <button className="btn btn-sm" onClick={() => setOpen(true)}><IconEdit size={13} /> Goal</button>;
   return (
     <form className="flex flex-wrap items-end gap-2" onSubmit={(e) => { e.preventDefault(); save.mutate({ goal_monthly_sales: Number(goal) * 1e7, goal_by: by }, { onSuccess: () => setOpen(false) }); }}>
-      <Field label="₹ Cr per month"><input className="input w-24 tabular-nums" inputMode="decimal" value={goal} onChange={(e) => setGoal(e.target.value)} /></Field>
+      <Field label="All-TD goal, ₹ Cr per month"><input className="input w-24 tabular-nums" inputMode="decimal" value={goal} onChange={(e) => setGoal(e.target.value)} /></Field>
       <Field label="By"><input type="month" className="input w-36" value={by} min={notes.month} onChange={(e) => setBy(e.target.value)} /></Field>
       <button className="btn btn-sm btn-primary" disabled={save.isPending}>Save</button>
       <button type="button" className="btn btn-sm" onClick={() => setOpen(false)}>Cancel</button>

@@ -456,7 +456,22 @@ class RetailerListView(ExportListMixin, generics.ListAPIView):
         return qs.order_by(*resolve_ordering(q.get("ordering"), RETAILER_ORDER_FIELDS, "-period_sales"), "id")
 
     def get_serializer(self, *args, **kwargs):
-        return _RowSerializer(*args, request=self.request, **kwargs)
+        ser = _RowSerializer(*args, request=self.request, **kwargs)
+        if self.request.query_params.get("export") and isinstance(ser.data, list):
+            ser.data = [export_row(r) for r in ser.data]
+        return ser
+
+
+def export_row(r):
+    """CSV / XLSX row: the BlueOrigin tier sits beside the territory columns and is never blank."""
+    out = {}
+    for k, v in r.items():
+        if k == "tier":
+            continue
+        out[k] = v
+        if k == "rsm":
+            out["blueorigin_tier"] = r.get("tier") or "Not in BlueOrigin"
+    return out
 
 
 class _RowSerializer:

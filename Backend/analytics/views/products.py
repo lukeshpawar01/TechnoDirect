@@ -6,6 +6,7 @@ from django.db.models import Count, F, Max, Min, Q, Sum
 from django.db.models.functions import TruncMonth
 from django.utils import timezone
 from rest_framework import generics
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 
 from accounts.permissions import HasPerm
@@ -236,8 +237,20 @@ def latest_inventory(f):
     return qs
 
 
-def units_last_30d(f):
-    start = f.today - dt.timedelta(days=29)
+SOLD_WINDOWS = (30, 60, 90)
+
+
+def sold_days(request):
+    """The Inventory page's "units sold" window: ?sold_days=30|60|90 (default 30)."""
+    raw = request.query_params.get("sold_days") or "30"
+    if not raw.isdigit() or int(raw) not in SOLD_WINDOWS:
+        raise ValidationError({"sold_days": f"must be one of {SOLD_WINDOWS}"})
+    return int(raw)
+
+
+def units_last_30d(f, days=30):
+    """{(distributor_id, sku): units} sold in the last `days` days up to today (IST)."""
+    start = f.today - dt.timedelta(days=days - 1)
     return {(r["order__distributor_id"], r["sku"]): r["u"] for r in OrderLine.objects.filter(
         order__in=f.orders(start=start, end=f.today)).values("order__distributor_id", "sku").annotate(
         u=Sum("quantity"))}
@@ -248,7 +261,11 @@ class InventoryView(AnalyticsView):
     sources = ["channel_konnect", "supabase"]
     export_key = "oos_top_sellers"
 
+    def cache_extra(self, request, **kwargs):
+        return f"{super().cache_extra(request, **kwargs)}|sold={sold_days(request)}"
+
     def compute(self, f, request, **kw):
+        days = sold_days(request)
         low = settings.LOW_STOCK_THRESHOLD
         dists = Distributor.objects.filter(f.dims_q(DISTRIBUTOR_DIMS, retailer_field=None), is_active=True,
                                            bo_only=False)
@@ -275,7 +292,7 @@ class InventoryView(AnalyticsView):
             "oos_skus": inv.filter(quantity__lte=0).count(),
             "low_stock_skus": inv.filter(quantity__gt=0, quantity__lte=low).count(),
         }
-        sold = units_last_30d(f)
+        sold = units_last_30d(f, days)
         names = dict(dists.values_list("id", "name"))
         oos = []
         for did, sku, style, size, important in inv.filter(quantity__lte=0).values_list(
@@ -283,9 +300,9 @@ class InventoryView(AnalyticsView):
             u = sold.get((did, sku), 0)
             if u > 0 or important:
                 oos.append({"style": style, "size": size, "sku": sku, "distributor_id": did,
-                            "distributor": names.get(did), "last_30d_units": u, "important": bool(important)})
-        oos.sort(key=lambda x: (-x["last_30d_units"], not x["important"]))
-        return {"sync": sync, "summary": summary, "oos_top_sellers": oos[:100]}
+                            "distributor": names.get(did), "units_sold": u, "important": bool(important)})
+        oos.sort(key=lambda x: (-x["units_sold"], not x["important"]))
+        return {"sync": sync, "summary": summary, "oos_top_sellers": oos[:100], "sold_days": days}
 
 
 class _InvRows:
@@ -300,7 +317,7 @@ class _InvRows:
                          or None) if i.product_id else None,
             "quantity": i.quantity,
             "stock_status": "oos" if i.quantity <= 0 else ("low_stock" if i.quantity <= low else "in_stock"),
-            "last_30d_units": sold.get((i.distributor_id, i.sku), 0),
+            "units_sold": sold.get((i.distributor_id, i.sku), 0),
             "snapshot_date": i.snapshot_date.isoformat(),
             "synced_at": timezone.localtime(i.synced_at).isoformat(),
         } for i in items]
@@ -338,7 +355,7 @@ class InventoryItemsView(ExportListMixin, generics.ListAPIView):
 
     def get_serializer(self, *args, **kwargs):
         if not hasattr(self, "_sold"):
-            self._sold = units_last_30d(self.filters)
+            self._sold = units_last_30d(self.filters, sold_days(self.request))
         return _InvRows(*args, sold=self._sold, **kwargs)
 
 

@@ -85,7 +85,7 @@ export function RunRateButton() {
   return (
     <>
       <button
-        className="btn btn-sm"
+        className="btn-primary btn-sm shadow-sm ring-2 ring-brand/30 ring-offset-1 ring-offset-page"
         onClick={() => setOpen(true)}
         title="Current vs required daily sales, projection, and who is behind"
       >

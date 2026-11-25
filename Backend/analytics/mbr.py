@@ -44,7 +44,7 @@ class MonthData:
         self.lo, self.hi = lo, hi
         self.orders = list(f.orders(start=lo, end=hi).values_list(
             "retailer_id", "split_group", "placed_date", "gross_value", "units", "distributor_id", "region_id",
-            "retailer__first_order_date"))
+            "retailer__first_order_date", "state_id", "asm_id", "asm__rsm_id"))
         self.all_orders = list(f.orders(start=lo, end=hi, qualifying=False).values_list(
             "placed_date", "gross_value", "status", "placed_at", "delivered_at"))
         from .views.funnel import retailer_base
@@ -198,7 +198,7 @@ def scorecard(f, month):
                     "current": _window_label(cur_s, cur_e)},
         "targets_note": None if f.targets_comparable else "Targets are set per territory, so they are not shown with a tier or segment filter.",
         "headline": headline, "rows": rows, "trend": trend,
-        "regions": regions(f, data, m, win, tmaps if f.targets_comparable else None),
+        "territory": territory(f, data, m, win, tmaps if f.targets_comparable else None),
         "movers": movers(data, (cur_s, cur_e), win(pm)),
         "_cur": cur, "_trend": trend,
     }
@@ -228,31 +228,56 @@ def _window_label(s, e):
     return f"{s.day}–{e.day} {s:%b %Y}"
 
 
-def regions(f, data, m, win, tmaps):
+TERRITORY_DIMS = ("region", "rsm", "state", "asm")
+
+
+def territory(f, data, m, win, tmaps):
+    """Sales vs target for the month, by region / RSM / state / ASM ({dim: rows}) - the page-1 card's switch.
+    RSM = the order's ASM's RSM, else the RSM heading its region (as everywhere else, analytics/rsm.py)."""
+    from warehouse.models import Asm, Rsm, State
+
+    from .rsm import region_rsm_map
+
+    reg_rsm = region_rsm_map()
+    key = {"region": lambda r: r[6], "state": lambda r: r[8], "asm": lambda r: r[9],
+           "rsm": lambda r: r[10] or reg_rsm.get(r[6])}
+    models_ = {"region": Region, "rsm": Rsm, "state": State, "asm": Asm}
     s, e = win(m)
     ps, pe = win(add_months(m, -1))
-    cur, prev, active = defaultdict(float), defaultdict(float), defaultdict(set)
-    for r in data.rows(s, e):
-        cur[r[6]] += float(r[3] or 0)
-        if r[0]:
-            active[r[6]].add(r[0])
-    for r in data.rows(ps, pe):
-        prev[r[6]] += float(r[3] or 0)
-    targets = {}
+    cur_rows, prev_rows = data.rows(s, e), data.rows(ps, pe)
+    allowed = None
     if tmaps is not None:
-        allowed = set(Distributor.objects.filter(f.dims_q(DISTRIBUTOR_DIMS, retailer_field=None))
-                      .exclude(region_id__isnull=True).values_list("region_id", flat=True).distinct())
-        targets = {rid: float(v) for (rid, mm), v in target_values("region", list(allowed), [m], as_of=f.today).items()
-                   if v}
-    names = dict(Region.objects.filter(id__in=set(cur) | set(targets)).values_list("id", "name"))
-    out = []
-    for rid in set(cur) | set(targets):
-        t = targets.get(rid)
-        out.append({"id": rid, "name": names.get(rid, "Unmapped"), "sales": num(cur.get(rid)), "target": num(t) if t else None,
-                    "achievement_pct": pct(cur.get(rid), t) if t else None, "prev": num(prev.get(rid)),
-                    "mom_pct": delta_pct(cur.get(rid, 0), prev.get(rid)) if prev.get(rid) else None,
-                    "active_retailers": len(active.get(rid, ()))})
-    out.sort(key=lambda r: -r["sales"])
+        allowed = list(Distributor.objects.filter(f.dims_q(DISTRIBUTOR_DIMS, retailer_field=None)).values_list(
+            "region_id", "state_id", "asm_id", "asm__rsm_id"))
+    out = {}
+    for dim in TERRITORY_DIMS:
+        k = key[dim]
+        cur, prev, active = defaultdict(float), defaultdict(float), defaultdict(set)
+        for r in cur_rows:
+            cur[k(r)] += float(r[3] or 0)
+            if r[0]:
+                active[k(r)].add(r[0])
+        for r in prev_rows:
+            prev[k(r)] += float(r[3] or 0)
+        targets = {}
+        if allowed is not None:
+            pick = {"region": lambda a: a[0], "state": lambda a: a[1], "asm": lambda a: a[2],
+                    "rsm": lambda a: a[3] or reg_rsm.get(a[0])}[dim]
+            ids = {pick(a) for a in allowed}
+            ids = {i for i in ids if i}
+            targets = {tid: float(v) for (tid, mm), v in target_values(dim, list(ids), [m], as_of=f.today).items() if v}
+        keys = {i for i in set(cur) | set(targets) if cur.get(i) or targets.get(i)}
+        names = dict(models_[dim].objects.filter(id__in=[i for i in keys if i]).values_list("id", "name"))
+        rows = []
+        for tid in keys:
+            t = targets.get(tid)
+            rows.append({"id": tid, "name": names.get(tid, "Unmapped"), "sales": num(cur.get(tid)),
+                         "target": num(t) if t else None, "achievement_pct": pct(cur.get(tid), t) if t else None,
+                         "prev": num(prev.get(tid)),
+                         "mom_pct": delta_pct(cur.get(tid, 0), prev.get(tid)) if prev.get(tid) else None,
+                         "active_retailers": len(active.get(tid, ()))})
+        rows.sort(key=lambda r: -r["sales"])
+        out[dim] = rows
     return out
 
 

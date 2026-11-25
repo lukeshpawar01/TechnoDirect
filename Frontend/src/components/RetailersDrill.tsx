@@ -4,6 +4,7 @@ import { usePagedList } from '@/api/hooks';
 import type { RetailerRow } from '@/api/types';
 import { DataTable } from '@/components/DataTable';
 import { RfmDot } from '@/components/RfmPanel';
+import { TierChip } from '@/components/TierChip';
 import { Drawer } from '@/components/ui';
 import { linkWithFilters, useFilters } from '@/lib/filters';
 import { date, inr, num, titleCase } from '@/lib/format';
@@ -69,6 +70,12 @@ export function RetailersDrill({ spec, onClose, fromLabel }: { spec: RetailersDr
               { key: 'state', header: 'State' },
               { key: 'distributor', header: 'Distributor' },
               { key: 'asm', header: 'ASM' },
+              {
+                key: 'tier',
+                header: 'BO tier',
+                sortable: false,
+                render: (r) => (r.tier ? <TierChip tier={r.tier} /> : <span className="text-xs text-muted" title="Not found in the BlueOrigin sheets">–</span>),
+              },
               { key: 'kyc_status', header: 'KYC', render: (r) => titleCase(r.kyc_status) },
               {
                 key: 'rfm_label',

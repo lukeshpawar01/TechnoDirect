@@ -1,9 +1,13 @@
 """GET /api/analytics/mbr/?month=YYYY-MM - MBR page 1 scorecard and the page 2 path to the monthly sales goal."""
 import datetime as dt
+from dataclasses import replace
+
+from django.db.models import Sum
 
 from rest_framework.exceptions import ValidationError
 
-from ..filters import month_start
+from ..filters import month_end, month_start
+from ..metrics import num
 from ..mbr import GOAL_DEFAULT, default_goal_by, path_to_goal, scorecard
 from .base import AnalyticsView
 
@@ -29,6 +33,32 @@ def goal_for(month, today):
     return goal, by
 
 
+def territory_share(f, card):
+    """% of all-TD sales this territory made in the path's base months (the last 3 complete months)."""
+    full = [t for t in card["_trend"] if not (card["partial"] and t["month"] == card["month"])][-3:]
+    if not full:
+        return None
+    lo = dt.date.fromisoformat(full[0]["month"] + "-01")
+    hi = month_end(dt.date.fromisoformat(full[-1]["month"] + "-01"))
+    allf = replace(f, regions=[], states=[], asms=[], rsms=[])
+    total = float(allf.orders(start=lo, end=hi).aggregate(s=Sum("gross_value"))["s"] or 0)
+    mine = sum(t["sales"] for t in full)
+    return round(mine / total * 100, 2) if total else None
+
+
+def scope_label(f):
+    """'East · ASM Ravi Kumar' for the territory filters in force, or None for all TD."""
+    from warehouse.models import Asm, Region, Rsm, State
+
+    parts = []
+    for ids, model, prefix in ((f.regions, Region, ""), (f.rsms, Rsm, "RSM "), (f.states, State, ""),
+                               (f.asms, Asm, "ASM ")):
+        if ids:
+            names = sorted(str(getattr(o, "name", o)) for o in model.objects.filter(id__in=ids))
+            parts.append(prefix + ", ".join(names))
+    return " · ".join(parts) or None
+
+
 class MbrScorecardView(AnalyticsView):
     permission_code = "view_mbr"
     export_key = "rows"
@@ -44,7 +74,14 @@ class MbrScorecardView(AnalyticsView):
         m = parse_month(request.query_params.get("month"), f.today)
         card = scorecard(f, m)
         goal, by = goal_for(m, f.today)
+        national_goal, share_pct = goal, None
+        if f.regions or f.states or f.asms or f.rsms:
+            # a territory carries its share of the TD goal: its share of national sales in the same base months
+            share_pct = territory_share(f, card)
+            goal = national_goal * share_pct / 100 if share_pct else national_goal
         card["path"] = path_to_goal(f, card, goal, by)
+        card["path"].update(national_goal=num(national_goal), territory_share_pct=share_pct)
+        card["scope_label"] = scope_label(f)
         card.pop("_cur")
         card.pop("_trend")
         for t in card["trend"]:

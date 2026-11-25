@@ -727,7 +727,9 @@ export interface ProductTree {
 export interface Inventory {
   sync: { distributor_id: number; distributor: string; last_sync_at: string | null; status: string; skus: number; in_stock_skus: number; inventory_status?: string | null; stock_upload_mode?: string | null; stock_update_frequency?: string | null }[];
   summary: { live_styles: number; oos_skus: number; low_stock_skus: number };
-  oos_top_sellers: { style: string; size: string; distributor: string; last_30d_units: number }[];
+  oos_top_sellers: { style: string; size: string; distributor: string; units_sold: number }[];
+  /** window (days) the units sold cover */
+  sold_days?: number;
 }
 export interface InventoryItem {
   distributor: string;
@@ -738,7 +740,8 @@ export interface InventoryItem {
   category?: string | null;
   quantity: number;
   stock_status: 'oos' | 'low_stock' | 'in_stock';
-  last_30d_units?: number;
+  /** units sold in the page's window (sold_days) */
+  units_sold?: number;
   snapshot_date?: string;
   [k: string]: unknown;
 }

@@ -4,7 +4,7 @@ import type { Inventory as InventoryData, InventoryItem } from '@/api/types';
 import { DataTable } from '@/components/DataTable';
 import { MiniStat } from '@/components/KpiTile';
 import { PageHeader } from '@/components/PageHeader';
-import { Card, ErrorState, Meter, StatusBadge } from '@/components/ui';
+import { Card, ErrorState, Meter, Segmented, StatusBadge } from '@/components/ui';
 import { IconSearch } from '@/components/Icons';
 import { useFilters } from '@/lib/filters';
 import { date, num, pct, titleCase } from '@/lib/format';
@@ -12,8 +12,16 @@ import { date, num, pct, titleCase } from '@/lib/format';
 const STOCK_LABEL: Record<string, string> = { oos: 'out of stock', low_stock: 'low stock', in_stock: 'in stock' };
 import { STOCK_SYNC_DAYS, StalenessBadge } from './Distributors';
 
+/** Window for "units sold" beside stock (stock itself is always the latest sync). */
+const SOLD_WINDOWS = [
+  { value: '30', label: '30 d' },
+  { value: '60', label: '60 d' },
+  { value: '90', label: '90 d' },
+];
+
 export default function Inventory() {
-  const q = useAnalytics<InventoryData>('/inventory/');
+  const [soldDays, setSoldDays] = useState('30');
+  const q = useAnalytics<InventoryData>('/inventory/', { sold_days: soldDays });
   const { apiParams } = useFilters();
   const d = q.data?.data;
   const [search, setSearch] = useState('');
@@ -26,15 +34,26 @@ export default function Inventory() {
     const h = setTimeout(() => setDebounced(search), 350);
     return () => clearTimeout(h);
   }, [search]);
-  useEffect(() => setPage(1), [debounced, stock, apiParams]);
+  useEffect(() => setPage(1), [debounced, stock, apiParams, soldDays]);
 
-  const items = usePagedList<InventoryItem>('/inventory/items/', { page, page_size: 50, ordering, search: debounced || undefined, stock_status: stock || undefined });
+  const items = usePagedList<InventoryItem>('/inventory/items/', { page, page_size: 50, ordering, search: debounced || undefined, stock_status: stock || undefined, sold_days: soldDays });
   // status comes from the server (sheet "Inventory Updated" date, 3-day rule)
   const staleCount = (d?.sync ?? []).filter((s) => s.status !== 'ok').length;
 
   return (
     <div>
-      <PageHeader title="Inventory" subtitle="Channel Konnect stock by distributor" meta={q.data?.meta} showBasis={false} />
+      <PageHeader
+        title="Inventory"
+        subtitle="Channel Konnect stock by distributor"
+        meta={q.data?.meta}
+        showBasis={false}
+        actions={
+          <div className="flex items-center gap-2 text-xs text-muted" title="Stock is always the latest sync; this sets how far back units sold are counted">
+            Units sold over the last
+            <Segmented value={soldDays} onChange={setSoldDays} size="xs" options={SOLD_WINDOWS} />
+          </div>
+        }
+      />
       {q.error && !q.data ? (
         <Card>
           <ErrorState error={q.error} onRetry={() => q.refetch()} />
@@ -79,20 +98,20 @@ export default function Inventory() {
                 ]}
               />
             </Card>
-            <Card title="Out-of-stock top sellers" subtitle="SKUs with sales in the last 30 days and zero stock">
+            <Card title="Out-of-stock top sellers" subtitle={`SKUs with sales in the last ${soldDays} days and zero stock`}>
               <DataTable
                 rows={d?.oos_top_sellers}
                 loading={q.isLoading}
                 rowKey={(r, i) => `${r.style}-${r.size}-${r.distributor}-${i}`}
                 exportName="oos_top_sellers"
-                initialSort={{ key: 'last_30d_units', dir: 'desc' }}
+                initialSort={{ key: 'units_sold', dir: 'desc' }}
                 dense
                 emptyTitle="No top sellers are out of stock"
                 columns={[
                   { key: 'style', header: 'Style', render: (r) => <span className="font-medium">{r.style}</span> },
                   { key: 'size', header: 'Size' },
                   { key: 'distributor', header: 'Distributor' },
-                  { key: 'last_30d_units', header: 'Units sold (30 d)', align: 'right', render: (r) => num(r.last_30d_units) },
+                  { key: 'units_sold', header: `Units sold (${soldDays} d)`, align: 'right', render: (r) => num(r.units_sold) },
                 ]}
               />
             </Card>
@@ -110,7 +129,7 @@ export default function Inventory() {
           rowKey={(r, i) => `${r.distributor}-${r.sku}-${i}`}
           exportName="inventory_items"
           exportPath="/inventory/items/"
-          exportParams={{ ...apiParams, search: debounced || undefined, stock_status: stock || undefined }}
+          exportParams={{ ...apiParams, search: debounced || undefined, stock_status: stock || undefined, sold_days: soldDays }}
           server={{ count: items.data?.count ?? 0, page, pageSize: 50, onPage: setPage, ordering, onOrdering: setOrdering }}
           toolbar={
             <>
@@ -134,6 +153,7 @@ export default function Inventory() {
             { key: 'size', header: 'Size' },
             { key: 'category', header: 'Category', sortable: false, render: (r) => (r.category ? titleCase(r.category) : '–') },
             { key: 'quantity', header: 'Qty', align: 'right', render: (r) => <span className={r.quantity <= 0 ? 'font-semibold text-bad' : ''}>{num(r.quantity)}</span> },
+            { key: 'units_sold', header: `Sold (${soldDays} d)`, align: 'right', sortable: false, render: (r) => num(r.units_sold ?? 0) },
             { key: 'stock_status', header: 'Status', render: (r) => <StatusBadge status={r.stock_status} label={STOCK_LABEL[r.stock_status]} /> },
             { key: 'snapshot_date', header: 'Snapshot', render: (r) => date(r.snapshot_date ?? null) },
           ]}

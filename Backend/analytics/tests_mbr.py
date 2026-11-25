@@ -67,7 +67,7 @@ class MbrScorecardTests(TestCase):
         self.assertAlmostEqual(rows["cancel_pct"]["value"], 10.71, places=1)  # 600 / 5,600
         self.assertEqual(rows["delivery_days"]["value"], 2.0)
         self.assertEqual(len(rows["sales"]["trend"]), 12)
-        self.assertEqual(c["regions"][0]["achievement_pct"], 33.33)
+        self.assertEqual(c["territory"]["region"][0]["achievement_pct"], 33.33)
 
     def test_finished_month_and_product_metrics(self):
         c = scorecard(self.f, D(2026, 10, 1))

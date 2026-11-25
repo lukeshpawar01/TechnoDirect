@@ -35,7 +35,11 @@ export interface TrendPoint {
 }
 
 export interface PathToGoal {
+  /** the goal used on this page: the TD goal, or a territory's share of it when a territory filter is on */
   goal: number;
+  national_goal: number;
+  /** % of TD sales the filtered territory made in the base months (null = all TD) */
+  territory_share_pct: number | null;
   goal_by: string;
   goal_by_label: string;
   base_month: string;
@@ -63,6 +67,8 @@ export interface PathToGoal {
 }
 
 export interface Scorecard {
+  /** territory filters in force ('East · ASM …'); null = all TD */
+  scope_label?: string | null;
   month: string;
   label: string;
   partial: boolean;
@@ -85,7 +91,8 @@ export interface Scorecard {
   };
   rows: ScoreRow[];
   trend: TrendPoint[];
-  regions: { id: number | null; name: string; sales: number; target: number | null; achievement_pct: number | null; prev: number; mom_pct: number | null; active_retailers: number }[];
+  /** sales vs target by region / RSM / state / ASM (page 1 card switch) */
+  territory: Record<'region' | 'rsm' | 'state' | 'asm', { id: number | null; name: string; sales: number; target: number | null; achievement_pct: number | null; prev: number; mom_pct: number | null; active_retailers: number }[]>;
   movers: { up: Mover[]; down: Mover[] };
   path: PathToGoal;
 }
