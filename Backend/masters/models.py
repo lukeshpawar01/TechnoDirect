@@ -70,7 +70,7 @@ def ensure_default_metrics(**kwargs):
     for code, name, definition, formula, source in DEFAULT_METRICS:
         MetricDefinition.objects.get_or_create(code=code, defaults={
             "name": name, "definition": definition, "formula": formula, "source": source,
-            "owner": "Business Analytics", "refresh": "Twice daily (10:00 & 18:00 IST)"})
+            "owner": "Business Analytics", "refresh": "Twice daily (10:30 & 15:30 IST)"})
 
 
 class PnlQuarter(models.Model):
@@ -151,3 +151,78 @@ class ManualMapping(models.Model):
 
     def __str__(self):
         return f"{self.get_kind_display()}: {self.distributor} -> {self.asm or self.value}"
+
+
+# ----------------------------------------------------------------------------- Monthly Business Review (MBR)
+class MbrReview(models.Model):
+    """The written part of one month's MBR (page 1 commentary and the page 2 sales goal)."""
+
+    month = models.DateField(unique=True, help_text="First day of the month reviewed")
+    went_well = models.TextField(blank=True)
+    needs_attention = models.TextField(blank=True)
+    goal_monthly_sales = models.DecimalField(max_digits=16, decimal_places=2, default=100000000,
+                                             help_text="Monthly TD sales the growth plan aims for (default ₹10 Cr)")
+    goal_by = models.DateField(null=True, blank=True, help_text="Month the goal should be reached (empty = next quarter)")
+    updated_by = models.CharField(max_length=254, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["month"]
+
+    def __str__(self):
+        return f"MBR {self.month:%Y-%m}"
+
+
+class MbrItem(models.Model):
+    """One line of an MBR: a growth action or bottleneck (page 2), a tech item (page 3) or a development (page 4)."""
+
+    SECTIONS = [("growth", "Growth actions"), ("tech", "Tech updates"), ("other", "Other developments")]
+    KINDS = {
+        "growth": [("action", "Action"), ("bottleneck", "Bottleneck")],
+        "tech": [("feature", "Feature"), ("integration", "Integration"), ("fix", "Fix"), ("infra", "Infrastructure")],
+        "other": [("win", "Win"), ("risk", "Risk"), ("people", "People"), ("partner", "Partnership"),
+                  ("policy", "Policy & compliance"), ("market", "Market & competition"), ("other", "Other")],
+    }
+    TEAMS = [("tech", "Tech"), ("logistics", "Logistics"), ("finance", "Finance"), ("legal", "Legal"),
+             ("data", "Data"), ("sales", "Sales team"), ("marketing", "Marketing"), ("tup", "TUP"),
+             ("operations", "Operations"), ("other", "Other")]
+    LEVERS = [("adoption", "Adoption of TechnoSport retailers"), ("activation", "Activation of KYC'd retailers"),
+              ("retention", "Retention / repeat orders"), ("new_retailers", "New retailers"),
+              ("basket", "Basket size / spend"), ("distributors", "Distributor network"), ("other", "Other")]
+    STATUSES = [("planned", "Planned"), ("in_progress", "In progress"), ("blocked", "Blocked"), ("done", "Done"),
+                ("dropped", "Dropped")]
+    PRIORITIES = [("high", "High"), ("medium", "Medium"), ("low", "Low")]
+    OPEN = ("planned", "in_progress", "blocked")
+
+    month = models.DateField(db_index=True, help_text="First day of the MBR month the item is reported in")
+    section = models.CharField(max_length=16, choices=SECTIONS)
+    kind = models.CharField(max_length=16)
+    title = models.CharField(max_length=200)
+    detail = models.TextField(blank=True)
+    team = models.CharField(max_length=16, choices=TEAMS, blank=True,
+                            help_text="Growth: support required from; tech: delivering team")
+    lever = models.CharField(max_length=16, choices=LEVERS, blank=True)
+    owner = models.CharField(max_length=120, blank=True)
+    status = models.CharField(max_length=16, choices=STATUSES, default="planned")
+    priority = models.CharField(max_length=8, choices=PRIORITIES, default="medium")
+    expected_impact = models.DecimalField(max_digits=16, decimal_places=2, null=True, blank=True,
+                                          help_text="Expected extra sales per month (₹)")
+    planned_date = models.DateField(null=True, blank=True, help_text="Due date / planned go-live")
+    revised_date = models.DateField(null=True, blank=True, help_text="New date when it slipped")
+    done_date = models.DateField(null=True, blank=True)
+    blocker = models.TextField(blank=True)
+    event_date = models.DateField(null=True, blank=True, help_text="Developments: when it happened")
+    carried_from = models.BigIntegerField(null=True, blank=True, help_text="id of last month's item it continues")
+    sort = models.IntegerField(default=0)
+    created_by = models.CharField(max_length=254, blank=True)
+    updated_by = models.CharField(max_length=254, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["month", "section", "sort", "id"]
+        indexes = [models.Index(fields=["month", "section"])]
+
+    def __str__(self):
+        return f"MBR {self.month:%Y-%m} {self.section}: {self.title}"

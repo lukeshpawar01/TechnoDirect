@@ -26,6 +26,12 @@ def line_qs(f, start, end):
     return OrderLine.objects.filter(order__in=orders).filter(f.lines_q())
 
 
+def style_launches(f):
+    """{style: first launch date} from the catalogue, with the page's category / style filters."""
+    return {r["style"]: r["first"] for r in Product.objects.filter(f.lines_q(prefix="")).exclude(style="").filter(
+        launched_on__isnull=False).values("style").annotate(first=Min("launched_on"))}
+
+
 class ProductsView(AnalyticsView):
     permission_code = "view_products"
     export_key = "top_articles"
@@ -59,16 +65,20 @@ class ProductsView(AnalyticsView):
                     "units_per_order": ratio(r["u"], r["o"])}
 
         sold = [a for a in arts if (a["s"] or 0) > 0]
+        # New launches: styles whose FIRST launch date (catalogue launch_date, as for new arrivals in the app) falls in
+        # the last 90 days. A style re-listed later (a new product entry for OR89, say) keeps its first launch date.
         launch_cut = p.end - dt.timedelta(days=90)
-        new_products = Product.objects.filter(launched_on__gte=launch_cut, launched_on__lte=p.end)
+        firsts = style_launches(f)
+        new_styles90 = {st: d for st, d in firsts.items() if launch_cut <= d <= p.end}
+        names = dict(Product.objects.filter(style__in=new_styles90).order_by("launched_on").values_list("style", "name"))
         nl = {r["style"]: r for r in OrderLine.objects.filter(
-            order__in=f.orders(start=launch_cut, end=p.end), product__in=new_products).values("style").annotate(
+            order__in=f.orders(start=launch_cut, end=p.end), style__in=new_styles90).values("style").annotate(
             s=Sum("total"), u=Sum("quantity"), r=Count("order__retailer_id", distinct=True))}
         new_launches = sorted([{
-            "style": pr.style, "name": pr.name, "launched_on": pr.launched_on.isoformat(),
-            "sales": num(nl.get(pr.style, {}).get("s")), "units": nl.get(pr.style, {}).get("u") or 0,
-            "retailers": nl.get(pr.style, {}).get("r") or 0,
-        } for pr in new_products], key=lambda x: -x["sales"])
+            "style": st, "name": names.get(st), "launched_on": d.isoformat(),
+            "sales": num(nl.get(st, {}).get("s")), "units": nl.get(st, {}).get("u") or 0,
+            "retailers": nl.get(st, {}).get("r") or 0,
+        } for st, d in new_styles90.items()], key=lambda x: -x["sales"])
 
         sizes = list(lines.values("size").annotate(u=Sum("quantity")).order_by("-u"))
         tot_u = sum(s["u"] or 0 for s in sizes)
@@ -97,13 +107,10 @@ class ProductsView(AnalyticsView):
         } for r in lines.values("order__region__name", "product__category_l1").annotate(
             s=Sum("total"), u=Sum("quantity")).order_by("order__region__name", "-s")]
 
-        # New articles: first ever sold in the last 6 months (deck slide 61)
+        # New articles: launched in the last 6 months (deck slide 61). "New" follows the product's launch date in the
+        # catalogue (new arrivals in the app), not the date it first sold or was synced; same category / style filters.
         six_start = add_months(month_start(p.end), -5)
-        # lines filtered like the rest of the page (category / style), not "every line of a matching order"
-        first_sold = OrderLine.objects.filter(order__in=f.orders(end=p.end, line_match=False)).filter(
-            f.lines_q()).exclude(style="").values(
-            "style").annotate(first=Min("order__placed_date"))
-        new_styles = [r["style"] for r in first_sold if r["first"] >= six_start]
+        new_styles = [st for st, d in firsts.items() if six_start <= d <= p.end]
         win = line_qs(f, six_start, p.end)
         win_total = float(win.aggregate(s=Sum("total"))["s"] or 0)
         new_sales = float(win.filter(style__in=new_styles).aggregate(s=Sum("total"))["s"] or 0)

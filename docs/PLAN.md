@@ -24,7 +24,7 @@ CleverTap API            ─┘                                                 
                                   ─▶ alert rules evaluation (every 15 min)                    │
                                                                                      React SPA (TanStack Query polling)
 ```
-**Refresh schedule:** all sources are refreshed twice a day, at **10:00 and 18:00 IST** (env `SYNC_TIMES`), in one chained job:
+**Refresh schedule:** all sources are refreshed twice a day, at **10:30 and 15:30 IST** (env `SYNC_TIMES`), in one chained job:
 Medusa → PayU → CRM sheet → Channel Konnect → derivations → cache invalidation. Admins with `trigger_sync` can force a refresh from Data Health.
 
 Rule: no dashboard request touches a source system. Every number is read from the warehouse and every tile shows its freshness.

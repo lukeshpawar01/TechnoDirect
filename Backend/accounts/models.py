@@ -27,6 +27,8 @@ PERMISSIONS = [
     ("trigger_sync", "Trigger data sync", "Admin"),
     ("view_pnl", "View profit & loss (P&L) - Business Head and the master admin only", "Finance"),
     ("manage_pnl", "Edit P&L inputs (revenue, returns, costs, assumptions)", "Finance"),
+    ("view_mbr", "View the Monthly Business Review (MBR)", "Leadership"),
+    ("manage_mbr", "Edit the MBR: commentary, growth actions, tech updates, developments", "Leadership"),
 ]
 PERMISSION_CODES = [p[0] for p in PERMISSIONS]
 # The P&L is restricted: only this role (and the master admin, who holds every permission) may have these codes.

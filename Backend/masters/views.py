@@ -904,3 +904,95 @@ class IncentiveSheetView(APIView):
         except ValueError as e:
             raise ValidationError({"month": str(e)}) from None
         return Response(sheet_table(month, request.user))
+
+
+# ----------------------------------------------------------------------------- Monthly Business Review (MBR)
+def _mbr_month(raw):
+    from analytics.views.mbr import parse_month
+
+    return parse_month(raw, localdate())
+
+
+def _mbr_changed():
+    bump_cache_version()  # the scorecard's goal maths reads the review
+
+
+class MbrView(APIView):
+    """GET /api/masters/mbr/?month=YYYY-MM   the month's commentary, goal and lines (pages 2-4)
+       PUT /api/masters/mbr/?month=YYYY-MM   save commentary / goal {went_well, needs_attention, goal_monthly_sales, goal_by}"""
+
+    permission_classes = [IsAuthenticated, HasPerm("manage_mbr", read="view_mbr")]
+
+    def get(self, request):
+        from .mbr import month_payload
+
+        m = _mbr_month(request.query_params.get("month"))
+        return Response(month_payload(m, localdate(), request.user.has_code("manage_mbr")))
+
+    def put(self, request):
+        from .mbr import month_payload, save_review
+
+        m = _mbr_month(request.query_params.get("month") or request.data.get("month"))
+        with transaction.atomic():
+            r = save_review(m, request.data, request.user.email)
+            log_action(request, "update", r, after=snapshot(r))
+        _mbr_changed()
+        return Response(month_payload(m, localdate(), True))
+
+
+class MbrItemView(APIView):
+    """POST /api/masters/mbr/items/?month=YYYY-MM  add a line;  PATCH / DELETE /api/masters/mbr/items/<id>/"""
+
+    permission_classes = [IsAuthenticated, HasPerm("manage_mbr")]
+
+    def _get(self, pk):
+        from .models import MbrItem
+
+        try:
+            return MbrItem.objects.get(pk=pk)
+        except MbrItem.DoesNotExist:
+            raise NotFound("No such MBR line") from None
+
+    def post(self, request):
+        from .mbr import apply_item, item_json
+        from .models import MbrItem
+
+        m = _mbr_month(request.query_params.get("month") or request.data.get("month"))
+        item = apply_item(MbrItem(month=m, created_by=request.user.email), request.data, partial=False)
+        item.updated_by = request.user.email
+        item.save()
+        log_action(request, "create", item, after=snapshot(item))
+        return Response(item_json(item, localdate()), status=201)
+
+    def patch(self, request, pk):
+        from .mbr import apply_item, item_json
+
+        item = self._get(pk)
+        before = snapshot(item)
+        apply_item(item, request.data, partial=True)
+        item.updated_by = request.user.email
+        item.save()
+        log_action(request, "update", item, before=before, after=snapshot(item))
+        return Response(item_json(item, localdate()))
+
+    def delete(self, request, pk):
+        item = self._get(pk)
+        log_action(request, "delete", item, before=snapshot(item))
+        item.delete()
+        return Response(status=204)
+
+
+class MbrCarryForwardView(APIView):
+    """POST /api/masters/mbr/carry-forward/?month=YYYY-MM  copy last month's open growth and tech lines."""
+
+    permission_classes = [IsAuthenticated, HasPerm("manage_mbr")]
+
+    def post(self, request):
+        from .mbr import carry_forward
+
+        m = _mbr_month(request.query_params.get("month") or request.data.get("month"))
+        with transaction.atomic():
+            n = carry_forward(m, request.user.email)
+        log_action(request, "create", None, object_type="mbr_carry_forward", object_id=m.isoformat()[:7])
+        _mbr_changed()
+        return Response({"copied": n})

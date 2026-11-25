@@ -4,7 +4,7 @@
  people (browser) ──https──▶ Cloudflare ◀──tunnel (outbound)── cloudflared ──▶ 127.0.0.1:8080  waitress (serve.py)
                                                                                        ├─ /api/*  Django API
                                                                                        └─ /*      Frontend/dist
- Task Scheduler: "TechnoDirect Dashboard" (at boot) - the server itself refreshes the data at 10:00 and 18:00 IST
+ Task Scheduler: "TechnoDirect Dashboard" (at boot) - the server itself refreshes the data at 10:30 and 15:30 IST
 ```
 
 No router or firewall ports are opened. TD data and the sheets come from Supabase / Google Sheets, BlueOrigin from
@@ -47,7 +47,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 |---|---|
 | Refresh now | `deploy\windows\refresh.ps1`, or the **Refresh** button in the dashboard |
 | After a code / frontend change | `deploy\windows\build_frontend.ps1`, then `Restart-ScheduledTask "TechnoDirect Dashboard"` (or `Stop-` + `Start-ScheduledTask`) |
-| Logs | `Backend\data\logs\server.log` (includes the automatic 10:00 / 18:00 refreshes), `Backend\data\logs\refresh.log` (manual `refresh.ps1`) |
+| Logs | `Backend\data\logs\server.log` (includes the automatic 10:30 / 15:30 refreshes), `Backend\data\logs\refresh.log` (manual `refresh.ps1`) |
 | Health check | http://127.0.0.1:8080/api/health/ |
 | Give someone access | Dashboard → Admin → Users (role + territory). ASMs/RSMs only see their own area. |
 
@@ -98,8 +98,8 @@ TD data (orders, sales, customers, distributors, products, inventory and loyalty
    - `SUPABASE_DB_PASSWORD`: the password from step 1
 3. Run `python manage.py supabase_check`. Every line should show OK.
 4. Run `python manage.py supabase_live --force` for the first import.
-5. Restart the "TechnoDirect Dashboard" task. From then on, the server pulls from Supabase by itself at 10:00 and
-   18:00 IST, as part of the normal refresh.
+5. Restart the "TechnoDirect Dashboard" task. From then on, the server pulls from Supabase by itself at 10:30 and
+   15:30 IST, as part of the normal refresh.
 
 ## Sheets: live from Google Sheets, fixed ones in Supabase
 
@@ -118,7 +118,7 @@ Distributors*. They are read through the Google Sheets API at every refresh (`in
    - `GOOGLE_SERVICE_ACCOUNT_JSON` (the path to the key file)
    - `SETTLEMENT_SHEET_URL`
    - `DISTRIBUTOR_SYNC_SHEET_URL`
-7. Run `python manage.py sheets_check`. Once it shows OK, the 10:00 / 18:00 refresh reads the sheets live.
+7. Run `python manage.py sheets_check`. Once it shows OK, the 10:30 / 15:30 refresh reads the sheets live.
 
 On Render, where there is no key file, set `GOOGLE_SERVICE_ACCOUNT_JSON` to the key's whole JSON text (as a secret
 environment variable) instead of a path.

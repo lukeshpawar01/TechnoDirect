@@ -2,10 +2,10 @@
 the Windows server, gunicorn on Render, ...). No Task Scheduler, cron, Celery or Redis needed.
 
 A background thread starts with the web server (technodirect/wsgi.py, serve.py) and once a minute checks:
-  * refresh   - the latest SYNC_TIMES slot (default 10:00 and 18:00 IST) has passed with no refresh started since
+  * refresh   - the latest SYNC_TIMES slot (default 10:30 and 15:30 IST) has passed with no refresh started since
                 -> `scheduled_refresh` (Supabase TD data, BlueOrigin from Dropbox, the other sources, derived tables)
   * forecast  - from the 27th, 11:00 IST: next month's suggested targets don't exist yet -> TD Target Forecaster
-Because it compares with what already ran (in the database), a server that was off or asleep at 10:00 catches up as
+Because it compares with what already ran (in the database), a server that was off or asleep at 10:30 catches up as
 soon as it starts, and several server processes (gunicorn workers) never run the same job twice: the import lock
 (ingestion/locks.py) lets one through and the others then see the run in the database.
 

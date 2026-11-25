@@ -1,6 +1,6 @@
 """One data import at a time, across processes (SQLite allows a single writer).
 
-The scheduled refresh (10:00 / 18:00) and the Supabase live sync (every 30 min, or by hand) share one lock file, taken
+The scheduled refresh (10:30 / 15:30) and the Supabase live sync (every 30 min, or by hand) share one lock file, taken
 atomically, so a second run started meanwhile skips instead of fighting over the database ("database is locked").
 """
 import os

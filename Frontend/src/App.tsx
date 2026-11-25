@@ -22,6 +22,7 @@ const Loyalty = lazy(() => import('@/pages/Loyalty'));
 const BlueOrigin = lazy(() => import('@/pages/BlueOrigin'));
 const Settlements = lazy(() => import('@/pages/Settlements'));
 const Pnl = lazy(() => import('@/pages/Pnl'));
+const Mbr = lazy(() => import('@/pages/Mbr'));
 const DataHealth = lazy(() => import('@/pages/DataHealth'));
 const Users = lazy(() => import('@/pages/admin/Users'));
 const Roles = lazy(() => import('@/pages/admin/Roles'));
@@ -115,6 +116,8 @@ export default function App() {
                 <Route path="blueorigin" element={g('/blueorigin', <BlueOrigin />)} />
                 <Route path="settlements" element={g('/settlements', <Settlements />)} />
                 <Route path="pnl" element={g('/pnl', <Pnl />)} />
+                <Route path="mbr" element={g('/mbr', <Mbr />)} />
+                <Route path="mbr/:page" element={g('/mbr', <Mbr />)} />
                 <Route path="data-health" element={g('/data-health', <DataHealth />)} />
                 <Route path="admin/users" element={g('/admin/users', <Users />)} />
                 <Route path="admin/roles" element={g('/admin/roles', <Roles />)} />

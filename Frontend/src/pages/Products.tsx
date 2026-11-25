@@ -101,7 +101,7 @@ export default function Products() {
         <MiniStat label="Top 4 articles' share" value={pct(asPct(d?.concentration.top4_share))} sub="of sales" />
         <MiniStat label="Top 12 articles' share" value={pct(asPct(d?.concentration.top12_share))} sub="of sales" />
         <MiniStat
-          label="New articles, last 6 months"
+          label="New articles launched, last 6 months"
           value={num(d?.new_articles_6m?.articles)}
           sub={d?.new_articles_6m ? `${inr(d.new_articles_6m.sales)} · ${pct(d.new_articles_6m.share)} of those months' sales` : undefined}
         />

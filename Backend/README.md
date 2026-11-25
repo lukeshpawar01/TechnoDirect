@@ -15,7 +15,7 @@ warehouse/      dimensions, facts and derived tables (Region, State, Asm, Distri
                 RetailerMonth, Target, DataQualityIssue); geo.py = pincode -> state reference + default regions
 ingestion/      connectors/ (supabase.py + supabase_queries.py = TD data, payu.py, google_sheets.py, channel_konnect.py),
                 td_import.py (TD data -> warehouse mapping), normalize.py (shared parsing helpers), scheduler.py
-                (automatic 10:00 / 18:00 refresh), SyncRun / SyncWatermark, payments_link.py (PayU <-> order matching),
+                (automatic 10:30 / 15:30 refresh), SyncRun / SyncWatermark, payments_link.py (PayU <-> order matching),
                 tasks.refresh_all, run_sync / scheduled_refresh / supabase_live / supabase_check commands
 analytics/      filters.py (presets, FY/QTD in IST, compare period, scope intersection), envelope + freshness,
                 cache (Redis/locmem, invalidated by refresh), export (csv/xlsx), derivations (RetailerMonth, DQ checks),
@@ -96,13 +96,13 @@ Useful commands:
 * `POST /api/data-health/sync/ {"source":"all"}` does the same from the UI. It needs the `trigger_sync` permission.
 
 ## Refresh schedule
-Data refreshes **automatically at `SYNC_TIMES` (default `10:00,18:00` IST)**. The web server runs the refresh itself
+Data refreshes **automatically at `SYNC_TIMES` (default `10:30,15:30` IST)**. The web server runs the refresh itself
 (`ingestion/scheduler.py`), so it works the same way on a laptop (`runserver`), on the Windows server (`serve.py`) or
 on Render or any other host (gunicorn). No Task Scheduler, cron, Celery or Redis is needed.
 
 * A background thread starts with the server (`technodirect/wsgi.py`, `serve.py`) and checks once a minute.
 * When a slot has passed with no refresh since, it runs `manage.py scheduled_refresh`. A server that was off or asleep
-  at 10:00 therefore catches up within a minute of starting.
+  at 10:30 therefore catches up within a minute of starting.
 * Several server processes never run the same slot twice. `ingestion/locks.py` lets one through, and the others then
   see its `SyncRun`.
 * From the 27th, 11:00 IST, it also runs the TD Target Forecaster for next month, if it hasn't run yet.
@@ -149,7 +149,7 @@ Supabase (project "technosport", schema `public`) holds the ID-keyed TD export t
    taken from Supabase > Connect > Session pooler.
 3. Run `python manage.py supabase_check`. It confirms the session is read-only and uses SSL, that every table and column
    is present, and shows row counts and Supabase's last refresh.
-4. Run `python manage.py supabase_live --force` once for the first import. After that, the server's 10:00 / 18:00
+4. Run `python manage.py supabase_live --force` once for the first import. After that, the server's 10:30 / 15:30
    refresh (see *Refresh schedule*) pulls from Supabase by itself and skips the CSV folder. Supabase is imported only
    when its `etl_watermark` changed. `supabase_live` remains available as a manual "import now".
 

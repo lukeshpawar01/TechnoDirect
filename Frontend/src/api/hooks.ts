@@ -4,7 +4,7 @@ import { useFilters } from '@/lib/filters';
 import type { FilterOptions } from './types';
 
 /*
- * Refresh policy: the warehouse refreshes twice a day (10:00 and 18:00 IST).
+ * Refresh policy: the warehouse refreshes twice a day (10:30 and 15:30 IST).
  * No interval polling. Each filter set is cached indefinitely (staleTime: Infinity)
  * and refetched only when:
  *   - the filter set / page is new (new query key),

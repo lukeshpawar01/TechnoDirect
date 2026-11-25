@@ -8,6 +8,7 @@ Laid out like the dashboard: one Supabase schema ("folder") per module, one tabl
     mappings                regions, states, pincodes
     admin                   users, roles, audit_log, metric_definitions, reconciliation_refs
     pnl                     quarters            (the P&L inputs: revenue, returns, costs, % assumptions)
+    admin (MBR)             mbr_reviews, mbr_items  (Monthly Business Review commentary, actions, tech, developments)
 
 Everything else (retailers, orders, stock, BlueOrigin, ...) is rebuilt from the sources by the refresh, so it is not
 copied. The login SUPABASE_EDITS_USER can only use these four schemas (deploy/supabase_edits.sql); it creates and
@@ -56,6 +57,8 @@ LAYOUT = [
     ("accounts.User", "admin", "users"),
     ("accounts.AuditLog", "admin", "audit_log"),
     ("masters.PnlQuarter", "pnl", "quarters"),
+    ("masters.MbrReview", "admin", "mbr_reviews"),  # Monthly Business Review (kept in admin: no new schema)
+    ("masters.MbrItem", "admin", "mbr_items"),
 ]
 SCHEMAS = sorted({s for _, s, _ in LAYOUT})
 # also owned by the edits login: fixed sheets stored in Supabase (ingestion/reference_sheets.py)

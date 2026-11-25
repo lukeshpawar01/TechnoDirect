@@ -256,10 +256,10 @@ CELERY_TASK_ACKS_LATE = True
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 CELERY_TASK_SOFT_TIME_LIMIT = 60 * 20
 CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
-# Data refreshes only at fixed IST times (default 10:00 and 18:00). One chained job:
+# Data refreshes only at fixed IST times (default 10:30 and 15:30). One chained job:
 # Supabase (TD data) -> PayU -> CRM sheet -> Channel Konnect -> BlueOrigin / settlement / stock sheets
 # -> derivations -> cache invalidation.
-SYNC_TIMES = parse_times(env_str("SYNC_TIMES", "10:00,18:00"))
+SYNC_TIMES = parse_times(env_str("SYNC_TIMES", "10:30,15:30"))
 # The web server runs that refresh itself at SYNC_TIMES (ingestion/scheduler.py) - locally, on Windows or on Render,
 # catching up on start if a slot was missed. Set AUTO_REFRESH=false only for a second server on the same database.
 AUTO_REFRESH = env_bool("AUTO_REFRESH", True)
@@ -267,7 +267,7 @@ CELERY_BEAT_SCHEDULE = {
     f"refresh-all-{h:02d}{m:02d}-ist": {"task": "ingestion.tasks.refresh_all", "schedule": crontab(hour=h, minute=m)}
     for h, m in SYNC_TIMES
 }
-# TD Target Forecaster: on the 27th (after the 10:00 refresh) suggest next month's targets per ASM / distributor
+# TD Target Forecaster: on the 27th (after the 10:30 refresh) suggest next month's targets per ASM / distributor
 CELERY_BEAT_SCHEDULE["forecast-next-month-targets"] = {
     "task": "masters.tasks.forecast_next_month_targets", "schedule": crontab(day_of_month=27, hour=11, minute=0)}
 # A scheduled refresh counts as "missed" (freshness=stale) this long after its slot.

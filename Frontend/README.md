@@ -36,10 +36,10 @@ Vite inlines these at **build** time — rebuild for each environment.
 
 ## How it behaves
 
-- **Data refresh schedule.** The warehouse refreshes at **10:00 and 18:00 IST**. The UI does not poll:
+- **Data refresh schedule.** The warehouse refreshes at **10:30 and 15:30 IST**. The UI does not poll:
   each filter set is cached (`staleTime: Infinity`) and refetched only when the filters/page change,
   when the user clicks **Refresh**, or when the clock passes `meta.next_refresh_at` (+2 min grace).
-  Every page header shows "Data as of 10:00 AM, 11 Nov · next update 6:00 PM", coloured
+  Every page header shows "Data as of 10:30 AM, 11 Nov · next update 3:30 PM", coloured
   green / amber / red from `meta.freshness`.
 - **Global filters** (date preset incl. FY Apr–Mar presets, region, state, ASM, distributor, category,
   segment, payment status) are stored in the URL, so every view and drill-down is a shareable link.

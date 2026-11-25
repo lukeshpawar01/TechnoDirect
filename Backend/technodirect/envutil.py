@@ -40,8 +40,8 @@ def env_int(name, default=0):
         return default
 
 
-def parse_times(value, default="10:00,18:00"):
-    """'10:00,18:00' -> [(10, 0), (18, 0)] (sorted, validated)."""
+def parse_times(value, default="10:30,15:30"):
+    """'10:30,15:30' -> [(10, 0), (18, 0)] (sorted, validated)."""
     out = []
     for part in (clean(value) or default).split(","):
         part = part.strip()

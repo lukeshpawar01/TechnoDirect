@@ -4,7 +4,7 @@
 # 1. writes Backend\.env.production (secret key generated, DEBUG off, your domain allowed)
 # 2. builds the dashboard (Frontend\dist)
 # 3. registers the "TechnoDirect Dashboard" scheduled task (runs as SYSTEM, logged in or not): starts at boot,
-#    restarted every minute if it stops. The server refreshes the data itself at 10:00 and 18:00 IST
+#    restarted every minute if it stops. The server refreshes the data itself at 10:30 and 15:30 IST
 #    (ingestion/scheduler.py), so there is no separate refresh task; older "TechnoDirect Refresh" / "Live Sync" tasks
 #    are removed.
 # 4. stops the PC sleeping while plugged in (the dashboard is offline while it sleeps)

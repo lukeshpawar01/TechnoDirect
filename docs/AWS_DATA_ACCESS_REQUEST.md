@@ -4,7 +4,7 @@
 
 ## What we need
 A **read-only PostgreSQL login** on a **read replica** of the TechnoDirect Medusa database. The dashboard reads it
-twice a day (10:00 and 18:00 IST) and copies the data into its own reporting database. It never writes to Medusa.
+twice a day (10:30 and 15:30 IST) and copies the data into its own reporting database. It never writes to Medusa.
 
 | Item | Request |
 |---|---|

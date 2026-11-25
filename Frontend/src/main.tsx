@@ -16,7 +16,7 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 30_000,
-      // Data refreshes at 10:00 / 18:00 IST — never refetch just because the tab regained focus.
+      // Data refreshes at 10:30 / 15:30 IST — never refetch just because the tab regained focus.
       refetchOnWindowFocus: false,
       retry: (count, err) => {
         const s = axios.isAxiosError(err) ? err.response?.status : undefined;

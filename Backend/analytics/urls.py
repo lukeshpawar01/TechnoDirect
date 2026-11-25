@@ -16,12 +16,14 @@ from .views.settlement import SettlementDistributorDetailView, SettlementDistrib
 from .views.trends import MomTrendView
 
 from .views.runrate import RunRateView
+from .views.mbr import MbrScorecardView
 
 urlpatterns = [
     path("meta/filters/", FilterOptionsView.as_view()),
     path("meta/data-version/", DataVersionView.as_view()),
     path("overview/", OverviewView.as_view()),
     path("overview/run-rate/", RunRateView.as_view()),
+    path("mbr/", MbrScorecardView.as_view()),
     path("trends/mom/", MomTrendView.as_view()),
     path("funnel/", FunnelView.as_view()),
     path("retailers/", RetailerListView.as_view()),

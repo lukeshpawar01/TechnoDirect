@@ -7,6 +7,8 @@ export interface Freshness {
   source: string;
   last_success_at: string | null;
   status: FreshnessStatus;
+  /** e.g. 'not_configured' when the source has not been set up yet */
+  detail?: string;
 }
 
 export interface Period {
@@ -22,7 +24,7 @@ export interface Meta {
   as_of: string;
   period: Period;
   freshness: Freshness[];
-  /** Scheduled refreshes run at 10:00 and 18:00 IST. */
+  /** Scheduled refreshes run at 10:30 and 15:30 IST. */
   last_refresh_at?: string | null;
   next_refresh_at?: string | null;
 }

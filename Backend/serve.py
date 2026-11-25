@@ -34,7 +34,7 @@ call_command("collectstatic", interactive=False, verbosity=0)
 
 from ingestion.scheduler import start as start_auto_refresh  # noqa: E402
 
-start_auto_refresh()  # the 10:00 / 18:00 data refresh runs inside this server
+start_auto_refresh()  # the 10:30 / 15:30 data refresh runs inside this server
 
 # Render (and similar hosts) give the port in PORT and put their own HTTPS proxy in front; on this PC the Cloudflare
 # Tunnel connects locally to 127.0.0.1:8080

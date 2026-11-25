@@ -4,7 +4,7 @@
     python manage.py supabase_live --force    import regardless
 
 When nothing changed it exits in a second without touching the dashboard (no recompute, caches kept). After an
-import it rebuilds the derived tables and clears the caches, like the 10:00 / 18:00 refresh.
+import it rebuilds the derived tables and clears the caches, like the 10:30 / 15:30 refresh.
 """
 from django.core.management.base import BaseCommand
 from django.utils import timezone

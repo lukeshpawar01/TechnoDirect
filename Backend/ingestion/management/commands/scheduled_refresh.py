@@ -1,4 +1,4 @@
-"""The 10:00 / 18:00 data refresh: the full chain (ingestion/tasks.py refresh_all_inline).
+"""The 10:30 / 15:30 data refresh: the full chain (ingestion/tasks.py refresh_all_inline).
 
 Supabase (TD data) -> PayU -> CRM sheet -> Channel Konnect -> BlueOrigin / settlement / distributor stock sheet
 -> derived tables -> cache invalidation.

@@ -1,4 +1,4 @@
-"""Celery tasks. Production schedule: `refresh_all` at SYNC_TIMES (default 10:00 & 18:00 IST)."""
+"""Celery tasks. Production schedule: `refresh_all` at SYNC_TIMES (default 10:30 & 15:30 IST)."""
 import logging
 
 from celery import shared_task

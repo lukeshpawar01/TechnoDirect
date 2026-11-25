@@ -4,7 +4,7 @@ import { get } from './api';
 import { useLatestMeta } from './freshnessStore';
 
 /** Scheduled warehouse refreshes (IST). */
-export const REFRESH_SCHEDULE = ['10:00', '18:00'];
+export const REFRESH_SCHEDULE = ['10:30', '15:30'];
 
 const DATA_KEYS = [['analytics'], ['list'], ['order']];
 

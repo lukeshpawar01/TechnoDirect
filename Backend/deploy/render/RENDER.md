@@ -2,7 +2,7 @@
 
 One Render web service runs everything:
 - the Django API and the built React frontend, together, like `serve.py` on the office PC;
-- the 10:00 / 18:00 IST refresh, which runs inside that server.
+- the 10:30 / 15:30 IST refresh, which runs inside that server.
 
 All data comes from APIs:
 - **Supabase:** TD data, the fixed sheets and the dashboard edits;
@@ -55,7 +55,7 @@ mounted for `db.sqlite3`.
 
 6. **Keep it awake (optional).** At https://uptimerobot.com (free), add an **HTTP(s) monitor** for
    `https://<your-service>.onrender.com/api/health/`, every 5 minutes. Then:
-   - it doesn't sleep, so the 10:00 / 18:00 refreshes run on time;
+   - it doesn't sleep, so the 10:30 / 15:30 refreshes run on time;
    - the database isn't rebuilt at every wake-up.
 
    One always-on free service uses ~730 of the 750 free hours a month, so don't run a second free service on the

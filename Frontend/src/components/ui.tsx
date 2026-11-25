@@ -164,6 +164,8 @@ export function StatusBadge({ status, label }: { status: string | null | undefin
 }
 
 export function worstFreshness(f: Freshness[] | undefined | null): FreshnessStatus | null {
+  // a source that is not set up yet (PayU) is not "stale" data: leave it out of the badge colour
+  f = f?.filter((x) => x.detail !== 'not_configured');
   if (!f || f.length === 0) return null;
   if (f.some((x) => x.status === 'failed')) return 'failed';
   if (f.some((x) => x.status === 'stale')) return 'stale';
@@ -178,7 +180,7 @@ function fmtAsOf(iso: string, ref?: string | null): string {
 }
 
 /**
- * Freshness badge: "Data as of 10:00 AM, 11 Nov · next update 6:00 PM".
+ * Freshness badge: "Data as of 10:30 AM, 11 Nov · next update 3:30 PM".
  * Green / amber / red from the worst source status (dot + words, never colour alone).
  * Hover lists every source.
  */

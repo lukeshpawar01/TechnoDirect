@@ -29,7 +29,7 @@ services:
       - key: TIME_ZONE
         value: Asia/Kolkata
       - key: SYNC_TIMES
-        value: "10:00,18:00"
+        value: "10:30,15:30"
       - key: INVENTORY_PRIMARY_SOURCE
         value: td
       # --- Supabase: TD data (read-only login) and dashboard edits / fixed sheets (edits login) ------------

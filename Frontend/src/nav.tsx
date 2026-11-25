@@ -13,6 +13,7 @@ import {
   IconLink,
   IconList,
   IconMap,
+  IconPresent,
   IconPulse,
   IconRepeat,
   IconShield,
@@ -39,6 +40,8 @@ export interface NavItem {
 
 export const MAIN_NAV: NavItem[] = [
   { to: '/overview', label: 'Executive Overview', icon: <IconHome />, perms: ['view_overview'] },
+  // company-level review with its own month picker, so no top-bar filters
+  { to: '/mbr', label: 'Monthly Business Review', icon: <IconPresent />, perms: ['view_mbr'], filters: [] },
   { to: '/funnel', label: 'Retailer Funnel', icon: <IconFunnel />, perms: ['view_funnel'], filters: NO_CATEGORY },
   { to: '/retailers', label: 'Retailers', icon: <IconStore />, perms: ['view_funnel', 'view_retention'], filters: NO_CATEGORY },
   { to: '/distributors', label: 'Distributors', icon: <IconTruck />, perms: ['view_distributors'] },

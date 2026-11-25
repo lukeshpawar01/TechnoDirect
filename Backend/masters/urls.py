@@ -28,4 +28,8 @@ urlpatterns = [
     path("pnl/", views.PnlView.as_view()),
     path("pnl/quarters/", views.PnlQuarterView.as_view()),
     path("pnl/quarters/<str:start>/", views.PnlQuarterView.as_view()),
+    path("mbr/", views.MbrView.as_view()),
+    path("mbr/items/", views.MbrItemView.as_view()),
+    path("mbr/items/<int:pk>/", views.MbrItemView.as_view()),
+    path("mbr/carry-forward/", views.MbrCarryForwardView.as_view()),
 ] + router.urls
