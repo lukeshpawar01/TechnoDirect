@@ -124,6 +124,7 @@ class Distributor(TimeStamped):
     region = models.ForeignKey(Region, null=True, blank=True, on_delete=models.SET_NULL, related_name="distributors")
     asm = models.ForeignKey(Asm, null=True, blank=True, on_delete=models.SET_NULL, related_name="distributors")
     city = models.CharField(max_length=100, blank=True)
+    pincode = models.CharField(max_length=6, blank=True, help_text="Warehouse pincode (TD distributors table)")
     gstin = models.CharField(max_length=20, blank=True)
     ck_code = models.CharField(max_length=64, blank=True, help_text="Identifier in Channel Konnect")
     aliases = models.JSONField(default=list, blank=True,

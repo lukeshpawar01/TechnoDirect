@@ -89,7 +89,7 @@ def frame(f, w):
 
     base = retailers_qs(f, w)
     rows = {r["id"]: {**r, "purchase": 0.0, "prev": 0.0, "tier": "Untiered", "listed": False, "prev_tier": None,
-                     "app_sales": 0.0}
+                     "app_sales": 0.0, "td_ever": False}
             for r in base.values("id", "distributor_id", "asm_id", "state_id", "region_id", "td_retailer_id")}
     ids = base.values("id")
     for bid, s in BoRetailerMonth.objects.filter(bo_retailer_id__in=ids, month__gte=w["start"],
@@ -119,9 +119,14 @@ def _app_sales(rows, w):
     """App sales of the linked TechnoDirect retailers in the window's months (each app retailer counted once)."""
     from warehouse.models import Order
 
+    from warehouse.models import Retailer
+
     linked = {r["td_retailer_id"] for r in rows.values() if r["td_retailer_id"]}
     if not linked:
         return
+    ever = set(Retailer.objects.filter(id__in=linked, first_order_date__isnull=False).values_list("id", flat=True))
+    for r in rows.values():
+        r["td_ever"] = r["td_retailer_id"] in ever
     end = add_months(w["end"], 1) - dt.timedelta(days=1)
     sales = dict(Order.objects.filter(is_qualifying=True, retailer_id__in=linked, placed_date__gte=w["start"],
                                       placed_date__lte=end).values_list("retailer_id").annotate(s=Sum("gross_value")))
@@ -355,11 +360,53 @@ def _expected(rows, bench, months, off):
     m = months or 1
     retailers = [r for r in rows if r["purchase"] > 0]
     linked = [r for r in retailers if r["td_retailer_id"]]
+    # wallet share (window totals, as in the Way Forward deck): matched retailers = BO retailers linked to an app
+    # retailer that has ever ordered on TD; TD share of their whole TechnoSport purchase (BO includes app orders)
+    matched = [r for r in linked if r.get("td_ever")]
+    w_td, w_bo = sum(r["app_sales"] for r in matched), sum(r["purchase"] for r in matched)
     return {"bo_purchase": round(purchase / m, 2), "td_actual": round(actual / m, 2),
             "td_expected": round(expected / m, 2), "gap": round((expected - actual) / m, 2),
             "offline_only_bo": round(offline / m, 2), "td_share_pct": _pct(actual, purchase), "expected_share_pct": _pct(expected, purchase),
             "bo_retailers": len(retailers), "on_td": len(linked),
-            "td_buyers": sum(1 for r in linked if r["app_sales"] > 0)}
+            "td_buyers": sum(1 for r in linked if r["app_sales"] > 0),
+            "wallet_retailers": len(matched), "wallet_td": round(w_td, 2), "wallet_bo": round(w_bo, 2),
+            "wallet_gap": round(w_bo - w_td, 2), "wallet_pct": _pct(w_td, w_bo)}
+
+
+def wallet_by_quarter(f, w):
+    """Blended TD wallet share per quarter: TD sales / BO purchase of the matched retailers (BO retailers linked to an
+    app retailer that has ever ordered on TD), within the user's filters and scope - the Way Forward deck's measure.
+    BO purchase includes app orders, so this is how much of their TechnoSport buying runs through the app."""
+    from django.db.models.functions import TruncMonth
+
+    from warehouse.models import BoRetailerMonth, Order
+
+    links = dict(retailers_qs(f, w).filter(td_retailer_id__isnull=False, td_retailer__first_order_date__isnull=False)
+                 .values_list("id", "td_retailer_id"))
+    if not links:
+        return []
+    bo = defaultdict(float)  # (td retailer, quarter) -> BO purchase (all its BO records)
+    for bid, m, v in BoRetailerMonth.objects.filter(bo_retailer_id__in=list(links)).values_list(
+            "bo_retailer_id", "month", "value"):
+        bo[(links[bid], quarter_start(m))] += float(v)
+    first, last = data_range()
+    td = defaultdict(float)
+    for rid, m, v in (Order.objects.filter(is_qualifying=True, retailer_id__in=set(links.values()),
+                                           placed_date__gte=quarter_start(first),
+                                           placed_date__lte=add_months(quarter_start(last), 3) - dt.timedelta(days=1))
+                      .annotate(m=TruncMonth("placed_date")).values_list("retailer_id", "m").annotate(s=Sum("gross_value"))):
+        td[(rid, quarter_start(m.date() if hasattr(m, "date") else m))] += float(v or 0)
+    per_q = defaultdict(lambda: {"retailers": 0, "td": 0.0, "bo": 0.0})
+    for key in set(bo) | set(td):
+        a = per_q[key[1]]
+        a["retailers"] += 1
+        a["td"] += td.get(key, 0.0)
+        a["bo"] += bo.get(key, 0.0)
+    return [{"quarter": fy_quarter_label(q), "start": q.isoformat(), "retailers": a["retailers"],
+             "td": round(a["td"], 2), "bo": round(a["bo"], 2), "gap": round(a["bo"] - a["td"], 2),
+             "wallet_pct": _pct(a["td"], a["bo"])}
+            for q, a in sorted(per_q.items()) if a["bo"] > 0 and q >= min((k for k, x in per_q.items() if x["td"] > 0),
+                                                                         default=q)]  # from TD's first quarter
 
 
 def potential(f, group_by="tier"):
@@ -412,5 +459,6 @@ def potential(f, group_by="tier"):
     out.sort(key=lambda x: -x["gap"])
     return {"available": True, "window": window_meta(w), "by_tier": by_tier, "total": _expected(rows, bench, months, off),
             "not_in_bo_td": not_in_bo, "group_by": group_by, "rows": out,
+            "wallet_by_quarter": wallet_by_quarter(f, w),
             "method": {"percentile": int(BENCH_PCTL * 100), "min_monthly": BENCH_MIN_MONTHLY,
                        "min_retailers": BENCH_MIN_RETAILERS}}

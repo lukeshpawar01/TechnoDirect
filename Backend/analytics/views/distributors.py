@@ -1,3 +1,4 @@
+import re
 import datetime as dt
 from collections import defaultdict
 
@@ -588,9 +589,57 @@ class DistributorInsightsView(AnalyticsView):
         }
         return {
             "trend": trend, "top_articles": top_articles, "multi_distributor": multi_distributor,
+            "proximity": proximity(cur),
             "transacting_monthly": [{"month": mkey(m), "distributors": transacting.get(m, {}).get("n", 0),
                                      "retailers": transacting.get(m, {}).get("rt", 0)} for m in months12],
         }
+
+
+# How far a retailer is from the distributor that serves it, from the two pincodes (India Post structure: the 1st
+# digit is the postal zone, the first 2 the postal circle, the first 3 the sorting district) - deck slide 10
+PROXIMITY_BANDS = [
+    ("same_pincode", "Same pincode", "Same delivery post office: effectively the same locality"),
+    ("same_district", "Same sorting district", "Same district or metro area: typically under 50 km"),
+    ("same_circle", "Same postal circle", "Same sub-state region: typically 50–300 km"),
+    ("same_zone", "Same postal zone", "Same multi-state zone: typically 300–1,200 km"),
+    ("other_zone", "Different postal zone", "Cross-country: typically over 1,000 km"),
+]
+
+
+def proximity_band(retailer_pin, distributor_pin):
+    a, b = re.sub(r"\D", "", retailer_pin or "")[:6], re.sub(r"\D", "", distributor_pin or "")[:6]
+    if len(a) != 6 or len(b) != 6:
+        return None
+    if a == b:
+        return "same_pincode"
+    for n, band in ((3, "same_district"), (2, "same_circle"), (1, "same_zone")):
+        if a[:n] == b[:n]:
+            return band
+    return "other_zone"
+
+
+def proximity(orders):
+    """Retailers / orders / sales of the period by retailer-to-distributor proximity band. A retailer buying from two
+    distributors counts once in each band it buys in (as on the deck); orders without both pincodes are 'unknown'."""
+    agg = defaultdict(lambda: {"retailers": set(), "orders": set(), "sales": 0.0})
+    for rid, grp, v, rp, dp in orders.values_list("retailer_id", "split_group", "gross_value", "retailer__pincode",
+                                                  "distributor__pincode"):
+        a = agg[proximity_band(rp, dp) or "unknown"]
+        a["retailers"].add(rid)
+        a["orders"].add(grp)
+        a["sales"] += float(v or 0)
+    known = [k for k, _, _ in PROXIMITY_BANDS]
+    tot_r = sum(len(agg[k]["retailers"]) for k in known)
+    tot_o = sum(len(agg[k]["orders"]) for k in known)
+    tot_s = sum(agg[k]["sales"] for k in known)
+    rows = [{"band": k, "label": label, "meaning": meaning, "retailers": len(agg[k]["retailers"]),
+             "retailers_pct": pct(len(agg[k]["retailers"]), tot_r), "orders": len(agg[k]["orders"]),
+             "orders_pct": pct(len(agg[k]["orders"]), tot_o), "sales": num(agg[k]["sales"]),
+             "sales_pct": pct(agg[k]["sales"], tot_s)} for k, label, meaning in PROXIMITY_BANDS]
+    near = sum(len(agg[k]["retailers"]) for k in ("same_pincode", "same_district"))
+    u = agg.get("unknown")
+    return {"rows": rows, "outside_district_pct": pct(tot_r - near, tot_r) if tot_r else None,
+            "unknown_orders": len(u["orders"]) if u else 0, "unknown_sales": num(u["sales"]) if u else 0.0}
 
 
 class DistributorNetworkView(AnalyticsView):

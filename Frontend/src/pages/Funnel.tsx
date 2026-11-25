@@ -61,6 +61,26 @@ export default function Funnel() {
         : null,
     [d, t],
   );
+  const tb = d?.techno_base;
+  const attrOpt = useMemo(() => {
+    if (!tb?.transacting) return null;
+    const a = tb.attribution;
+    const rows: [string, number][] = [
+      ['TD-first (TD before BlueOrigin)', a.td_first],
+      ['Not in BlueOrigin, 2+ orders', a.not_in_bo_established],
+      ['Same quarter (can\'t tell)', a.same_quarter],
+      ['BlueOrigin-first (already buying offline)', a.bo_first],
+      ['Not in BlueOrigin, 1 order (too soon)', a.not_in_bo_new],
+    ];
+    return cartesian(t, {
+      x: rows.map((r) => r[0]),
+      horizontal: true,
+      format: 'pct',
+      showBarLabels: true,
+      legend: false,
+      series: [{ name: '% of TD transacting retailers', data: rows.map((r) => (r[1] / tb.transacting) * 100), colors: [t.series[2], t.series[2], t.deemph, t.deemph, t.deemph] }],
+    });
+  }, [tb, t]);
   const lastCum = d?.acquisition_monthly?.[d.acquisition_monthly.length - 1]?.cumulative;
   const kycTotal = d?.kyc_status?.reduce((s, x) => s + x.count, 0) ?? 0;
   // repeat purchase rate = retailers with 2+ orders / retailers with a first order
@@ -149,6 +169,70 @@ export default function Funnel() {
           </ul>
         </Card>
       </div>
+
+      {tb && (
+        <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-5">
+          <Card
+            className="xl:col-span-2"
+            title="TD inside the TechnoSport retailer base"
+            subtitle={`TechnoSport retailers = bought from our distributors offline (BlueOrigin), matched to TD by phone · as of ${tb.as_of.split('-').reverse().join('-')}`}
+          >
+            <ul className="space-y-3 px-4 pb-2">
+              {[
+                { label: 'TechnoSport retailers (ever bought offline)', n: tb.universe, p: 100 },
+                { label: 'on TD with KYC approved', n: tb.bo_on_td, p: tb.bo_on_td_pct },
+                { label: 'transacting on TD', n: tb.bo_transacting, p: tb.bo_transacting_pct },
+              ].map((s) => (
+                <li key={s.label}>
+                  <div className="flex items-baseline justify-between text-sm">
+                    <span className="text-ink2">{s.label}</span>
+                    <span className="font-semibold text-ink">
+                      {num(s.n)} <span className="font-normal text-muted">· {pct(s.p, 1)}</span>
+                    </span>
+                  </div>
+                  <div className="mt-1">
+                    <Meter value={s.p ?? 0} tone="good" />
+                  </div>
+                </li>
+              ))}
+            </ul>
+            <div className="grid grid-cols-1 gap-2 px-4 pb-4 text-xs text-ink2 sm:grid-cols-3">
+              <div>
+                <div className="text-lg font-semibold text-bad">{num(tb.bo_never_transacted)}</div>
+                TechnoSport retailers never transacted on TD
+              </div>
+              <div>
+                <div className="text-lg font-semibold text-good">+{num(tb.kyc_new)}</div>
+                new to TechnoSport via TD KYC ({pct(tb.expansion_pct, 0)} of the base)
+              </div>
+              <div>
+                <div className="text-lg font-semibold text-warn">{num(tb.ants)}</div>
+                KYC done, never ordered ({pct(tb.ants_pct, 0)} of KYC; {num(tb.ants_in_bo)} are TechnoSport retailers)
+              </div>
+            </div>
+          </Card>
+          <ChartCard
+            className="xl:col-span-3"
+            title={`TD acquired ${pct(tb.acquired_by_td_pct, 1)} of its transacting retailers`}
+            subtitle={`${num(tb.acquired_by_td)} of ${num(tb.transacting)} retailers: first TD order before any offline purchase, or not in BlueOrigin and back for a 2nd order. The rest were already TechnoSport retailers or too new to tell.`}
+            option={attrOpt}
+            loading={q.isLoading}
+            height={240}
+            table={{
+              columns: ['Group', 'Retailers', '% of transacting'],
+              rows: (
+                [
+                  ['TD-first (TD before BlueOrigin)', tb.attribution.td_first],
+                  ['Not in BlueOrigin, 2+ orders', tb.attribution.not_in_bo_established],
+                  ['Same quarter', tb.attribution.same_quarter],
+                  ['BlueOrigin-first', tb.attribution.bo_first],
+                  ['Not in BlueOrigin, 1 order', tb.attribution.not_in_bo_new],
+                ] as [string, number][]
+              ).map(([g, n]) => [g, num(n), pct(tb.transacting ? (n / tb.transacting) * 100 : null, 1)]),
+            }}
+          />
+        </div>
+      )}
 
       {/* KYC → first order. The source has no KYC approval date, so timing runs from sign-up (created date). */}
       <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">

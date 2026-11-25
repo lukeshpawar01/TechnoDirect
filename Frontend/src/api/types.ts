@@ -187,6 +187,30 @@ export interface Funnel {
   kyc_conversion?: { kyc_approved: number; converted: number; rate: number | null; median_days: number | null; within_30d: number; within_30d_pct: number | null; basis: 'signup' | 'approval' };
   acquisition_monthly: { month: string; new_retailers: number; cumulative: number }[];
   by_state: { state_id: number | null; state: string; kyc_approved: number; ever_ordered: number; active: number; adoption_pct: number }[];
+  /** TD inside the TechnoSport (BlueOrigin) retailer base, Way Forward deck slide 12 */
+  techno_base?: {
+    universe: number;
+    bo_on_td: number;
+    bo_on_td_pct: number | null;
+    bo_transacting: number;
+    bo_transacting_pct: number | null;
+    bo_never_transacted: number;
+    kyc: number;
+    kyc_in_bo: number;
+    kyc_new: number;
+    expansion_pct: number | null;
+    transacting: number;
+    transacting_in_bo: number;
+    transacting_new: number;
+    ants: number;
+    ants_in_bo: number;
+    ants_new: number;
+    ants_pct: number | null;
+    attribution: { td_first: number; not_in_bo_established: number; same_quarter: number; bo_first: number; not_in_bo_new: number };
+    acquired_by_td: number;
+    acquired_by_td_pct: number | null;
+    as_of: string;
+  };
 }
 
 // ---------------------------------------------------------------- retailers
@@ -1002,6 +1026,13 @@ export interface DistributorInsights {
   top_articles: { id: number; name: string; sales: number; articles: { style: string; sales: number }[] }[];
   multi_distributor: { retailers: number; multi: number; multi_pct: number | null; avg_orders_multi: number | null; avg_orders_single: number | null; monthly: { month: string; active: number; multi: number; multi_pct: number | null }[] };
   transacting_monthly: { month: string; distributors: number; retailers: number }[];
+  /** retailer-to-distributor distance by pincode (Way Forward deck slide 10) */
+  proximity?: {
+    rows: { band: string; label: string; meaning: string; retailers: number; retailers_pct: number | null; orders: number; orders_pct: number | null; sales: number; sales_pct: number | null }[];
+    outside_district_pct: number | null;
+    unknown_orders: number;
+    unknown_sales: number;
+  };
 }
 
 // ---------------------------------------------------------------- distributor settlements (finance tracker)

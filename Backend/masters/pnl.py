@@ -241,9 +241,16 @@ def rebuild_data_checks(order_rows):
     from ingestion.normalize import to_date, to_dec
     from masters.models import PnlDataCheck
 
+    from warehouse.models import Distributor
+
+    # company-internal accounts (Distributor.is_internal) are not revenue
+    internal = {sid.split(":", 1)[1] for sid in Distributor.objects.filter(
+        is_internal=True, source_id__startswith="td:").values_list("source_id", flat=True)}
     agg = defaultdict(lambda: {"orders": 0, "order_value": D0, "line_value": D0, "cancelled_value": D0,
                                "points_redeemed": D0})
     for o in order_rows:
+        if (o.get("distributor_id") or "").strip() in internal:
+            continue
         day = to_date(o.get("order_date"))
         if not day:
             continue

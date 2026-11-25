@@ -1,5 +1,7 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useAnalytics } from '@/api/hooks';
+import { cartesian } from '@/charts/builders';
+import { EChart, useChartTokens } from '@/charts/EChart';
 import { inr, num, pct } from '@/lib/format';
 import { Card, EmptyState, ErrorState, Meter, Segmented, Skeleton } from './ui';
 
@@ -14,6 +16,20 @@ interface Totals {
   bo_retailers: number;
   on_td: number;
   td_buyers: number;
+  wallet_retailers: number;
+  wallet_td: number;
+  wallet_bo: number;
+  wallet_gap: number;
+  wallet_pct: number | null;
+}
+interface WalletQuarter {
+  quarter: string;
+  start: string;
+  retailers: number;
+  td: number;
+  bo: number;
+  gap: number;
+  wallet_pct: number | null;
 }
 interface TierRow extends Totals {
   tier: string;
@@ -35,6 +51,7 @@ interface Potential {
   group_by: string;
   rows: GroupRow[];
   method: { percentile: number; min_monthly: number; min_retailers: number };
+  wallet_by_quarter?: WalletQuarter[];
 }
 
 type Group = 'asm' | 'rsm' | 'state' | 'distributor' | 'region';
@@ -58,6 +75,21 @@ export function TierPotential() {
   const [all, setAll] = useState(false);
   const q = useAnalytics<Potential>('/blueorigin/potential/', { group_by: group });
   const d = q.data?.data;
+  const t = useChartTokens();
+  const wq = d?.wallet_by_quarter ?? [];
+  const walletOpt = useMemo(
+    () =>
+      wq.length
+        ? cartesian(t, {
+            x: wq.map((w) => w.quarter.replace('FY', 'FY ')),
+            format: 'pct',
+            series: [{ name: 'TD wallet share', type: 'line', data: wq.map((w) => w.wallet_pct), endLabel: true, color: t.series[0] }],
+            legend: false,
+          })
+        : null,
+    [wq, t],
+  );
+  const lastQ = wq[wq.length - 1];
 
   if (q.isError) return <Card className="mt-4" title="Expected TD from BlueOrigin"><ErrorState error={q.error} onRetry={() => q.refetch()} /></Card>;
   if (d && !d.available) return null;
@@ -128,6 +160,57 @@ export function TierPotential() {
                 ))}
               </tbody>
             </table>
+          </div>
+
+          <div className="mt-6">
+            <h3 className="text-sm font-semibold text-ink">TD wallet share of BlueOrigin spend</h3>
+            <p className="mt-0.5 text-xs text-ink2">
+              Matched retailers = BlueOrigin retailers linked to an app retailer who has ever ordered on TD. Wallet share = their TD sales ÷ their BlueOrigin
+              purchase (which already includes app orders), so the rest is TechnoSport buying still outside the app.
+            </p>
+            <div className="mt-3 grid grid-cols-1 gap-4 xl:grid-cols-5">
+              <div className="xl:col-span-2">
+                <div className="flex items-baseline justify-between">
+                  <span className="text-xs text-muted">Blended wallet share by quarter</span>
+                  {lastQ && (
+                    <span className="text-xs text-ink2">
+                      {lastQ.quarter}: <b className="text-ink">{pct(lastQ.wallet_pct, 1)}</b> of {lakh(lastQ.bo)} ({num(lastQ.retailers)} retailers)
+                    </span>
+                  )}
+                </div>
+                {walletOpt ? <EChart option={walletOpt} height={220} ariaLabel="TD wallet share of BlueOrigin spend by quarter" /> : <EmptyState height={220} />}
+                <p className="text-2xs text-muted">
+                  Quarters up to FY25-26 Q1 lean on BlueOrigin files that repeat later figures for some distributors, which pulls those points down.
+                </p>
+              </div>
+              <div className="overflow-x-auto xl:col-span-3">
+                <table className="w-full min-w-[560px] text-sm tabular">
+                  <thead>
+                    <tr className="border-b border-line text-xs text-muted">
+                      <th className="py-2 pr-2 text-left font-medium">BO tier</th>
+                      <th className="px-2 py-2 text-right font-medium">Matched retailers</th>
+                      <th className="px-2 py-2 text-right font-medium">TD sales</th>
+                      <th className="px-2 py-2 text-right font-medium">BO purchase</th>
+                      <th className="px-2 py-2 text-right font-medium">BO − TD gap</th>
+                      <th className="py-2 pl-2 text-right font-medium">Wallet share</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...d.by_tier.map((r) => ({ key: r.tier, label: r.tier, r })), { key: 'total', label: 'Total', r: d.total }].map(({ key, label, r }) => (
+                      <tr key={key} className={key === 'total' ? 'border-t border-line font-semibold text-ink' : 'border-t border-line/60'}>
+                        <td className="py-2 pr-2 font-medium text-ink">{label}</td>
+                        <td className="px-2 py-2 text-right">{num(r.wallet_retailers)}</td>
+                        <td className="px-2 py-2 text-right">{lakh(r.wallet_td)}</td>
+                        <td className="px-2 py-2 text-right">{lakh(r.wallet_bo)}</td>
+                        <td className="px-2 py-2 text-right">{lakh(r.wallet_gap)}</td>
+                        <td className="py-2 pl-2 text-right">{pct(r.wallet_pct, 1)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <p className="mt-1 text-2xs text-muted">Totals for {d.window?.label ?? 'the window'} (not per month).</p>
+              </div>
+            </div>
           </div>
 
           <div className="mt-6 flex flex-wrap items-center justify-between gap-2">

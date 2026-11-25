@@ -17,6 +17,7 @@ Admin-maintained mappings (ASM, state / region of a distributor, aliases, target
 import datetime as dt
 import difflib
 import logging
+import re
 from collections import Counter, defaultdict
 from decimal import ROUND_HALF_UP, Decimal
 from zoneinfo import ZoneInfo
@@ -255,6 +256,9 @@ class TdImporter:
             d.source_id = sid
             d.aliases = sorted(set(d.aliases or []) | ({raw} if raw and raw != d.name else set()))
             d.city = d.city or nice_name(r.get("city", ""))[:100]
+            pin = re.sub(r"\D", "", str(r.get("pincode") or ""))[:6]
+            if len(pin) == 6:
+                d.pincode = pin
             d.gstin = d.gstin or (r.get("gst_number") or "")[:20]
             d.is_active = to_bool(r.get("is_active")) and not r.get("deleted_at")
             created_at = parse_dt(r.get("created_at", "").replace("Z", ""), UTC)

@@ -1,7 +1,7 @@
 import datetime as dt
 from collections import defaultdict
 
-from django.db.models import Case, Count, DecimalField, F, IntegerField, Max, OuterRef, Q, Subquery, Sum, Value, When
+from django.db.models import Case, Count, DecimalField, F, IntegerField, Max, Min, OuterRef, Q, Subquery, Sum, Value, When
 from django.db.models.functions import Coalesce, TruncMonth
 from django.http import Http404
 from django.utils import timezone
@@ -224,7 +224,64 @@ class FunnelView(AnalyticsView):
             },
             "acquisition_monthly": acquisition,
             "by_state": by_state,
+            "techno_base": techno_base(f, rb),
         }
+
+
+def techno_base(f, rb):
+    """TD inside the TechnoSport retailer base (Way Forward deck slide 12), as of the end of the period.
+
+    TechnoSport retailers = BlueOrigin retailers that ever bought from our distributors (within the territory filter);
+    "on TD" = linked by phone to an app retailer. Of TD's KYC-approved and transacting retailers, how many TechnoSport
+    already knew (in BO) and how many are new to TechnoSport (not in BO). Attribution of TD transactors: TD-first =
+    first TD order in an earlier quarter than their first BlueOrigin purchase (TD brought them), BO-first = bought
+    offline earlier, same quarter = can't tell."""
+    from analytics.blueorigin import BO_DIMS
+    from analytics.filters import quarter_start
+    from warehouse.models import BoRetailer, BoRetailerMonth
+
+    end = f.period.end
+    bo = BoRetailer.objects.filter(f.dims_q(BO_DIMS, retailer_field=None))
+    buyers = bo.filter(id__in=BoRetailerMonth.objects.filter(value__gt=0, month__lte=end).values("bo_retailer_id"))
+    universe = buyers.count()
+    first_bo = dict(BoRetailerMonth.objects.filter(value__gt=0, month__lte=end, bo_retailer__in=buyers,
+                                                   bo_retailer__td_retailer__isnull=False)
+                    .values("bo_retailer__td_retailer_id").annotate(m=Min("month"))
+                    .values_list("bo_retailer__td_retailer_id", "m"))
+    kyc = rb.filter(kyc_by(end))
+    trans = rb.filter(first_order_date__isnull=False, first_order_date__lte=end)
+    kyc_ids = set(kyc.values_list("id", flat=True))
+    trans_rows = {i: (fo, n) for i, fo, n in trans.values_list("id", "first_order_date", "orders_count")}
+    in_bo = set(first_bo)
+    bo_on_td = buyers.filter(td_retailer_id__in=kyc_ids).count()
+    bo_trans = buyers.filter(td_retailer_id__in=list(trans_rows)).count()
+    attr = {"td_first": 0, "not_in_bo_established": 0, "same_quarter": 0, "bo_first": 0, "not_in_bo_new": 0}
+    for rid, (fo, n) in trans_rows.items():
+        b = first_bo.get(rid)
+        if b is None:  # never in BO: TD acquired them once they came back (2+ orders); one order is too soon to tell
+            attr["not_in_bo_established" if (n or 0) >= 2 else "not_in_bo_new"] += 1
+        else:
+            qa, qb = quarter_start(fo), quarter_start(b)
+            attr["td_first" if qa < qb else "same_quarter" if qa == qb else "bo_first"] += 1
+    kyc_new = len(kyc_ids - in_bo)
+    ants = kyc_ids - set(trans_rows)
+    return {
+        "universe": universe,                       # TechnoSport retailers (bought offline, ever)
+        "bo_on_td": bo_on_td, "bo_on_td_pct": pct(bo_on_td, universe),
+        "bo_transacting": bo_trans, "bo_transacting_pct": pct(bo_trans, universe),
+        "bo_never_transacted": universe - bo_trans,
+        "kyc": len(kyc_ids), "kyc_in_bo": len(kyc_ids & in_bo), "kyc_new": kyc_new,
+        "expansion_pct": pct(kyc_new, universe),     # retailers TD added to the TechnoSport base
+        "transacting": len(trans_rows), "transacting_in_bo": len(set(trans_rows) & in_bo),
+        "transacting_new": attr["not_in_bo_established"] + attr["not_in_bo_new"],
+        "ants": len(ants), "ants_in_bo": len(ants & in_bo), "ants_new": len(ants - in_bo),
+        "ants_pct": pct(len(ants), len(kyc_ids)),
+        "attribution": attr,
+        # deck's "refined answer": TD-first + never in BO with 2+ orders
+        "acquired_by_td": attr["td_first"] + attr["not_in_bo_established"],
+        "acquired_by_td_pct": pct(attr["td_first"] + attr["not_in_bo_established"], len(trans_rows)),
+        "as_of": end.isoformat(),
+    }
 
 
 # ----------------------------------------------------------------------------- retailers list

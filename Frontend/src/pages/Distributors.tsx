@@ -82,6 +82,23 @@ export default function Distributors() {
     [di, t],
   );
   const md = di?.multi_distributor;
+  const px = di?.proximity;
+  const proxOpt = useMemo(
+    () =>
+      px?.rows.some((r) => r.retailers)
+        ? cartesian(t, {
+            x: px.rows.map((r) => r.label),
+            horizontal: true,
+            format: 'pct',
+            showBarLabels: true,
+            series: [
+              { name: '% of retailers', data: px.rows.map((r) => r.retailers_pct) },
+              { name: '% of sales', data: px.rows.map((r) => r.sales_pct) },
+            ],
+          })
+        : null,
+    [px, t],
+  );
   const basis = q.data?.meta?.sales_basis;
 
   const shareOpt = useMemo(() => {
@@ -223,6 +240,23 @@ export default function Distributors() {
           <ChartCard title="Multi-distributor retailers" subtitle="Share of each month's ordering retailers" option={multiOpt} loading={ins.isLoading} height={170} />
         </div>
       </div>
+
+      <ChartCard
+        className="mt-4"
+        title={px?.outside_district_pct != null ? `${pct(px.outside_district_pct, 0)} of retailers buy from a distributor outside their own district` : 'How far retailers are from their distributor'}
+        subtitle="Retailer pincode vs the serving distributor's pincode, this period. Shows how far TD carries a distributor beyond its local market."
+        option={proxOpt}
+        loading={ins.isLoading}
+        height={240}
+        table={
+          px
+            ? {
+                columns: ['Distance band', 'What it means', 'Retailers', '% retailers', 'Orders', '% orders', 'Sales', '% sales'],
+                rows: px.rows.map((r) => [r.label, r.meaning, num(r.retailers), pct(r.retailers_pct), num(r.orders), pct(r.orders_pct), inr(r.sales), pct(r.sales_pct)]),
+              }
+            : undefined
+        }
+      />
 
       <NetworkCoverage />
     </div>
