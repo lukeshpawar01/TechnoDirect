@@ -171,3 +171,62 @@ class PnlDataCheckTests(TestCase):
         rebuild_data_checks(rows)
         dc = PnlDataCheck.objects.get(quarter_start="2026-07-01")
         self.assertEqual((dc.orders, dc.order_value), (1, Decimal(1000)))
+
+
+class PnlMonthlyTests(PnlApiTests):
+    """Monthly P&L: months fill in from the data and their quarter; three months add up to the quarter; edits
+    override one figure of one month; the range is limited."""
+
+    def setUp(self):
+        super().setUp()
+        from masters.models import PnlMonthData
+
+        # Q1 FY 26-27 (seeded): Gross 7,46,16,928; split over its three months
+        for m, v in (("2026-04-01", "24771000"), ("2026-05-01", "22540000"), ("2026-06-01", "27305928")):
+            PnlMonthData.objects.create(month=dt.date.fromisoformat(m), orders=10, order_value=Decimal(v))
+
+    def test_months_add_up_to_the_quarter(self):
+        from masters.pnl import monthly_statement
+
+        d = monthly_statement(dt.date(2026, 4, 1), dt.date(2026, 6, 1), today=dt.date(2026, 11, 26))
+        ms = d["months"]
+        self.assertEqual([m["label"] for m in ms], ["Apr 2026", "May 2026", "Jun 2026"])
+        q = statement()["quarters"][-1]["values"]
+        gross = sum(m["values"]["gross_revenue"] for m in ms)
+        self.assertAlmostEqual(gross, q["gross_revenue"], places=2)
+        # no finance tracker rows in the test: returns are the quarter's, in proportion to revenue
+        self.assertAlmostEqual(sum(m["values"]["returns"] for m in ms), q["returns"], places=2)
+        self.assertAlmostEqual(sum(m["values"]["ebitda"] for m in ms), q["ebitda"], places=2)
+        self.assertEqual(ms[0]["sources"]["tech_platform_cost"], "Q1 (FY 26-27) / 3")
+        self.assertIsNone(ms[0]["growth"]["gross_revenue"])  # no March data
+        self.assertAlmostEqual(ms[1]["growth"]["gross_revenue"], 22540000 / 24771000 - 1, places=9)
+
+    def test_month_in_progress_counts_costs_for_the_days_so_far(self):
+        from masters.pnl import monthly_statement
+
+        m = monthly_statement(dt.date(2026, 6, 1), dt.date(2026, 6, 1), today=dt.date(2026, 6, 15))["months"][0]
+        self.assertEqual(m["status"], "in_progress")
+        self.assertAlmostEqual(m["values"]["tech"], 800000 / 3 * 15 / 30, places=2)
+        self.assertIn("15/30 days", m["sources"]["tech_platform_cost"])
+
+    def test_edit_a_month_and_go_back_to_automatic(self):
+        c = self.client_for("bh@test.local")
+        r = c.patch("/api/masters/pnl/months/2026-05/", {"tech_platform_cost": "300,000", "notes": "new server"}, format="json")
+        self.assertEqual(r.status_code, 200)
+        m = c.get("/api/masters/pnl/months/?from=2026-05&to=2026-05").json()["months"][0]
+        self.assertEqual(m["values"]["tech"], 300000.0)
+        self.assertEqual(m["sources"]["tech_platform_cost"], "entered")
+        c.patch("/api/masters/pnl/months/2026-05/", {"tech_platform_cost": ""}, format="json")
+        m = c.get("/api/masters/pnl/months/?from=2026-05&to=2026-05").json()["months"][0]
+        self.assertAlmostEqual(m["values"]["tech"], 800000 / 3, places=2)
+        self.assertEqual(m["inputs"]["notes"], "new server")
+
+    def test_range_rules_and_access(self):
+        self.assertEqual(self.client_for("rm@test.local").get("/api/masters/pnl/months/").status_code, 403)
+        c = self.client_for("admin@test.local")
+        self.assertEqual(len(c.get("/api/masters/pnl/months/").json()["months"]), 3)  # this month and the two before
+        self.assertEqual(c.get("/api/masters/pnl/months/?from=2025-01&to=2026-06").status_code, 400)  # > 12 months
+        self.assertEqual(c.get("/api/masters/pnl/months/?from=2026-06&to=2026-04").status_code, 400)
+        self.assertEqual(c.get("/api/masters/pnl/months/?from=2030-01&to=2030-01").status_code, 400)
+        r = c.get("/api/masters/pnl/months/?from=2026-04&to=2026-06&export=csv")
+        self.assertEqual(r.status_code, 200)

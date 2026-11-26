@@ -8,6 +8,8 @@ Laid out like the dashboard: one Supabase schema ("folder") per module, one tabl
     mappings                regions, states, pincodes
     admin                   users, roles, audit_log, metric_definitions, reconciliation_refs
     pnl                     quarters            (the P&L inputs: revenue, returns, costs, % assumptions)
+                            months              (monthly P&L figures entered over the defaults)
+                            months              (monthly P&L figures entered over the defaults)
     admin (MBR)             mbr_reviews, mbr_items  (Monthly Business Review commentary, actions, tech, developments)
 
 Everything else (retailers, orders, stock, BlueOrigin, ...) is rebuilt from the sources by the refresh, so it is not
@@ -57,6 +59,7 @@ LAYOUT = [
     ("accounts.User", "admin", "users"),
     ("accounts.AuditLog", "admin", "audit_log"),
     ("masters.PnlQuarter", "pnl", "quarters"),
+    ("masters.PnlMonth", "pnl", "months"),
     ("masters.MbrReview", "admin", "mbr_reviews"),  # Monthly Business Review (kept in admin: no new schema)
     ("masters.MbrItem", "admin", "mbr_items"),
 ]

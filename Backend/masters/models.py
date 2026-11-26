@@ -100,6 +100,47 @@ class PnlQuarter(models.Model):
         return f"P&L {self.quarter_start:%Y-%m}"
 
 
+class PnlMonth(models.Model):
+    """Figures entered for one month of the monthly P&L. Every field is optional: blank = the default (masters/pnl.py
+    `month_inputs`): revenue from the TD orders, returns from the finance tracker, % and costs from the month's
+    quarter (costs = quarter / 3)."""
+
+    month = models.DateField(unique=True, help_text="First day of the month")
+    gross_revenue = models.DecimalField(max_digits=16, decimal_places=2, null=True, blank=True)
+    returns = models.DecimalField(max_digits=16, decimal_places=2, null=True, blank=True)
+    cogs_pct = models.DecimalField(max_digits=7, decimal_places=4, null=True, blank=True)
+    pg_pct = models.DecimalField(max_digits=7, decimal_places=4, null=True, blank=True)
+    loyalty_pct = models.DecimalField(max_digits=7, decimal_places=4, null=True, blank=True)
+    tech_platform_cost = models.DecimalField(max_digits=16, decimal_places=2, null=True, blank=True)
+    manpower_operating_cost = models.DecimalField(max_digits=16, decimal_places=2, null=True, blank=True)
+    misc_expense = models.DecimalField(max_digits=16, decimal_places=2, null=True, blank=True)
+    notes = models.TextField(blank=True)
+    updated_by = models.CharField(max_length=254, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["month"]
+
+    def __str__(self):
+        return f"P&L {self.month:%Y-%m}"
+
+
+class PnlMonthData(models.Model):
+    """Per-month totals from the TD data (same basis as PnlDataCheck), rebuilt at every import."""
+
+    month = models.DateField(unique=True)
+    orders = models.PositiveIntegerField(default=0)
+    order_value = models.DecimalField(max_digits=16, decimal_places=2, default=0)
+    line_value = models.DecimalField(max_digits=16, decimal_places=2, default=0)
+    cancelled_value = models.DecimalField(max_digits=16, decimal_places=2, default=0)
+    points_redeemed = models.DecimalField(max_digits=16, decimal_places=2, default=0)
+    computed_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["month"]
+
+
 class PnlDataCheck(models.Model):
     """Per-quarter totals from the TD data (Supabase orders), rebuilt at every import - the P&L's 'check against data'."""
 

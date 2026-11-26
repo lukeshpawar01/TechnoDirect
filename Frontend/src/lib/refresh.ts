@@ -6,7 +6,8 @@ import { useLatestMeta } from './freshnessStore';
 /** Scheduled warehouse refreshes (IST). */
 export const REFRESH_SCHEDULE = ['10:30', '15:30'];
 
-const DATA_KEYS = [['analytics'], ['list'], ['order']];
+// mbr = the MBR's written lines (growth / tech / developments), pnl = the P&L: both change outside the page too
+const DATA_KEYS = [['analytics'], ['list'], ['order'], ['mbr'], ['pnl']];
 
 /** Invalidate every data query (active ones refetch immediately). */
 export function useRefreshAll() {

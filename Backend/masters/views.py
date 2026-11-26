@@ -689,6 +689,75 @@ class PnlView(APIView):
         return Response(data)
 
 
+def _pnl_month(raw, field):
+    try:
+        return dt.date.fromisoformat(f"{raw}-01") if raw and len(raw) == 7 else dt.date.fromisoformat(raw).replace(day=1)
+    except (TypeError, ValueError):
+        raise ValidationError({field: "use YYYY-MM"}) from None
+
+
+class PnlMonthsView(APIView):
+    """GET /api/masters/pnl/months/?from=YYYY-MM&to=YYYY-MM - the monthly P&L (default: this month and the two
+    before it; at most 12 months). ?export=csv|xlsx downloads it laid out like the sheet."""
+
+    permission_classes = [IsAuthenticated, PnlPermission]
+
+    def get(self, request):
+        from analytics.export import rows_to_response
+
+        from .pnl import MAX_MONTHS, add_months, month_start, monthly_export_rows, monthly_statement
+
+        today = localdate()
+        end = _pnl_month(request.query_params.get("to"), "to") if request.query_params.get("to") else month_start(today)
+        start = (_pnl_month(request.query_params.get("from"), "from") if request.query_params.get("from")
+                 else add_months(end, -2))
+        if end > month_start(today):
+            raise ValidationError({"to": "cannot be after this month"})
+        if start > end:
+            raise ValidationError({"from": "must be on or before 'to'"})
+        if (end.year - start.year) * 12 + end.month - start.month + 1 > MAX_MONTHS:
+            raise ValidationError({"from": f"at most {MAX_MONTHS} months at a time"})
+        data = monthly_statement(start, end, today)
+        fmt = request.query_params.get("export")
+        if fmt:
+            log_action(request, "export", None, object_type="pnl_months", object_id=fmt)
+            return rows_to_response(monthly_export_rows(data), f"TD_PnL_{start:%Y-%m}_to_{end:%Y-%m}", fmt)
+        data["can_edit"] = pnl_allowed(request.user, "manage_pnl")
+        return Response(data)
+
+
+class PnlMonthView(APIView):
+    """PATCH /api/masters/pnl/months/<YYYY-MM>/ - enter figures for a month; a blank field goes back to the default."""
+
+    permission_classes = [IsAuthenticated, PnlPermission]
+    PCTS = {"cogs_pct", "pg_pct", "loyalty_pct"}
+
+    def patch(self, request, month):
+        from .models import PnlMonth
+        from .pnl import MONTH_FIELDS, month_start
+
+        m = _pnl_month(month, "month")
+        if m > month_start(localdate()):
+            raise ValidationError({"month": "this month has not started yet"})
+        obj, created = PnlMonth.objects.get_or_create(month=m)
+        before = None if created else snapshot(obj)
+        changed = []
+        for field in MONTH_FIELDS:
+            if field in request.data:
+                raw = request.data[field]
+                setattr(obj, field, None if raw in (None, "") else _pnl_amount(raw, field, pct=field in self.PCTS))
+                changed.append(field)
+        if "notes" in request.data:
+            obj.notes = str(request.data.get("notes") or "")[:2000]
+            changed.append("notes")
+        if not changed:
+            raise ValidationError({"detail": "nothing to change"})
+        obj.updated_by = request.user.email
+        obj.save()
+        log_action(request, "create" if created else "update", obj, before=before, after=snapshot(obj))
+        return Response({"updated": sorted(changed)})
+
+
 class PnlQuarterView(APIView):
     """POST /api/masters/pnl/quarters/            add the next quarter (costs and % carried forward)
        PATCH /api/masters/pnl/quarters/<start>/   change a quarter's inputs

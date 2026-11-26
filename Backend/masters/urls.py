@@ -26,6 +26,8 @@ urlpatterns = [
     path("metrics/", views.MetricDictionaryView.as_view()),
     path("metrics/<str:code>/", views.MetricDictionaryView.as_view()),
     path("pnl/", views.PnlView.as_view()),
+    path("pnl/months/", views.PnlMonthsView.as_view()),
+    path("pnl/months/<str:month>/", views.PnlMonthView.as_view()),
     path("pnl/quarters/", views.PnlQuarterView.as_view()),
     path("pnl/quarters/<str:start>/", views.PnlQuarterView.as_view()),
     path("mbr/", views.MbrView.as_view()),

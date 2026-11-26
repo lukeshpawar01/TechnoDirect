@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { NavLink, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { post } from '@/lib/api';
+import { getEnvelope, post } from '@/lib/api';
 import { monthLabel } from '@/lib/format';
 import { PageHeader } from '@/components/PageHeader';
-import { ErrorState, InlineError, LoadingBlock, cx } from '@/components/ui';
+import { ErrorState, InlineError, LoadingBlock, Spinner, cx } from '@/components/ui';
 import { IconMonitor, IconRepeat, IconX } from '@/components/Icons';
 import { Performance } from '@/components/mbr/Performance';
 import { Summary } from '@/components/mbr/Summary';
@@ -12,7 +12,7 @@ import { Growth } from '@/components/mbr/Growth';
 import { Tech } from '@/components/mbr/Tech';
 import { Developments } from '@/components/mbr/Developments';
 import { useNotes, useScorecard } from '@/components/mbr/shared';
-import type { MbrNotes } from '@/components/mbr/types';
+import type { MbrNotes, Scorecard } from '@/components/mbr/types';
 
 /** The MBR agenda, in the order it is presented. */
 const PAGES = [
@@ -51,6 +51,17 @@ export default function MbrPage() {
   const current = PAGES.find((p) => p.slug === page);
 
   const score = useScorecard(month);
+  // once a month is on screen, quietly build the two months before it, so stepping back is instant
+  const qc = useQueryClient();
+  const shown = score.data?.data.month;
+  useEffect(() => {
+    if (!shown || shown !== month) return;
+    const i = months.indexOf(month);
+    const h = window.setTimeout(() => {
+      for (const m of months.slice(i + 1, i + 3)) void qc.prefetchQuery({ queryKey: ['mbr', 'scorecard', m], queryFn: () => getEnvelope<Scorecard>('/mbr/', { month: m }) });
+    }, 800);
+    return () => window.clearTimeout(h);
+  }, [shown, month, months, qc]);
   const notesQ = useNotes(month);
 
   // ---- present mode: the pages full screen, arrow keys move between them
@@ -79,6 +90,10 @@ export default function MbrPage() {
     window.addEventListener('keydown', key);
     return () => window.removeEventListener('keydown', key);
   }, [presenting, go]);
+
+  // moving between the MBR pages re-reads the written lines, so a line added meanwhile shows at once
+  const refetchNotes = notesQ.refetch;
+  useEffect(() => { void refetchNotes(); }, [page, refetchNotes]);
 
   if (!current) return <Navigate to={{ pathname: '/mbr/summary', search: sp.toString() }} replace />;
 
@@ -166,12 +181,26 @@ function PageBody({ slug, month, today, score, notes, notesQ }: {
     if (notesQ.error || !notes) return <ErrorState error={notesQ.error} onRetry={() => void notesQ.refetch()} />;
   }
   const s = score.data?.data;
-  if (slug === 'summary' && s) return <Summary s={s} notes={notes} />;
-  if (slug === 'performance' && s) return <Performance s={s} notes={notes} />;
-  if (slug === 'growth' && s && notes) return <Growth s={s} notes={notes} />;
-  if (slug === 'tech' && notes) return <Tech notes={notes} month={month} today={today} />;
-  if (slug === 'developments' && notes) return <Developments notes={notes} month={month} />;
-  return null;
+  // the month picked is not on screen yet: the previous month's figures stay visible while the new one is built
+  // (a few seconds the first time), so say so and grey them out - never show one month's numbers under another's name
+  const stale = needsScore && !!s && s.month !== month;
+  const notesStale = !needsScore && !!notes && notes.month.slice(0, 7) !== month;
+  let body: React.ReactNode = null;
+  if (slug === 'summary' && s) body = <Summary s={s} notes={notes} />;
+  else if (slug === 'performance' && s) body = <Performance s={s} notes={notes} />;
+  else if (slug === 'growth' && s && notes) body = <Growth s={s} notes={notes} />;
+  else if (slug === 'tech' && notes) body = <Tech notes={notes} month={month} today={today} />;
+  else if (slug === 'developments' && notes) body = <Developments notes={notes} month={month} />;
+  if (!stale && !notesStale) return <>{body}</>;
+  return (
+    <div className="relative" aria-busy="true">
+      <div className="sticky top-2 z-20 mb-3 flex items-center gap-2 rounded-lg border border-brand/40 bg-surface px-4 py-2.5 text-sm text-ink shadow-sm">
+        <Spinner size={14} />
+        Loading {monthLabel(month)}… <span className="text-muted">the figures below are still {monthLabel((s?.month ?? notes?.month ?? month).slice(0, 7))} until it is ready.</span>
+      </div>
+      <div className="pointer-events-none select-none opacity-40 transition-opacity">{body}</div>
+    </div>
+  );
 }
 
 function CarryForward({ notes, month }: { notes: MbrNotes; month: string }) {

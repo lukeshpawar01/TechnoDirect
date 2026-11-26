@@ -16,7 +16,8 @@ export function useScorecard(month: string) {
 }
 
 export function useNotes(month: string) {
-  return useQuery({ queryKey: ['mbr', 'notes', month], queryFn: () => get<MbrNotes>('/masters/mbr/', { month }) });
+  // lines can be added by other people (or elsewhere) while the page is open: re-read when coming back to the tab
+  return useQuery({ queryKey: ['mbr', 'notes', month], queryFn: () => get<MbrNotes>('/masters/mbr/', { month }), staleTime: 0, refetchOnWindowFocus: true });
 }
 
 export function useSaveReview(month: string) {

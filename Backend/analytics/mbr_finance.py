@@ -55,28 +55,33 @@ def settlement_cadence(f, today):
 
 
 def incentive_plan(month):
-    """The plan for the month reviewed, or the latest month with an incentive sheet before it."""
-    from masters.incentives import ELIGIBLE_DEFAULT, tracker
+    """The plan for the month reviewed, or the latest month with an incentive sheet before it.
+    Same basis as the Incentive tracker page (masters.incentives.sheet_table): one line per person per distributor,
+    each with its own eligible amount and payment, so the totals here equal the tracker's "Total payment"."""
+    from collections import defaultdict
+
+    from masters.incentives import sheet_table
     from warehouse.models import TargetSplit
 
     sheet = TargetSplit.objects.filter(month__lte=month).order_by("-month").values_list("month", flat=True).first()
     if not sheet:
         return None
     try:
-        t = tracker(sheet)
+        t = sheet_table(sheet)
     except Exception:  # the incentive sheet is optional; the MBR must not fail without it
         return None
-    people = t.get("people") or []
-    if not people:
+    lines = [r for r in (t.get("rows") or []) if not r.get("vacant")]
+    if not lines:
         return None
-    asms = [p for p in people if p["role"] == "asm"]
-    execs = [p for p in people if p["role"] != "asm"]
-    eligible = sum((p["base_incentive"] if p["base_incentive"] is not None else ELIGIBLE_DEFAULT) for p in people)
-    payable = sum(p["incentive"] or (ELIGIBLE_DEFAULT * p["payout_pct"] / 100 if p["base_incentive"] is None else 0)
-                  for p in people)
-    earning = sum(1 for p in people if p["payout_pct"] > 0)
-    return {"people": len(people), "asms": len(asms), "executives": len(execs), "eligible": num(eligible),
-            "payable": num(payable), "earning": earning, "as_of": t.get("as_of"),
+    by_person = defaultdict(list)
+    for r in lines:
+        by_person[(r["role"], r["employee"].strip().lower())].append(r)
+    asms = sum(1 for role, _ in by_person if str(role).lower() == "asm")  # the tracker labels roles "ASM" / "Executive"
+    multi = [rs[0]["employee"] for rs in by_person.values() if len(rs) > 1]
+    return {"people": len(by_person), "lines": len(lines), "asms": asms, "executives": len(by_person) - asms,
+            "multi": multi, "eligible": num(sum(r.get("eligible") or 0 for r in lines)),
+            "payable": num(sum(r.get("payment") or 0 for r in lines)),
+            "earning": sum(1 for r in lines if r["payout_pct"] > 0),
             "sheet_month": sheet.isoformat()[:7], "is_current": sheet == month}
 
 
@@ -105,11 +110,14 @@ def finance_asks(f, card):
             "kind": "incentives", "priority": "high",
             "title": "Fund and pay the ASM & sales executive incentive plan on time",
             "detail": ("" if inc["is_current"] else f"No sheet for {m:%b %Y} yet; figures are from the latest sheet ({dt.date.fromisoformat(inc['sheet_month'] + '-01'):%b %Y}). ")
-                      + f"{inc['people']} people are on the plan ({inc['asms']} ASMs, {inc['executives']} executives / field staff), "
-                      f"{_inr(inc['eligible'])} eligible a month. At achievement so far {inc['earning']} of them earn a payout, "
-                      f"{_inr(inc['payable'])} payable. Finance to approve the budget, release payouts by the 10th of "
-                      f"{nxt:%B} with the salary run, and sign off the KPI data (Incentive tracker) each month so the team trusts it.",
-            "value": inc["eligible"], "value_label": "eligible incentive a month",
+                      + f"{inc['people']} people are on the plan ({inc['asms']} ASMs, {inc['executives']} executives / field staff) "
+                      f"in {inc['lines']} tracker lines"
+                      + (f" ({' and '.join(inc['multi'])} cover two distributors each)" if inc["multi"] else "")
+                      + f". Payable at achievement so far: {_inr(inc['payable'])} on {inc['earning']} lines, the Incentive "
+                      f"tracker's total payment. The most it can cost if every KPI is met: {_inr(inc['eligible'])} a month. "
+                      f"Finance to approve the budget, release payouts by the 10th of {nxt:%B} with the salary run, and "
+                      f"sign off the KPI data (Incentive tracker) each month so the team trusts it.",
+            "value": inc["payable"], "value_label": f"payable now (max {_inr(inc['eligible'])} a month)",
             "facts": inc,
         })
     else:
