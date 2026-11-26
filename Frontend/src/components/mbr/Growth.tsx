@@ -7,6 +7,8 @@ import { Badge, Card, Field, InlineError, Meter, cx } from '@/components/ui';
 import { IconEdit, IconPlus } from '@/components/Icons';
 import { ITEM_TONE, ItemEditor, SectionTitle, Verdict, dmy, useSaveReview } from './shared';
 import type { MbrItem, MbrNotes, Scorecard } from './types';
+import { Takeaways } from './Summary';
+import { SupportMatrix } from './Support';
 
 const addMonths = (ym: string, n: number) => {
   const [y, m] = ym.split('-').map(Number);
@@ -21,7 +23,7 @@ const monthsBetween = (a: string, b: string) => {
 
 export function Growth({ s, notes }: { s: Scorecard; notes: MbrNotes }) {
   const p = s.path;
-  const [edit, setEdit] = useState<{ item?: MbrItem; kind?: string } | null>(null);
+  const [edit, setEdit] = useState<{ item?: MbrItem; kind?: string; preset?: Partial<MbrItem> } | null>(null);
   const growth = notes.items.filter((i) => i.section === 'growth');
   const actions = growth.filter((i) => i.kind === 'action');
   const blockers = growth.filter((i) => i.kind === 'bottleneck');
@@ -44,6 +46,8 @@ export function Growth({ s, notes }: { s: Scorecard; notes: MbrNotes }) {
         {num(p.retailers_gap)} more than now. Adoption of the KYC base has to go from {pct(p.adoption_pct, 1)} to {pct(p.adoption_needed_pct, 1)}.
       </Verdict>
 
+      <Takeaways s={s} areas={['goal', 'adoption']} />
+
       <div className="grid gap-4 xl:grid-cols-5">
         <PathChart s={s} className="xl:col-span-3" />
         <AdoptionMath s={s} className="xl:col-span-2" />
@@ -54,7 +58,7 @@ export function Growth({ s, notes }: { s: Scorecard; notes: MbrNotes }) {
         <Scenarios s={s} />
       </div>
 
-      <SectionTitle n="2.1" title="Plan for next month" sub="Growth actions, the support each needs, and how much of the gap they cover" />
+      <SectionTitle n="3.1" title="Plan for next month" sub="Growth actions, the support each needs, and how much of the gap they cover" />
       <div className="grid gap-4 xl:grid-cols-3">
         <Card title="How much of the gap the plan covers" subtitle={`Expected extra sales from the actions listed vs the ${inr(p.gap_sales)}/month gap`}>
           <div className="text-2xl font-semibold tabular-nums text-ink">{inr(planned)}</div>
@@ -67,7 +71,7 @@ export function Growth({ s, notes }: { s: Scorecard; notes: MbrNotes }) {
             Add an expected impact to each action to keep this honest.
           </p>
         </Card>
-        <SupportMatrix notes={notes} className="xl:col-span-2" />
+        <SupportMatrix s={s} notes={notes} className="xl:col-span-2" onAdd={(preset) => setEdit({ kind: 'action', preset })} onEdit={(item) => setEdit({ item })} />
       </div>
 
       <ItemList
@@ -89,7 +93,7 @@ export function Growth({ s, notes }: { s: Scorecard; notes: MbrNotes }) {
         onEdit={(item) => setEdit({ item })}
       />
 
-      {edit && <ItemEditor notes={notes} month={s.month} section="growth" item={edit.item} kind={edit.kind} onClose={() => setEdit(null)} />}
+      {edit && <ItemEditor notes={notes} month={s.month} section="growth" item={edit.item} kind={edit.kind} preset={edit.preset} onClose={() => setEdit(null)} />}
     </>
   );
 }
@@ -245,29 +249,6 @@ function Scenarios({ s }: { s: Scorecard }) {
         </tbody>
       </table>
       <p className="px-4 py-2 text-2xs text-muted">Adoption = transacting retailers ÷ the {num(p.kyc_base)} KYC-approved retailers today.</p>
-    </Card>
-  );
-}
-
-function SupportMatrix({ notes, className }: { notes: MbrNotes; className?: string }) {
-  const open = notes.items.filter((i) => i.section === 'growth' && ['planned', 'in_progress', 'blocked'].includes(i.status));
-  const teams = notes.choices.teams.filter((t) => t.value !== 'other' && t.value !== 'operations');
-  const extra = notes.choices.teams.filter((t) => (t.value === 'other' || t.value === 'operations') && open.some((i) => i.team === t.value));
-  return (
-    <Card className={className} title="Support required" subtitle="Open growth asks by the team that has to help; red = something is blocked on them">
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {[...teams, ...extra].map((t) => {
-          const mine = open.filter((i) => i.team === t.value);
-          const blocked = mine.filter((i) => i.status === 'blocked').length;
-          return (
-            <div key={t.value} className={cx('rounded-md border p-3', blocked ? 'border-bad/40 bg-bad-bg' : mine.length ? 'border-line' : 'border-line/60 opacity-70')}>
-              <div className="text-xs text-ink2">{t.label}</div>
-              <div className="text-xl font-semibold tabular-nums text-ink">{mine.length}</div>
-              <div className={cx('text-2xs', blocked ? 'font-medium text-bad' : 'text-muted')}>{blocked ? `${blocked} blocked` : mine.length ? 'open asks' : 'nothing asked'}</div>
-            </div>
-          );
-        })}
-      </div>
     </Card>
   );
 }

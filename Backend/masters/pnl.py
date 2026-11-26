@@ -22,17 +22,14 @@ QoQ growth = (this quarter - previous quarter) / previous quarter, as in the she
     percentages, which is not meaningful;
   * Loyalty Cost growth is calculated (the sheet had a hard-coded 0 in D11).
 
-Checks against the data, per quarter (they never change the P&L, they show where the entered / assumed figures differ):
-  gross revenue  - order value incl. points of paid orders placed in the quarter (TD data)
-  returns        - customer refunds in the finance tracker for orders placed in the quarter
-  payment gateway- actual PayU deduction rate: (PayU amount - PayU settlement) / PayU amount, settled orders without a
-                   refund (finance tracker)
-  loyalty        - loyalty points actually redeemed on the quarter's orders (TD data)
+Everything is calculated from the entered figures and the % assumptions only. The edit form offers two figures
+from the data to fill in ("Use data"): gross revenue (order value incl. points of paid orders placed in the quarter,
+TD data) and returns (customer refunds in the finance tracker for the quarter's orders).
 """
 import datetime as dt
 from decimal import Decimal
 
-from django.db.models import Count, F, Q, Sum
+from django.db.models import Count, Sum
 from django.utils.timezone import localdate  # India date (TIME_ZONE), not the server clock
 
 D0 = Decimal(0)
@@ -134,49 +131,24 @@ def growth(cur, prev):
     return out
 
 
-# ----------------------------------------------------------------------------- checks against the data
+# ----------------------------------------------------------------------------- data figures for the edit form
 def data_checks(q, values):
-    """Entered / assumed figures next to what the data says. ebitda_effect = EBITDA with the actual cost - EBITDA in
-    the P&L (negative: the P&L overstates profit)."""
+    """What the data says for the two entered revenue lines, offered as "Use data" in the edit form.
+    The P&L itself is calculated only from the entered figures and the % assumptions (payment gateway and loyalty
+    are % of Gross Revenue). The actual-PayU / loyalty comparison was removed on 2026-11-26 (user request: no PayU
+    settlement data for now - PayU API not connected)."""
     from masters.models import PnlDataCheck
     from warehouse.models import DistributorSettlement
 
     start, end = q.quarter_start, quarter_end(q.quarter_start)
     dc = PnlDataCheck.objects.filter(quarter_start=start).first()
-    tr = DistributorSettlement.objects.filter(order_date__gte=start, order_date__lte=end)
-    t = tr.aggregate(n=Count("id"), refunds=Sum("customer_refund"))
-    settled = tr.filter(pg_settlement__gt=0, payu_value__gt=0).filter(Q(customer_refund__isnull=True) | Q(customer_refund=0))
-    s = settled.aggregate(base=Sum("payu_value"), fee=Sum(F("payu_value") - F("pg_settlement")))
-    g = values.get("gross_revenue")
-    out = {"data_orders": dc.orders if dc else 0,
-           "tracker_orders": t["n"] or 0,
-           "tracker_coverage": (round((t["n"] or 0) / dc.orders, 4) if dc and dc.orders else None),
-           "cancelled_value": float(dc.cancelled_value) if dc else None}
-    rows = []
-
-    def row(key, label, entered, data, basis, ebitda_effect=None):
-        rows.append({"key": key, "label": label, "entered": _f(entered), "data": _f(data),
-                     "diff": _f(entered - data) if entered is not None and data is not None else None,
-                     "diff_pct": (float((entered - data) / data) if entered is not None and data else None),
-                     "ebitda_effect": _f(ebitda_effect), "basis": basis})
-
-    row("gross_revenue", "Gross Revenue", g, dc.order_value if dc else None,
-        "Order value incl. points of paid orders placed in the quarter (TD data)")
-    row("returns", "Returns / refunds", values.get("returns"), t["refunds"] if t["n"] else None,
-        "Customer refunds in the finance tracker for the quarter's orders")
-    pg_rate = (s["fee"] / s["base"]) if s["base"] else None
-    pg_actual = (g * pg_rate) if g is not None and pg_rate is not None else None
-    row("payment_gateway", "Payment gateway", values.get("payment_gateway"), pg_actual,
-        (f"Actual PayU deduction {float(pg_rate) * 100:.2f}% (PayU amount - settlement, settled orders without "
-         f"a refund) x Gross Revenue" if pg_rate is not None else "No PayU settlements in the finance tracker"),
-        ebitda_effect=(values["payment_gateway"] - pg_actual) if pg_actual is not None and values.get("payment_gateway") is not None else None)
-    loy_actual = dc.points_redeemed if dc else None
-    row("loyalty", "Loyalty cost", values.get("loyalty"), loy_actual,
-        "Loyalty points redeemed on the quarter's orders (TD data)",
-        ebitda_effect=(values["loyalty"] - loy_actual) if loy_actual is not None and values.get("loyalty") is not None else None)
-    out["rows"] = rows
-    out["pg_actual_rate"] = float(pg_rate) if pg_rate is not None else None
-    return out
+    t = DistributorSettlement.objects.filter(order_date__gte=start, order_date__lte=end).aggregate(
+        n=Count("id"), refunds=Sum("customer_refund"))
+    rows = [
+        {"key": "gross_revenue", "data": _f(dc.order_value) if dc else None},
+        {"key": "returns", "data": _f(t["refunds"]) if t["n"] else None},
+    ]
+    return {"rows": rows}
 
 
 def _f(v):

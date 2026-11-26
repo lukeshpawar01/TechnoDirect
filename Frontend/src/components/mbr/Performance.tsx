@@ -8,6 +8,8 @@ import { Badge, Card, Meter, Segmented, cx } from '@/components/ui';
 import { IconInfo } from '@/components/Icons';
 import { Change, MiniTrend, NoteBox, STATUS_TONE, SectionTitle, Verdict, fmt, statusText, useSaveReview } from './shared';
 import type { MbrNotes, ScoreRow, Scorecard } from './types';
+import { ProductMatrixSection } from './ProductMatrix';
+import { Takeaways } from './Summary';
 
 export function Performance({ s, notes }: { s: Scorecard; notes?: MbrNotes }) {
   const h = s.headline;
@@ -40,13 +42,15 @@ export function Performance({ s, notes }: { s: Scorecard; notes?: MbrNotes }) {
         {num(rows.active_retailers?.value)} transacting retailers ({pct(rows.adoption_pct?.value, 1)} of the KYC base).
       </Verdict>
 
+      <Takeaways s={s} areas={['drivers', 'retailers', 'territory', 'product', 'operations']} />
+
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {(['sales', 'active_retailers', 'new_retailers', 'adoption_pct'] as const).map((k) => rows[k] && <HeadTile key={k} r={rows[k]} s={s} />)}
       </div>
 
       <SalesTrend s={s} />
 
-      <SectionTitle n="1.1" title="Scorecard" sub={`${s.compare.current} vs ${s.compare.prev}${s.compare.last_year ? ` and ${s.compare.last_year}` : ''}`} />
+      <SectionTitle n="2.1" title="Scorecard" sub={`${s.compare.current} vs ${s.compare.prev}${s.compare.last_year ? ` and ${s.compare.last_year}` : ''}`} />
       {s.targets_note && <p className="mb-2 text-xs text-warn">{s.targets_note}</p>}
       <ScoreTable s={s} />
 
@@ -55,7 +59,10 @@ export function Performance({ s, notes }: { s: Scorecard; notes?: MbrNotes }) {
         <MoversCard s={s} className="xl:col-span-2" />
       </div>
 
-      <SectionTitle n="1.2" title="Commentary" sub="What the numbers mean, in the team's words" />
+      <SectionTitle n="2.2" title="Product decisions" sub="What to act on, where growth came from, and how each category is doing" />
+      <ProductMatrixSection s={s} />
+
+      <SectionTitle n="2.3" title="Commentary" sub="What the numbers mean, in the team's words" />
       {notes ? (
         <div className="grid gap-4 md:grid-cols-2" key={notes.month}>
           <NoteBox title="What went well" tone="good" value={notes.review.went_well} canEdit={notes.can_edit} saving={save.isPending}

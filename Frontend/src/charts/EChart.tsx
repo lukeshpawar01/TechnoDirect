@@ -1,7 +1,7 @@
 import { useMemo, useRef } from 'react';
 import ReactEChartsCore from 'echarts-for-react/lib/core';
 import * as echarts from 'echarts/core';
-import { BarChart, FunnelChart, HeatmapChart, LineChart } from 'echarts/charts';
+import { BarChart, FunnelChart, HeatmapChart, LineChart, PieChart, ScatterChart } from 'echarts/charts';
 import {
   AriaComponent,
   DatasetComponent,
@@ -22,6 +22,8 @@ echarts.use([
   LineChart,
   FunnelChart,
   HeatmapChart,
+  ScatterChart,
+  PieChart,
   GridComponent,
   TooltipComponent,
   LegendComponent,

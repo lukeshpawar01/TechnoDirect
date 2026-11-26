@@ -10,7 +10,7 @@ from .views.health import DataHealthView, DataVersionView, FilterOptionsView, Sy
 from .views.fulfilment import FulfilmentFlowView
 from .views.orders import OrderDetailView, OrderListView, OrderRetailersView, OrdersSummaryView
 from .views.overview import OverviewView
-from .views.products import InventoryItemsView, InventoryView, ProductsView, ProductTreeView
+from .views.products import InventoryItemsView, InventoryOosStylesView, InventoryView, ProductsView, ProductTreeView
 from .views.retention import RetentionView
 from .views.settlement import SettlementDistributorDetailView, SettlementDistributorsView, SettlementOrderListView, SettlementSummaryView
 from .views.trends import MomTrendView
@@ -53,6 +53,7 @@ urlpatterns = [
     path("products/tree/", ProductTreeView.as_view()),
     path("inventory/", InventoryView.as_view()),
     path("inventory/items/", InventoryItemsView.as_view()),
+    path("inventory/oos-styles/", InventoryOosStylesView.as_view()),
     path("retention/", RetentionView.as_view()),
     path("growth/", GrowthView.as_view()),
     path("loyalty/", LoyaltyView.as_view()),

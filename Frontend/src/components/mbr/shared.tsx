@@ -121,18 +121,20 @@ type Draft = Partial<Record<keyof MbrItem, string>>;
 const toDraft = (i: Partial<MbrItem>): Draft =>
   Object.fromEntries(Object.entries(i).map(([k, v]) => [k, v === null || v === undefined ? '' : String(v)])) as Draft;
 
-export function ItemEditor({ notes, month, item, section, kind, onClose }: {
+export function ItemEditor({ notes, month, item, section, kind, preset, onClose }: {
   notes: MbrNotes;
   month: string;
   item?: MbrItem | null;
   section: Section;
   kind?: string;
+  /** prefill for a new line (e.g. a suggested sales ask) */
+  preset?: Partial<MbrItem>;
   onClose: () => void;
 }) {
   const qc = useQueryClient();
   const c = notes.choices;
   const [d, setD] = useState<Draft>(() =>
-    toDraft(item ?? { section, kind: kind ?? c.kinds[section][0].value, status: 'planned', priority: 'medium' }),
+    toDraft(item ?? { section, kind: kind ?? c.kinds[section][0].value, status: 'planned', priority: 'medium', ...preset }),
   );
   const set = (k: keyof MbrItem) => (e: { target: { value: string } }) => setD((x) => ({ ...x, [k]: e.target.value }));
   const done = () => {

@@ -3,6 +3,7 @@ import { useAnalytics, usePagedList } from '@/api/hooks';
 import type { Inventory as InventoryData, InventoryItem } from '@/api/types';
 import { DataTable } from '@/components/DataTable';
 import { MiniStat } from '@/components/KpiTile';
+import { OosTopStyles } from '@/components/OosTopStyles';
 import { PageHeader } from '@/components/PageHeader';
 import { Card, ErrorState, Meter, Segmented, StatusBadge } from '@/components/ui';
 import { IconSearch } from '@/components/Icons';
@@ -118,6 +119,8 @@ export default function Inventory() {
           </div>
         </>
       )}
+
+      <OosTopStyles soldDays={soldDays} />
 
       <Card title="Stock items" className="mt-4">
         <DataTable

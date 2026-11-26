@@ -4,14 +4,14 @@ import { del, download, errorMessage, get, patch, post } from '@/lib/api';
 import { inr, pct, signedPct } from '@/lib/format';
 import { PageHeader } from '@/components/PageHeader';
 import { Badge, Card, Drawer, ErrorState, Field, InlineError, LoadingBlock, cx } from '@/components/ui';
-import { IconDownload, IconEdit, IconInfo, IconPlus, IconTrash } from '@/components/Icons';
+import { IconDownload, IconEdit, IconPlus, IconTrash } from '@/components/Icons';
 import { EChart, useChartTokens } from '@/charts/EChart';
 import { cartesian, waterfall } from '@/charts/builders';
 
 // ---------------------------------------------------------------- API shape (/api/masters/pnl/)
 type LineKind = 'input' | 'calc' | 'assumption' | 'subtotal' | 'total' | 'margin';
 interface PnlLine { key: string; label: string; kind: LineKind; formula: string }
-interface CheckRow { key: string; label: string; entered: number | null; data: number | null; diff: number | null; diff_pct: number | null; ebitda_effect: number | null; basis: string }
+interface CheckRow { key: string; data: number | null }
 interface Inputs {
   gross_revenue: number | null; returns: number | null; cogs_pct: number; pg_pct: number; loyalty_pct: number;
   tech_platform_cost: number | null; manpower_operating_cost: number | null; misc_expense: number | null; notes: string;
@@ -19,7 +19,8 @@ interface Inputs {
 interface Quarter {
   start: string; end: string; label: string; status: 'complete' | 'in_progress'; previous: string | null;
   inputs: Inputs; values: Record<string, number | null>; growth: Record<string, number | null>; missing: string[];
-  checks: { rows: CheckRow[]; tracker_coverage: number | null; pg_actual_rate: number | null; cancelled_value: number | null; data_orders: number };
+  /** data figures offered as "Use data" in the edit form (gross revenue, returns) */
+  checks: { rows: CheckRow[] };
   updated_by: string; updated_at: string | null;
 }
 interface Pnl { lines: PnlLine[]; quarters: Quarter[]; next_quarter: { start: string; label: string } | null; can_edit: boolean }
@@ -114,8 +115,6 @@ export default function PnlPage() {
       </div>
 
       <Statement d={d} focus={focus} setFocus={setFocus} onEdit={setEditing} />
-
-      {fq && <ChecksCard q={fq} onEdit={d.can_edit ? () => setEditing(fq) : undefined} />}
 
       <MethodCard />
 
@@ -334,70 +333,6 @@ function Statement({ d, focus, setFocus, onEdit }: { d: Pnl; focus: string | nul
           </tbody>
         </table>
       </div>
-    </Card>
-  );
-}
-// ---------------------------------------------------------------- checks against the data
-function ChecksCard({ q, onEdit }: { q: Quarter; onEdit?: () => void }) {
-  const c = q.checks;
-  const partial = c.tracker_coverage !== null && c.tracker_coverage < 0.95;
-  const totalEffect = c.rows.reduce((s, r) => s + (r.ebitda_effect ?? 0), 0);
-  return (
-    <Card
-      className="mb-4"
-      title={`Check against the data · ${q.label}`}
-      subtitle="The P&L uses the entered figures and the sheet's % assumptions. This compares them with what the order data and the finance tracker say. Nothing here changes the P&L."
-      actions={onEdit && <button className="btn" onClick={onEdit}><IconEdit size={14} /> Edit {q.label}</button>}
-    >
-      {partial && (
-        <p className="mb-3 rounded-md bg-warn-bg px-3 py-2 text-xs text-ink2">
-          The finance tracker covers only {pct(c.tracker_coverage! * 100, 0)} of this quarter's orders (it starts in Feb 2026), so the
-          returns and payment-gateway figures from it are partial.
-        </p>
-      )}
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[640px] text-sm">
-          <thead>
-            <tr className="border-b border-line text-left text-xs text-muted">
-              <th className="py-1.5 pr-3 font-medium">Line</th>
-              <th className="py-1.5 pr-3 text-right font-medium">In the P&amp;L</th>
-              <th className="py-1.5 pr-3 text-right font-medium">From the data</th>
-              <th className="py-1.5 pr-3 text-right font-medium">Difference</th>
-              <th className="py-1.5 pr-3 text-right font-medium">Effect on EBITDA</th>
-              <th className="py-1.5 font-medium">Data basis</th>
-            </tr>
-          </thead>
-          <tbody>
-            {c.rows.map((r) => (
-              <tr key={r.key} className="border-b border-line/60 align-top">
-                <td className="py-1.5 pr-3 font-medium text-ink">{r.label}</td>
-                <td className="py-1.5 pr-3 text-right tabular-nums">{money(r.entered)}</td>
-                <td className="py-1.5 pr-3 text-right tabular-nums">{r.data === null ? <span className="text-xs text-muted">no data</span> : money(r.data)}</td>
-                <td className="py-1.5 pr-3 text-right tabular-nums">
-                  {r.diff === null ? '–' : (
-                    <>
-                      {money(r.diff)}
-                      {r.diff_pct !== null && Math.abs(r.diff_pct) < 100 && <span className="ml-1 text-xs text-muted">({signedPct(r.diff_pct * 100)})</span>}
-                    </>
-                  )}
-                </td>
-                {/* ebitda_effect = EBITDA with the actual cost − EBITDA in the P&L: negative = the P&L overstates profit */}
-                <td className={cx('py-1.5 pr-3 text-right tabular-nums', r.ebitda_effect === null || Math.abs(r.ebitda_effect) < 1 ? 'text-muted' : r.ebitda_effect < 0 ? 'text-bad' : 'text-good')}>
-                  {r.ebitda_effect === null ? '–' : `${r.ebitda_effect < 0 ? 'overstated by ' : 'understated by '}${inr(Math.abs(r.ebitda_effect))}`}
-                </td>
-                <td className="py-1.5 text-xs text-muted">{r.basis}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {Math.abs(totalEffect) >= 1 && (
-        <p className="mt-3 text-xs text-ink2">
-          <IconInfo size={12} className="mr-1 inline" />
-          With the actual payment-gateway and loyalty costs, EBITDA would be {inr(Math.abs(totalEffect))} {totalEffect < 0 ? 'lower' : 'higher'} than the P&amp;L shows
-          {q.values.ebitda ? <> ({inr((q.values.ebitda ?? 0) + totalEffect)}, operating margin {pct((((q.values.ebitda ?? 0) + totalEffect) / (q.values.gross_revenue || 1)) * 100)})</> : null}.
-        </p>
-      )}
     </Card>
   );
 }

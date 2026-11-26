@@ -66,7 +66,97 @@ export interface PathToGoal {
   adoption_trend: { month: string; adoption_pct: number | null; active_retailers: number; kyc_base: number; sales: number }[];
 }
 
+export type ProductRole = 'core' | 'defend' | 'rising' | 'watch';
+export interface ProductCategory {
+  key: string; name: string; sales: number; prev_sales: number; change: number;
+  share_pct: number; share_change_pp: number | null; mom_pct: number | null;
+  units: number; asp: number | null; asp_change_pct: number | null;
+  retailers: number; reach_pct: number | null; styles: number; top_style: string | null; role: ProductRole;
+  prev_share_pct: number | null; yoy_pct: number | null;
+  /** category ₹ change ÷ TD ₹ change; null when TD did not grow */
+  growth_contrib_pct: number | null;
+  /** null when the month reviewed is not the current one (stock is a live snapshot) */
+  oos_lines: number | null; oos_units_30d: number | null; oos_value: number | null;
+  call: ProductCall; call_reason: string;
+}
+export type ProductCall = 'scale' | 'defend' | 'fix' | 'watch';
+export interface ProductDecision {
+  kind: 'scale' | 'fix' | 'defend' | 'watch' | 'launch';
+  title: string; value: number; value_label: string; reason: string; link?: string; good?: boolean;
+}
+export interface StyleChange { style: string; name: string | null; sales: number; prev: number; change: number }
+export interface ProductMatrix {
+  categories: ProductCategory[];
+  /** 100 / categories that sold */
+  fair_share_pct: number;
+  td_growth_pct: number | null;
+  gainers: StyleChange[];
+  decliners: StyleChange[];
+  pulse: {
+    styles_sold: number; prev_styles_sold: number;
+    top10_share_pct: number | null; top10_prev_share_pct: number | null;
+    new_launch_share_pct: number | null; new_launch_sales: number; new_launches_selling: number; new_launches: number;
+    styles_per_retailer: number | null; prev_styles_per_retailer: number | null;
+    asp: number | null; asp_change_pct: number | null; buyers: number; prev_buyers: number;
+    /** null when the month reviewed is not the current one (stock is a live snapshot) */
+    oos_top_sellers: number | null; oos_units_30d?: number;
+  };
+  insights: { tone: 'good' | 'bad' | 'warn' | 'neutral'; text: string }[];
+  td_change: number;
+  tail: { styles: number; of_styles: number; sales: number; share_pct: number | null };
+  stock: { value: number; lines: number; units: number; top_styles: { style: string; units: number }[] } | null;
+  decisions: ProductDecision[];
+  leaders: StyleLeaders;
+}
+export interface LeaderRow {
+  style: string; name: string | null; category: string; sales: number; units: number; retailers: number;
+  prev_sales: number; vs_prev_pct: number | null; share_of_category_pct: number | null; share_of_td_pct: number | null;
+  launched_on: string | null; days_live: number | null; sales_per_day: number | null;
+}
+export interface LeaderWindow {
+  from: string; to: string; prev_from: string; prev_to: string; total: number;
+  all: LeaderRow[];
+  categories: { key: string; name: string; sales: number; styles: number }[];
+  by_category: Record<string, LeaderRow[]>;
+  new_launches: LeaderRow[]; new_launches_count: number; new_launches_selling: number; new_launch_sales: number;
+}
+export type StyleLeaders = { windows: number[]; new_launch_days: number } & Record<string, LeaderWindow>;
+
+export type InsightArea = 'sales' | 'drivers' | 'retailers' | 'territory' | 'product' | 'goal' | 'adoption' | 'operations' | 'growth' | 'tech' | 'risk';
+export interface ExecInsight { area: InsightArea; tone: 'good' | 'bad' | 'warn' | 'neutral'; title: string; text: string }
+export interface ExecDecision {
+  area: InsightArea; owner: string; title: string; reason: string;
+  value: number | null; value_label: string; link?: string | null;
+}
+export interface ExecSummary {
+  bridge: { prev: number; current: number; change: number; steps: { key: 'new' | 'base' | 'spend'; label: string; value: number; note: string }[] };
+  insights: ExecInsight[];
+  decisions: ExecDecision[];
+  momentum: { avg_growth_3m_pct: number | null; needed_pct: number | null };
+}
+
+export type SalesAskKind = 'stretch' | 'stalled' | 'no_asm' | 'warm' | 'stock' | 'slow' | 'new' | 'reassign';
+export interface SalesAsk {
+  kind: SalesAskKind; title: string; detail: string; owner: string; distributor: string | null; region: string | null;
+  value: number | null; value_label: string; priority: 'high' | 'medium';
+}
+export interface SalesAsks { asks: SalesAsk[]; td_growth_3m_pct: number | null; warm_total: number; activation_per_month: number }
+
+export interface MarketingAsk {
+  kind: string; title: string; audience: number; channel: string; offer: string; detail: string;
+  rate_pct: number | null; value: number | null; value_label: string; priority: 'high' | 'medium';
+}
+export interface FinanceAsk {
+  kind: 'settle_cadence' | 'incentives'; title: string; detail: string; priority: 'high' | 'medium';
+  value: number | null; value_label: string;
+}
+
 export interface Scorecard {
+  summary: ExecSummary;
+  sales_asks: SalesAsks;
+  finance_asks?: { asks: FinanceAsk[] };
+  marketing_asks?: { asks: MarketingAsk[]; spend_per_retailer: number; rates: Record<string, number> };
+  products: ProductMatrix;
   /** territory filters in force ('East · ASM …'); null = all TD */
   scope_label?: string | null;
   month: string;

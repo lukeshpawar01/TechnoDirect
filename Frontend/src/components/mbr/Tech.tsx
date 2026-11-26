@@ -64,10 +64,10 @@ export function Tech({ notes, month, today }: { notes: MbrNotes; month: string; 
         ))}
       </div>
 
-      <SectionTitle n="3.1" title="Timeline" sub="Planned go-live vs where it is now" />
+      <SectionTitle n="4.1" title="Timeline" sub="Planned go-live vs where it is now" />
       <Timeline items={items} today={asOf} label={asOf === today ? 'Today' : 'Month end'} canEdit={notes.can_edit} onEdit={(item) => setEdit({ item })} />
 
-      <SectionTitle n="3.2" title="Blockers" sub="What needs a decision or help this month" />
+      <SectionTitle n="4.2" title="Blockers" sub="What needs a decision or help this month" />
       <Card bodyClass="p-0">
         {blocked.length === 0 ? (
           <p className="px-4 py-6 text-sm text-muted">Nothing blocked.</p>

@@ -8,6 +8,10 @@ from rest_framework.exceptions import ValidationError
 
 from ..filters import month_end, month_start
 from ..metrics import num
+from ..mbr_finance import finance_asks
+from ..mbr_marketing import marketing_asks
+from ..mbr_sales import sales_asks
+from ..mbr_summary import executive_summary
 from ..mbr import GOAL_DEFAULT, default_goal_by, path_to_goal, scorecard
 from .base import AnalyticsView
 
@@ -82,6 +86,10 @@ class MbrScorecardView(AnalyticsView):
         card["path"] = path_to_goal(f, card, goal, by)
         card["path"].update(national_goal=num(national_goal), territory_share_pct=share_pct)
         card["scope_label"] = scope_label(f)
+        card["summary"] = executive_summary(card)
+        card["sales_asks"] = sales_asks(f, card, card["path"])
+        card["finance_asks"] = finance_asks(f, card)
+        card["marketing_asks"] = marketing_asks(f, card)
         card.pop("_cur")
         card.pop("_trend")
         for t in card["trend"]:

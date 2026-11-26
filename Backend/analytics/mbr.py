@@ -22,6 +22,7 @@ from accounts.scope import DISTRIBUTOR_DIMS
 from warehouse.models import Distributor, Region
 
 from .filters import add_months, month_end, month_start, quarter_start
+from .mbr_products import product_matrix
 from .metrics import delta_pct, median, num, pct, ratio, target_by_month, target_values
 
 GOAL_DEFAULT = 100_000_000  # ₹10 Cr per month
@@ -200,6 +201,7 @@ def scorecard(f, month):
         "headline": headline, "rows": rows, "trend": trend,
         "territory": territory(f, data, m, win, tmaps if f.targets_comparable else None),
         "movers": movers(data, (cur_s, cur_e), win(pm)),
+        "products": product_matrix(f, m, (cur_s, cur_e), win(pm), cur_e, win(ly) if has_yoy else None),
         "_cur": cur, "_trend": trend,
     }
 

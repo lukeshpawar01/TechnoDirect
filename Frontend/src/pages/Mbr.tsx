@@ -7,6 +7,7 @@ import { PageHeader } from '@/components/PageHeader';
 import { ErrorState, InlineError, LoadingBlock, cx } from '@/components/ui';
 import { IconMonitor, IconRepeat, IconX } from '@/components/Icons';
 import { Performance } from '@/components/mbr/Performance';
+import { Summary } from '@/components/mbr/Summary';
 import { Growth } from '@/components/mbr/Growth';
 import { Tech } from '@/components/mbr/Tech';
 import { Developments } from '@/components/mbr/Developments';
@@ -15,10 +16,11 @@ import type { MbrNotes } from '@/components/mbr/types';
 
 /** The MBR agenda, in the order it is presented. */
 const PAGES = [
-  { slug: 'performance', n: 1, label: 'How are we doing', sub: 'Business & product metrics, targets vs actuals' },
-  { slug: 'growth', n: 2, label: 'Growth actions', sub: 'Path to the goal, bottlenecks, support required' },
-  { slug: 'tech', n: 3, label: 'Tech updates', sub: 'Delivery, blockers, adherence to timelines' },
-  { slug: 'developments', n: 4, label: 'Other developments', sub: 'Wins, risks, people, partners, policy' },
+  { slug: 'summary', n: 1, label: 'Executive summary', sub: 'Conclusions and decisions for leadership' },
+  { slug: 'performance', n: 2, label: 'How are we doing', sub: 'Business & product metrics, targets vs actuals' },
+  { slug: 'growth', n: 3, label: 'Growth actions', sub: 'Path to the goal, bottlenecks, support required' },
+  { slug: 'tech', n: 4, label: 'Tech updates', sub: 'Delivery, blockers, adherence to timelines' },
+  { slug: 'developments', n: 5, label: 'Other developments', sub: 'Wins, risks, people, partners, policy' },
 ] as const;
 type Slug = (typeof PAGES)[number]['slug'];
 
@@ -51,7 +53,7 @@ export default function MbrPage() {
   const score = useScorecard(month);
   const notesQ = useNotes(month);
 
-  // ---- present mode: the four pages full screen, arrow keys move between them
+  // ---- present mode: the pages full screen, arrow keys move between them
   const stage = useRef<HTMLDivElement>(null);
   const [presenting, setPresenting] = useState(false);
   useEffect(() => {
@@ -78,7 +80,7 @@ export default function MbrPage() {
     return () => window.removeEventListener('keydown', key);
   }, [presenting, go]);
 
-  if (!current) return <Navigate to={{ pathname: '/mbr/performance', search: sp.toString() }} replace />;
+  if (!current) return <Navigate to={{ pathname: '/mbr/summary', search: sp.toString() }} replace />;
 
   // presenting = read-only (drawers would open outside the full-screen stage)
   const notes: MbrNotes | undefined = notesQ.data && presenting ? { ...notesQ.data, can_edit: false } : notesQ.data;
@@ -97,7 +99,7 @@ export default function MbrPage() {
             <select id="mbr-month" className="input py-1 text-sm" value={month} onChange={(e) => setMonth(e.target.value)}>
               {months.map((m, i) => <option key={m} value={m}>{monthLabel(m)}{i === 0 ? ' (in progress)' : ''}</option>)}
             </select>
-            <button className="btn" onClick={() => void stage.current?.requestFullscreen?.()} title="Full screen; ← → move between the four pages; Esc to leave">
+            <button className="btn" onClick={() => void stage.current?.requestFullscreen?.()} title="Full screen; ← → move between the pages; Esc to leave">
               <IconMonitor size={14} /> Present
             </button>
           </div>
@@ -120,7 +122,7 @@ export default function MbrPage() {
           </div>
         )}
 
-        <nav aria-label="MBR pages" className="mb-4 grid grid-cols-2 gap-2 lg:grid-cols-4">
+        <nav aria-label="MBR pages" className="mb-4 grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-5">
           {PAGES.map((p) => (
             <NavLink
               key={p.slug}
@@ -154,16 +156,17 @@ function PageBody({ slug, month, today, score, notes, notesQ }: {
   slug: Slug; month: string; today: string;
   score: ReturnType<typeof useScorecard>; notes: MbrNotes | undefined; notesQ: ReturnType<typeof useNotes>;
 }) {
-  const needsScore = slug === 'performance' || slug === 'growth';
+  const needsScore = slug === 'summary' || slug === 'performance' || slug === 'growth';
   if (needsScore) {
     if (score.isLoading) return <LoadingBlock height={420} label="Building the scorecard…" />;
     if (score.error && !score.data) return <ErrorState error={score.error} onRetry={() => void score.refetch()} />;
   }
-  if (slug !== 'performance') {
+  if (slug !== 'performance' && slug !== 'summary') {
     if (notesQ.isLoading) return <LoadingBlock height={300} />;
     if (notesQ.error || !notes) return <ErrorState error={notesQ.error} onRetry={() => void notesQ.refetch()} />;
   }
   const s = score.data?.data;
+  if (slug === 'summary' && s) return <Summary s={s} notes={notes} />;
   if (slug === 'performance' && s) return <Performance s={s} notes={notes} />;
   if (slug === 'growth' && s && notes) return <Growth s={s} notes={notes} />;
   if (slug === 'tech' && notes) return <Tech notes={notes} month={month} today={today} />;

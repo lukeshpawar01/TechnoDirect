@@ -184,9 +184,9 @@ class MbrItem(models.Model):
         "other": [("win", "Win"), ("risk", "Risk"), ("people", "People"), ("partner", "Partnership"),
                   ("policy", "Policy & compliance"), ("market", "Market & competition"), ("other", "Other")],
     }
-    TEAMS = [("tech", "Tech"), ("logistics", "Logistics"), ("finance", "Finance"), ("legal", "Legal"),
-             ("data", "Data"), ("sales", "Sales team"), ("marketing", "Marketing"), ("tup", "TUP"),
-             ("operations", "Operations"), ("other", "Other")]
+    # Logistics, Legal and TUP were dropped on 2026-11-26 (user request); any old lines were moved to "other"
+    TEAMS = [("sales", "Sales team"), ("tech", "Tech"), ("finance", "Finance"), ("data", "Data"),
+             ("marketing", "Marketing"), ("operations", "Operations"), ("other", "Other")]
     LEVERS = [("adoption", "Adoption of TechnoSport retailers"), ("activation", "Activation of KYC'd retailers"),
               ("retention", "Retention / repeat orders"), ("new_retailers", "New retailers"),
               ("basket", "Basket size / spend"), ("distributors", "Distributor network"), ("other", "Other")]

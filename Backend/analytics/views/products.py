@@ -305,6 +305,93 @@ class InventoryView(AnalyticsView):
         return {"sync": sync, "summary": summary, "oos_top_sellers": oos[:100], "sold_days": days}
 
 
+OOS_STYLES_MAX = 40
+
+
+class InventoryOosStylesView(AnalyticsView):
+    """Top-selling styles that are out of stock somewhere, and at which distributors.
+
+    Ranking: units sold (base style) over the last `sold_days` days in the selected territory. A style is listed when at
+    least one distributor carries it (has a stock row) with every unit of a size at zero. Per distributor: the sizes at
+    zero, units of the style it sold in the window (demand at that counter), its state / region / ASM / RSM.
+    Territory filters come from the card (region / rsm / state / asm), on top of the page filters.
+    """
+
+    permission_code = "view_inventory"
+    sources = ["channel_konnect", "supabase"]
+    export_key = "styles"
+
+    def cache_extra(self, request, **kwargs):
+        return f"{super().cache_extra(request, **kwargs)}|sold={sold_days(request)}"
+
+    def compute(self, f, request, **kw):
+        from ..rsm import region_rsm_map
+
+        days = sold_days(request)
+        start = f.today - dt.timedelta(days=days - 1)
+        lines = OrderLine.objects.filter(order__in=f.orders(start=start, end=f.today)).filter(f.lines_q())
+        sold_style, sold_dist = defaultdict(int), defaultdict(int)
+        for did, style, u in lines.values_list("order__distributor_id", "style").annotate(u=Sum("quantity")).values_list(
+                "order__distributor_id", "style", "u"):
+            code = base_style(style) or style
+            sold_style[code] += u or 0
+            sold_dist[(did, code)] += u or 0
+
+        inv = latest_inventory(f)
+        carried, oos = defaultdict(set), defaultdict(lambda: defaultdict(list))
+        meta = {}
+        for did, style, size, qty, name, l3 in inv.values_list("distributor_id", "style", "size", "quantity",
+                                                              "product__name", "product__category_l3"):
+            code = base_style(style) or style
+            carried[code].add(did)
+            meta.setdefault(code, (name, l3))
+            if qty <= 0:
+                oos[code][did].append(size or "-")
+
+        ranked = sorted((c for c in oos if sold_style.get(c)), key=lambda c: -sold_style[c])[:OOS_STYLES_MAX]
+        dids = {d for c in ranked for d in oos[c]}
+        reg_rsm = region_rsm_map()
+        from warehouse.models import Rsm
+
+        rsm_names = dict(Rsm.objects.values_list("id", "name"))
+        dinfo = {}
+        for d in Distributor.objects.filter(id__in=dids).select_related("state", "region", "asm"):
+            rid = d.asm.rsm_id if d.asm_id and d.asm.rsm_id else reg_rsm.get(d.region_id)
+            dinfo[d.id] = {"distributor_id": d.id, "distributor": d.name,
+                           "state": d.state.name if d.state_id else None, "region": d.region.name if d.region_id else None,
+                           "asm": d.asm.name if d.asm_id else None, "rsm": rsm_names.get(rid)}
+
+        def size_key(x):
+            order = ["XS", "S", "M", "L", "XL", "XXL", "2XL", "3XL", "4XL", "5XL"]
+            return (order.index(x) if x in order else 99, x)
+
+        styles = []
+        for code in ranked:
+            name, l3 = meta.get(code, (None, None))
+            dl = []
+            for did, sizes in oos[code].items():
+                if did not in dinfo:
+                    continue
+                dl.append({**dinfo[did], "sizes": sorted(set(sizes), key=size_key),
+                           "units_sold": sold_dist.get((did, code), 0)})
+            dl.sort(key=lambda x: (-x["units_sold"], -len(x["sizes"]), x["distributor"]))
+            styles.append({
+                "style": code, "name": name, "category": ((l3 or "").title() if (l3 or "").lower() in ("t-shirts", "gym-vests") else (l3 or "").replace("-", " ").title()) or None,
+                "units_sold": sold_style[code], "distributors_carrying": len(carried[code]),
+                "distributors_oos": len(dl), "distributors_oos_with_demand": sum(1 for x in dl if x["units_sold"]),
+                "oos_lines": sum(len(x["sizes"]) for x in dl), "distributors": dl,
+            })
+        cats = defaultdict(lambda: {"styles": 0, "distributors": set(), "units": 0})
+        for st in styles:
+            c = cats[st["category"] or "Uncategorised"]
+            c["styles"] += 1
+            c["units"] += st["units_sold"]
+            c["distributors"].update(x["distributor_id"] for x in st["distributors"])
+        by_category = sorted([{"category": k, "styles": v["styles"], "distributors": len(v["distributors"]),
+                               "units_sold": v["units"]} for k, v in cats.items()], key=lambda x: -x["units_sold"])
+        return {"styles": styles, "by_category": by_category, "sold_days": days}
+
+
 class _InvRows:
     def __init__(self, instance, many=False, sold=None, **kw):
         low = settings.LOW_STOCK_THRESHOLD

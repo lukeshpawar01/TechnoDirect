@@ -169,3 +169,116 @@ class MbrApiTests(TestCase):
         self.assertEqual(bh.put("/api/masters/mbr/?month=2099-01", {}, format="json").status_code, 400)
         self.assertEqual(bh.delete(f"/api/masters/mbr/items/{iid}/").status_code, 204)
         self.assertEqual(rm.get("/api/mbr/?month=2026-10").status_code, 200)
+
+
+class ProductDecisionTests(TestCase):
+    """The MBR product calls: scale / defend / fix / watch and the decision cards."""
+
+    def _cat(self, name, sales, prev, share, prev_share, role, oos=None):
+        from .metrics import delta_pct
+        return {"key": name.lower(), "name": name, "sales": sales, "prev_sales": prev, "change": sales - prev,
+                "share_pct": share, "prev_share_pct": prev_share, "share_change_pp": round(share - prev_share, 1),
+                "mom_pct": delta_pct(sales, prev), "top_style": "X1", "role": role, "oos_value": oos}
+
+    def test_calls_and_decisions(self):
+        from .mbr_products import _call, _decisions
+        # TD 100 -> 130 (+30%); A grows slower and loses share with lots of demand at zero stock; B grows fast
+        a = self._cat("A", 90, 80, 69.2, 80.0, "defend", oos=20)
+        b = self._cat("B", 40, 20, 30.8, 20.0, "rising", oos=1)
+        for c in (a, b):
+            c["call"] = _call(c)
+        self.assertEqual((a["call"], b["call"]), ("fix", "scale"))  # 20/90 = 22% >= 15% and losing share
+        a2 = dict(a, oos_value=5)
+        self.assertEqual(_call(a2), "defend")  # stock-outs too small to blame
+        self.assertEqual(_call(dict(b, oos_value=30)), "scale")  # growing: never "fix"
+
+        pulse = {"new_launch_share_pct": 12.0, "new_launch_sales": 15.6, "new_launches_selling": 3, "new_launches": 4}
+        tail = {"styles": 3, "of_styles": 20, "sales": 13.0, "share_pct": 10.0}
+        stock = {"lines": 4, "units": 50, "top_styles": [{"style": "X1", "units": 30}]}
+        d = {x["kind"]: x for x in _decisions([a, b], pulse, tail, stock, 21.0, 30.0, 130, 50)}
+        self.assertEqual(d["scale"]["title"], "Scale B")
+        self.assertEqual(d["scale"]["value"], 20)
+        self.assertEqual(d["fix"]["value"], 21.0)
+        self.assertIn("80.0% to 69.2%", d["defend"]["reason"])
+        self.assertAlmostEqual(d["defend"]["value"], (80.0 - 69.2) / 100 * 130, places=1)
+        self.assertNotIn("watch", d)  # fewer than 10 tail styles: no card
+        self.assertTrue(d["launch"]["good"])
+
+
+class ExecutiveSummaryTests(TestCase):
+    def test_bridge_adds_up(self):
+        from .mbr_summary import bridge
+        rows = {"sales": {"value": 130.0, "prev": 100.0}, "active_retailers": {"value": 12, "prev": 10},
+                "new_retailers": {"value": 4}}
+        b = bridge(rows)
+        steps = {s["key"]: s["value"] for s in b["steps"]}
+        self.assertEqual(steps["new"], 40.0)    # 4 new x last month's 10 per retailer
+        self.assertEqual(steps["base"], -20.0)  # 8 repeat vs 10 last month
+        self.assertAlmostEqual(sum(steps.values()), b["change"])
+        self.assertEqual(b["change"], 30.0)
+
+    def test_summary_on_a_scorecard(self):
+        from .mbr_summary import executive_summary
+        S = MbrScorecardTests("test_month_in_progress_is_like_for_like")
+        S.setUp()
+        from .mbr import path_to_goal
+        card = scorecard(S.f, D(2026, 11, 1))
+        card["path"] = path_to_goal(S.f, card, 100000, D(2027, 3, 1))
+        out = executive_summary(card)
+        self.assertEqual(out["insights"][0]["area"], "sales")
+        self.assertAlmostEqual(sum(s["value"] for s in out["bridge"]["steps"]), out["bridge"]["change"], places=2)
+        self.assertTrue(any(d["area"] == "adoption" for d in out["decisions"]))
+
+    def test_leaders_windows(self):
+        S = MbrScorecardTests("test_month_in_progress_is_like_for_like")
+        S.setUp()
+        L = scorecard(S.f, D(2026, 11, 1))["products"]["leaders"]
+        self.assertEqual(L["windows"], [30, 60])
+        self.assertEqual((L["30"]["from"], L["30"]["to"]), ("2026-10-12", "2026-11-10"))  # 30 days to as-of (today 10 Nov)
+        self.assertEqual(L["30"]["prev_to"], "2026-10-11")
+        self.assertEqual(L["60"]["from"], "2026-09-12")
+
+
+class SalesAsksTests(TestCase):
+    def test_placeholder_asm_and_asks_run(self):
+        from warehouse.models import Asm
+        from .mbr import path_to_goal
+        from .mbr_sales import _placeholder, sales_asks
+        self.assertTrue(_placeholder(Asm(name="Zealous", emp_id=""), "Zealous Ventures"))
+        self.assertFalse(_placeholder(Asm(name="Gururaj", emp_id="E1"), "Heera Exports Inc"))
+        S = MbrScorecardTests("test_month_in_progress_is_like_for_like")
+        S.setUp()
+        card = scorecard(S.f, D(2026, 11, 1))
+        path = path_to_goal(S.f, card, 100000, D(2027, 3, 1))
+        out = sales_asks(S.f, card, path)
+        kinds = {a["kind"] for a in out["asks"]}
+        self.assertIn("stretch", kinds)      # the region's biggest distributor gets a next-month target
+        self.assertNotIn("no_asm", kinds)    # no ASM, but under ₹20k/month and <20 never-ordered: too small to flag
+        st = next(a for a in out["asks"] if a["kind"] == "stretch")
+        self.assertGreater(st["value"], 0)   # target is above today's pace
+
+
+class FinanceAsksTests(TestCase):
+    def test_finance_asks_without_settlement_or_incentive_data(self):
+        from .mbr_finance import finance_asks
+        S = MbrScorecardTests("test_month_in_progress_is_like_for_like")
+        S.setUp()
+        card = scorecard(S.f, D(2026, 11, 1))
+        out = finance_asks(S.f, card)["asks"]
+        self.assertEqual([a["kind"] for a in out], ["incentives"])  # no settlement rows: only the incentive ask
+        self.assertIn("Approve", out[0]["title"])
+
+
+class MarketingAsksTests(TestCase):
+    def test_campaigns_are_sized(self):
+        from .mbr import path_to_goal
+        from .mbr_marketing import marketing_asks
+        S = MbrScorecardTests("test_month_in_progress_is_like_for_like")
+        S.setUp()
+        card = scorecard(S.f, D(2026, 11, 1))
+        card["path"] = path_to_goal(S.f, card, 100000, D(2027, 3, 1))
+        out = marketing_asks(S.f, card)["asks"]
+        kinds = {a["kind"] for a in out}
+        self.assertIn("kyc_never", kinds)   # retailer c: KYC done, never ordered, not warm
+        a = next(x for x in out if x["kind"] == "kyc_never")
+        self.assertEqual((a["audience"], a["rate_pct"]), (1, 2))
