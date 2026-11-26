@@ -67,6 +67,23 @@ def recon_dashboard_value(metric, month):
     return None
 
 
+def source_check():
+    """The latest 'dashboard vs sources' result (analytics/source_recon.py, run after every refresh), trimmed."""
+    from ..source_recon import latest
+
+    res, at = latest()
+    if not res:
+        return None
+    t = res.get("tracker") or {}
+    lists = {k: {"count": len(t.get(k) or []), "rows": (t.get(k) or [])[:25]}
+             for k in ("only_sheet", "only_td", "value_diff", "status_diff", "distributor_diff", "merged_in_sheet")}
+    sup = res.get("supabase") or {}
+    return {"checked_at": _iso(at), "tracker_months": t.get("months", []), "tracker": lists,
+            "supabase_months": (sup.get("months") or [])[-13:], "supabase_available": sup.get("available", False),
+            "supabase_error": sup.get("error"), "targets": (res.get("targets") or {}).get("months", [])[-13:],
+            "sheets": res.get("sheets") or {}}
+
+
 class DataHealthView(AnalyticsView):
     permission_code = "view_data_health"
     sources = list(CONNECTORS)
@@ -145,7 +162,7 @@ class DataHealthView(AnalyticsView):
                           "tolerance_pct": float(r.tolerance_pct)})
         issue_filter = request.query_params.get("issue")
         out = {"sources": sources, "issues": issues, "reconciliation": recon,
-               "payment_mismatches": payment_mismatches}
+               "payment_mismatches": payment_mismatches, "source_check": source_check()}
         if issue_filter:
             out["issue_rows"] = sample(issue_filter, 500)
         return out

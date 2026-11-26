@@ -5,6 +5,7 @@ import type { DataHealth as DH } from '@/api/types';
 import { useAuth } from '@/auth/AuthContext';
 import { DataTable } from '@/components/DataTable';
 import { ManualMappings } from '@/components/ManualMappings';
+import { SourceCheck } from '@/components/SourceCheck';
 import { PageHeader } from '@/components/PageHeader';
 import { Badge, Card, ErrorState, InlineError, LoadingBlock, Spinner, StatusBadge } from '@/components/ui';
 import { IconRefresh } from '@/components/Icons';
@@ -168,6 +169,7 @@ export default function DataHealth() {
               />
             </Card>
           </div>
+          <SourceCheck d={d.source_check} />
         </>
       ) : null}
       <ManualMappings />

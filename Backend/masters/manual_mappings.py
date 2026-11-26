@@ -183,6 +183,8 @@ def remove(entry, undo=True, reason="removed by hand"):
         if entry.kind in ("distributor_asm", "asm_handover"):
             attribute_orders_to_distributor_asm()
         bump_cache_version()
+    if entry.kind == "distributor_removed":
+        note = f"{reason} (the distributors come back at the next refresh)"
     entry.status, entry.closed_on, entry.closed_reason = "removed", localdate(), note[:255]
     entry.save(update_fields=["status", "closed_on", "closed_reason", "updated_at"])
     return entry

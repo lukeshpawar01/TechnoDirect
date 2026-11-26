@@ -241,9 +241,14 @@ class TdImporter:
         used_codes = set(Distributor.objects.values_list("code", flat=True))
         claimed, created = set(), 0
         self.dist_by_id = {}
+        from masters.exclusions import excluded_source_ids
+
+        removed = excluded_source_ids()  # removed from the dashboard by the user (masters/exclusions.py)
         for r in sorted(self.dist_rows, key=lambda r: to_int(r.get("distributor_id"))):
             did, raw = r["distributor_id"].strip(), r.get("distributor_name", "").strip()
             sid = f"td:{did}"
+            if sid in removed:
+                continue
             d = by_src.get(sid) or match(raw)
             if d is not None and d.id in claimed:
                 d = None  # two export rows with the same name (e.g. "Ankit Jain") stay separate

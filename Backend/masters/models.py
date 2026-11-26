@@ -168,7 +168,8 @@ class ManualMapping(models.Model):
     """
 
     KINDS = [("distributor_asm", "Distributor's ASM"), ("asm_handover", "ASM handover (dated)"),
-             ("distributor_alias", "Distributor alias"), ("distributor_merge", "Distributors merged")]
+             ("distributor_alias", "Distributor alias"), ("distributor_merge", "Distributors merged"),
+             ("distributor_removed", "Distributor removed from the dashboard")]
     STATUSES = [("active", "Active"), ("confirmed", "Confirmed by proper data"),
                 ("replaced", "Replaced by proper data"), ("removed", "Removed")]
     kind = models.CharField(max_length=32, choices=KINDS)

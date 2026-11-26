@@ -133,6 +133,16 @@ DQ_LABELS = {
     "stale_feed": ("Data feed stale / failed", "high"),
     "paid_order_not_created": ("Payment succeeded but order not created (pending-order job)", "high"),
     "stock_above_ck": ("App stock higher than distributor billing stock (CK)", "medium"),
+    # dashboard vs its sources (analytics/source_recon.py)
+    "sales_vs_sheet_month": ("Month's sales differ from the finance Order Tracking sheet", "high"),
+    "order_only_in_sheet": ("Order in the Order Tracking sheet but not in TD data", "high"),
+    "order_missing_in_sheet": ("Paid TD order missing from the Order Tracking sheet", "medium"),
+    "order_value_vs_sheet": ("Order value differs from the Order Tracking sheet", "medium"),
+    "order_status_vs_sheet": ("Sheet and TD disagree whether the order was cancelled", "low"),
+    "order_distributor_vs_sheet": ("Order moved to another distributor in TD (sheet keeps the original)", "low"),
+    "import_vs_supabase": ("Month's orders differ from TD's Supabase data (import gap)", "high"),
+    "targets_dont_add_up": ("Targets don't add up (overall vs regions) or differ from the target sheet", "high"),
+    "sheet_distributor_unmatched": ("Distributor name in a sheet matches no distributor", "medium"),
 }
 
 
@@ -214,6 +224,17 @@ def run_data_quality_checks():
             issues.append(_issue("stale_feed", "source", f["source"], f,
                                  severity="high" if f["status"] == "failed" else "medium"))
 
+    # the dashboard against its sources (finance sheet, Supabase, targets, sheet names)
+    try:
+        from . import source_recon
+
+        result = source_recon.run()
+        source_recon.store(result)
+        for code, otype, oid, details in source_recon.issues(result):
+            issues.append(_issue(code, otype, oid, details))
+    except Exception:  # noqa: BLE001 - a failed check must never stop the refresh
+        log.exception("source reconciliation failed")
+
     with transaction.atomic():
         DataQualityIssue.objects.filter(resolved_at__isnull=True).delete()
         for chunk in chunked(issues, 2000):
@@ -290,6 +311,12 @@ def _split_carts():
     return mark_split_carts()
 
 
+def _sheet_cancellations():
+    from .source_recon import apply_sheet_cancellations
+
+    return apply_sheet_cancellations()
+
+
 def exclude_internal_orders():
     """Orders of internal distributors (Distributor.is_internal) never count as sales. The import recomputes
     is_qualifying from status / payment, so this runs after every import, before anything is aggregated."""
@@ -305,12 +332,18 @@ def run_all_derivations():
 
     from ingestion.payments_link import reconcile_payments
 
+    from masters.exclusions import apply as remove_excluded_distributors
+
     details = {
+        # distributors the user removed from the dashboard: gone before anything is counted
+        "distributors_removed": remove_excluded_distributors(),
         # first: split carts change split_group, which every order count below uses
         "split_carts": _split_carts(),
         "payments_reconciled": reconcile_payments(),
         # after the steps that re-save orders (save() recomputes is_qualifying), before any aggregate
         "internal_orders_excluded": exclude_internal_orders(),
+        # TD leaves older orders' status stale: take the cancellation the finance sheet records
+        "cancelled_from_sheet": _sheet_cancellations(),
         "retailers_asm_synced": sync_retailer_asms(),
         "blueorigin_asm_synced": _bo("sync_bo_asms"),
         "settlement_asm_synced": _settlement_asms(),

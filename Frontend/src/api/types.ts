@@ -801,6 +801,8 @@ export interface DataHealth {
   sources: { source: string; status: FreshnessStatus | string; last_success_at: string | null; last_error: string | null; rows_last_run: number | null; next_run_at: string | null; via?: string | null; last_checked_at?: string | null; rows_loaded?: number }[];
   issues: { code: string; label: string; count: number; severity: string }[];
   reconciliation: { metric: string; period: string; dashboard_value: number; mis_value: number | null; diff_pct: number | null }[];
+  /** dashboard vs its sources, checked after every refresh (analytics/source_recon.py) */
+  source_check?: import('@/components/SourceCheck').SourceCheckData | null;
 }
 
 // ---------------------------------------------------------------- masters

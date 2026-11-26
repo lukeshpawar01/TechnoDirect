@@ -465,3 +465,38 @@ class OrderTimeTests(SimpleTestCase):
         self.assertEqual(timezone.localtime(t).strftime("%Y-%m-%d %H:%M"), "2026-11-12 00:23")
         self.assertIsNone(order_time(lines, dt.date(2026, 11, 11)))  # not on the order's IST date
         self.assertIsNone(order_time([{"timestamp": ""}], dt.date(2026, 11, 12)))
+
+
+class RemovedDistributorTests(SupabaseImportTests):
+    """Distributors the user removed (masters/exclusions.py) do not come back with a refresh or a sheet import."""
+
+    def test_removed_distributors_stay_removed(self):
+        from analytics.derivations import run_all_derivations
+        from ingestion.connectors.supabase import SupabaseTdImporter
+        from masters.exclusions import remove_distributors
+        from warehouse.models import Distributor
+
+        tables = self.rows()
+
+        def fetch(sql):
+            table = sql.split(" FROM ")[1].split()[0].strip('"')
+            return tables[table]
+
+        SupabaseTdImporter(fetch).run()
+        ids = list(Distributor.objects.filter(name="Ankit Jain").values_list("id", flat=True))
+        self.assertEqual(len(ids), 2)
+        entry, n = remove_distributors(ids, said="remove ankit jain from everywhere")
+        self.assertEqual(n, 2)
+        self.assertFalse(Distributor.objects.filter(name="Ankit Jain").exists())
+
+        SupabaseTdImporter(fetch).run()  # the TD export still lists them: skipped
+        self.assertFalse(Distributor.objects.filter(name="Ankit Jain").exists())
+        Distributor.objects.create(code="AJX", name="Ankit Jain", source_id="name:ankitjain")  # another sheet, by name
+        run_all_derivations()
+        self.assertFalse(Distributor.objects.filter(name="Ankit Jain").exists())
+        self.assertTrue(Distributor.objects.filter(source_id="td:9").exists())  # others untouched
+
+        from masters.manual_mappings import remove
+        remove(entry)  # closing the entry lets them come back at the next refresh
+        SupabaseTdImporter(fetch).run()
+        self.assertEqual(Distributor.objects.filter(name="Ankit Jain").count(), 2)
