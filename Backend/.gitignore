@@ -13,3 +13,9 @@ db.sqlite3-journal
 service_account*.json
 db.sqlite3-wal
 db.sqlite3-shm
+
+# Hosting files of the old setup (Render, and this Windows PC + Cloudflare tunnel): kept on this PC only,
+# out of the repo (2026-11-26), since the dashboard will be hosted on another system.
+deploy/render/
+deploy/windows/
+serve.py
