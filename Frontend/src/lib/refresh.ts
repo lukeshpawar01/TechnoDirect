@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useQueryClient, useIsFetching } from '@tanstack/react-query';
-import { get } from './api';
+import { SAVED_EVENT, get } from './api';
 import { useLatestMeta } from './freshnessStore';
 
 /** Scheduled warehouse refreshes (IST). */
@@ -76,11 +76,21 @@ export function useDataVersionWatcher(intervalMs = 15_000) {
     void check();
     const timer = window.setInterval(() => void check(), intervalMs);
     const onVisible = () => void check();
+    // right after a save: look now (and once more shortly after, for changes the server finishes in the background)
+    let soon: number | undefined;
+    const onSaved = () => {
+      void check();
+      window.clearTimeout(soon);
+      soon = window.setTimeout(() => void check(), 2500);
+    };
     document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener(SAVED_EVENT, onSaved);
     return () => {
       stopped = true;
       window.clearInterval(timer);
+      window.clearTimeout(soon);
       document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener(SAVED_EVENT, onSaved);
     };
   }, [qc, intervalMs]);
 }

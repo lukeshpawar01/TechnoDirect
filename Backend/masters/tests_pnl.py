@@ -3,7 +3,7 @@ Business Head role and the master admin."""
 import datetime as dt
 from decimal import Decimal
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
 from accounts.models import Role, User
@@ -158,6 +158,21 @@ class PnlDataCheckTests(TestCase):
         self.assertEqual((dc.orders, dc.order_value, dc.cancelled_value, dc.points_redeemed),
                          (2, Decimal(1500), Decimal(500), Decimal(10)))
 
+    def test_internal_distributor_orders_are_revenue_on_the_tracker_basis(self):
+        from masters.models import PnlDataCheck
+        from masters.pnl import rebuild_data_checks
+        from warehouse.models import Distributor
+
+        Distributor.objects.create(code="TS", name="Techno Sportswear Private Limited", source_id="td:3", is_internal=True)
+        rows = [{"order_date": "2026-07-03", "mode": "UPI", "total_amount": "1000", "line_total": "1000",
+                 "points_redeemed": "0", "ts_order_status": "delivered", "distributor_id": "7"},
+                {"order_date": "2026-07-04", "mode": "UPI", "total_amount": "400", "line_total": "400",
+                 "points_redeemed": "0", "ts_order_status": "delivered", "distributor_id": "3"}]
+        rebuild_data_checks(rows)
+        dc = PnlDataCheck.objects.get(quarter_start="2026-07-01")
+        self.assertEqual((dc.orders, dc.order_value), (2, Decimal(1400)))
+
+    @override_settings(SALES_BASIS="net")
     def test_internal_distributor_orders_are_not_revenue(self):
         from masters.models import PnlDataCheck
         from masters.pnl import rebuild_data_checks

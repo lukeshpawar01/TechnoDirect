@@ -9,6 +9,7 @@ import { ITEM_TONE, ItemEditor, SectionTitle, Verdict, dmy, useSaveReview } from
 import type { MbrItem, MbrNotes, Scorecard } from './types';
 import { Takeaways } from './Summary';
 import { SupportMatrix } from './Support';
+import { GrowthDrivers } from './Drivers';
 
 const addMonths = (ym: string, n: number) => {
   const [y, m] = ym.split('-').map(Number);
@@ -47,6 +48,8 @@ export function Growth({ s, notes }: { s: Scorecard; notes: MbrNotes }) {
       </Verdict>
 
       <Takeaways s={s} areas={['goal', 'adoption']} />
+
+      <GrowthDrivers s={s} />
 
       <div className="grid gap-4 xl:grid-cols-5">
         <PathChart s={s} className="xl:col-span-3" />

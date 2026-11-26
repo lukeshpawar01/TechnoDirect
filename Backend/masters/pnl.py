@@ -360,8 +360,10 @@ def rebuild_data_checks(order_rows):
 
     from warehouse.models import Distributor
 
-    # company-internal accounts (Distributor.is_internal) are not revenue
-    internal = {sid.split(":", 1)[1] for sid in Distributor.objects.filter(
+    from warehouse.models import sales_match_tracker
+
+    # company-internal accounts (Distributor.is_internal) are revenue only on the tracker basis (they are in the sheet)
+    internal = set() if sales_match_tracker() else {sid.split(":", 1)[1] for sid in Distributor.objects.filter(
         is_internal=True, source_id__startswith="td:").values_list("source_id", flat=True)}
     def blank():
         return {"orders": 0, "order_value": D0, "line_value": D0, "cancelled_value": D0, "points_redeemed": D0}

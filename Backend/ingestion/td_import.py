@@ -3,9 +3,11 @@ loyalty_ledger) into the warehouse. The rows arrive as dicts of strings (ingesti
 Postgres values into the text form this mapping parses); `read_rows()` is provided by the connector.
 
 Interpretation (checked against the TD_DataDeck figures, see docs/PLAN.md):
-  * Sales = line_total (sum of the order's lines, before points). total_amount = payu_amount + points_redeemed,
-    so it over-states sales once points are redeemed. Line totals reproduce the deck's month figures
-    (first Rs 1 Cr month Jun-25, first Rs 2 Cr month Dec-25, record Rs 2.95 Cr Aug-26).
+  * Sales (settings.SALES_BASIS):
+      tracker (default since 2026-11-26) - total_amount (= payu_amount + points_redeemed), the order value the
+        finance Order Tracking sheet lists; with cancelled and internal orders counted, the dashboard equals the sheet;
+      net - line_total (sum of the order's lines, before points). It reproduces the TD_DataDeck month figures
+        (first Rs 1 Cr month Jun-25, first Rs 2 Cr month Dec-25, record Rs 2.95 Cr Aug-26).
   * order_date is a calendar date only; placed_at is set to 12:00 IST that day.
   * Paid = a payment mode or a PayU amount is present. Pre-launch pilot orders have neither and do not count.
   * Stock on hand = `available` (stock less reserved), summed over a distributor's locations.
@@ -40,6 +42,7 @@ from warehouse.models import (
     Retailer,
     State,
     compute_is_qualifying,
+    sales_match_tracker,
 )
 
 from .normalize import (IST, TWO, UTC, WHOLESALE_SHARE, end_of_day, nice_name, norm, parse_dt, slug, to_bool, to_date,
@@ -452,7 +455,9 @@ class TdImporter:
                 "status": status, "ts_order_status": raw[:32], "payment_status": pay,
                 "medusa_payment_status": pay, "payment_status_source": "medusa",
                 "payment_mode": (o.get("mode") or "")[:16], "platform": (o.get("platform") or "").lower()[:16],
-                "gross_value": value if olines else to_dec(o.get("line_total")),
+                # tracker basis: the order value as finance lists it (total_amount, incl. loyalty points)
+                "gross_value": (to_dec(o.get("total_amount")) if sales_match_tracker() and to_dec(o.get("total_amount"))
+                                else (value if olines else to_dec(o.get("line_total")))),
                 "units": units, "placed_at": placed, "placed_date": day,
                 "confirmed_at": None, "shipped_at": shipped_at, "delivered_at": delivered_at,
                 "cancelled_at": updated if status == "cancelled" else None,

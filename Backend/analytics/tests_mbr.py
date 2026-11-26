@@ -3,7 +3,7 @@ tech adherence, carry-forward and access."""
 import datetime as dt
 from decimal import Decimal
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -18,6 +18,7 @@ from warehouse.models import Distributor, Order, Region, Retailer, Target
 D = dt.date
 
 
+@override_settings(SALES_BASIS="net")
 class MbrScorecardTests(TestCase):
     def setUp(self):
         self.region = Region.objects.create(code="S", name="South")
@@ -282,3 +283,17 @@ class MarketingAsksTests(TestCase):
         self.assertIn("kyc_never", kinds)   # retailer c: KYC done, never ordered, not warm
         a = next(x for x in out if x["kind"] == "kyc_never")
         self.assertEqual((a["audience"], a["rate_pct"]), (1, 2))
+
+
+@override_settings(SALES_BASIS="net")
+class GrowthDriversTests(TestCase):
+    def test_tiers_add_up_to_td(self):
+        from .mbr_growth import TIERS, growth_drivers
+        S = MbrScorecardTests("test_month_in_progress_is_like_for_like")
+        S.setUp()
+        g = growth_drivers(S.f, scorecard(S.f, D(2026, 11, 1)))
+        self.assertEqual([t["tier"] for t in g["tiers"]], TIERS)
+        self.assertAlmostEqual(sum(t["sales"] for t in g["tiers"]), g["total"], places=2)
+        self.assertEqual(g["total"], 5000.0)  # like for like: 1-10 Nov (the fixture's in-progress window)
+        self.assertEqual(g["tiers"][-1]["tier"], "Not in BlueOrigin")  # fixture retailers have no BlueOrigin tier
+        self.assertEqual(g["tiers"][-1]["retailers"], 1)

@@ -9,6 +9,7 @@ from rest_framework.exceptions import ValidationError
 from ..filters import month_end, month_start
 from ..metrics import num
 from ..mbr_finance import finance_asks
+from ..mbr_growth import growth_drivers
 from ..mbr_marketing import marketing_asks
 from ..mbr_sales import sales_asks
 from ..mbr_summary import executive_summary
@@ -90,6 +91,7 @@ class MbrScorecardView(AnalyticsView):
         card["sales_asks"] = sales_asks(f, card, card["path"])
         card["finance_asks"] = finance_asks(f, card)
         card["marketing_asks"] = marketing_asks(f, card)
+        card["growth_drivers"] = growth_drivers(f, card)
         card.pop("_cur")
         card.pop("_trend")
         for t in card["trend"]:

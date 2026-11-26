@@ -282,6 +282,11 @@ ORDER_TRANSIT_SLA_DAYS = env_int("ORDER_TRANSIT_SLA_DAYS", 3)
 # export's ts_order_status is not updated for many old orders (770 "packed" orders over a year old); those are
 # reported separately as stale statuses instead of inflating the open-order counts.
 ORDER_OPEN_WINDOW_DAYS = env_int("ORDER_OPEN_WINDOW_DAYS", 30)
+# What "Sales" counts (user decision 2026-11-26: the dashboard must match the finance "Order Tracking" sheet):
+#   tracker - every paid order at its order value (incl. loyalty points), cancelled and company-internal ones included,
+#             exactly as the sheet lists them;
+#   net     - the earlier basis: line totals of paid, not-cancelled orders of real distributors.
+SALES_BASIS = env_str("SALES_BASIS", "tracker").lower()
 LOW_STOCK_THRESHOLD = env_int("LOW_STOCK_THRESHOLD", 5)
 RECONCILIATION_TOLERANCE_PCT = 1.0
 

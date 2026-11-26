@@ -334,8 +334,18 @@ class Order(TimeStamped):
         return self.display_id
 
 
+def sales_match_tracker():
+    """settings.SALES_BASIS == "tracker": sales = every paid order, as the finance Order Tracking sheet lists them."""
+    from django.conf import settings
+
+    return getattr(settings, "SALES_BASIS", "tracker") == "tracker"
+
+
 def compute_is_qualifying(status, payment_status):
-    return status != "cancelled" and payment_status in QUALIFYING_PAYMENT_STATUSES
+    paid = payment_status in QUALIFYING_PAYMENT_STATUSES
+    if sales_match_tracker():
+        return paid  # cancelled orders stay in, as in the sheet (the "Cancelled %" metric still reads the status)
+    return status != "cancelled" and paid
 
 
 class OrderLine(TimeStamped):

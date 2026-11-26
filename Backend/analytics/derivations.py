@@ -293,8 +293,10 @@ def _split_carts():
 def exclude_internal_orders():
     """Orders of internal distributors (Distributor.is_internal) never count as sales. The import recomputes
     is_qualifying from status / payment, so this runs after every import, before anything is aggregated."""
-    from warehouse.models import Order
+    from warehouse.models import Order, sales_match_tracker
 
+    if sales_match_tracker():
+        return 0  # SALES_BASIS=tracker: the sheet lists internal orders, so they count
     return Order.objects.filter(distributor__is_internal=True, is_qualifying=True).update(is_qualifying=False)
 
 

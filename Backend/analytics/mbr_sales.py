@@ -34,6 +34,17 @@ def _inr(v):
     return f"₹{a / 1e7:.2f} Cr" if a >= 1e7 else f"₹{a / 1e5:.1f} L" if a >= 1e5 else f"₹{a:,.0f}"
 
 
+def _per_region(items, region_of, n=MAX_PER_KIND):
+    """items already in priority order -> the first n of each region (so every region gets its own suggestions)."""
+    seen, out = defaultdict(int), []
+    for it in items:
+        r = region_of(it)
+        if seen[r] < n:
+            seen[r] += 1
+            out.append(it)
+    return out
+
+
 def _placeholder(asm, dist_name):
     """An ASM record that only stands in for the distributor (no employee id, named after it)."""
     return bool(asm and not asm.emp_id and asm.name and asm.name.split()[0].lower() in dist_name.lower())
@@ -94,7 +105,7 @@ def sales_asks(f, card, path):
     # 1. warm retailers by ASM, with the monthly activation target split by ASM
     per_month = math.ceil((path.get("retailers_gap") or 0) / max(path.get("months_left") or 1, 1))
     warm_asm = defaultdict(int)
-    warm_noasm = 0
+    warm_noasm = defaultdict(lambda: {"n": 0, "dists": []})  # region -> warm retailers at distributors with no ASM
     for did, r in rbase.items():
         d = dists.get(did)
         if not d or not r["warm"]:
@@ -102,10 +113,13 @@ def sales_asks(f, card, path):
         if d.asm and not _placeholder(d.asm, d.name):
             warm_asm[d.asm_id] += r["warm"]
         else:
-            warm_noasm += r["warm"]
-    total_warm = sum(warm_asm.values()) + warm_noasm
+            w = warm_noasm[d.region.name if d.region else None]
+            w["n"] += r["warm"]
+            w["dists"].append((r["warm"], d.name))
+    total_warm = sum(warm_asm.values()) + sum(w["n"] for w in warm_noasm.values())
     asm_by_id = {a.id: a for a in Asm.objects.select_related("rsm", "region").filter(id__in=list(warm_asm))}
-    for aid, n in sorted(warm_asm.items(), key=lambda kv: -kv[1])[:MAX_PER_KIND]:
+    for aid, n in _per_region(sorted(warm_asm.items(), key=lambda kv: -kv[1]),
+                              lambda kv: asm_by_id[kv[0]].region_id):
         a = asm_by_id[aid]
         target = max(math.ceil(per_month * n / total_warm), 1) if total_warm and per_month else None
         asks.append({"kind": "warm", "title": f"{a.name}: convert {target or 'more'} warm retailers this month",
@@ -115,12 +129,15 @@ def sales_asks(f, card, path):
                      "region": a.region.name if a.region else None,
                      "value": num((target or 0) * spend), "value_label": "monthly sales from the target",
                      "priority": "high" if n >= 150 else "medium"})
-    if warm_noasm:
-        asks.append({"kind": "warm", "title": f"{warm_noasm:,} warm retailers sit with distributors that have no ASM",
-                     "detail": "Nobody is chasing them. Give each of these distributors an owner (see below) or give the list to the regional sales executives.",
-                     "owner": "RSMs", "distributor": None, "region": None,
-                     "value": num(math.ceil(per_month * warm_noasm / total_warm) * spend) if total_warm and per_month else None,
-                     "value_label": "monthly sales at the same activation rate", "priority": "high"})
+    rsm_by_region = {d.region.name: rsm_of(d) for d in dists.values() if d.region}
+    for reg, w in sorted(warm_noasm.items(), key=lambda kv: -kv[1]["n"]):
+        names = ", ".join(f"{name} ({k:,})" for k, name in sorted(w["dists"], reverse=True)[:3])
+        asks.append({"kind": "warm", "title": f"{reg or 'No region'}: {w['n']:,} warm retailers with distributors that have no ASM",
+                     "detail": f"Nobody is chasing them: {names}. Give each of these distributors an owner (see below) "
+                               "or give the list to the regional sales executives.",
+                     "owner": f"{rsm_by_region.get(reg, 'RSM')} (RSM)", "distributor": None, "region": reg,
+                     "value": num(math.ceil(per_month * w["n"] / total_warm) * spend) if total_warm and per_month else None,
+                     "value_label": "monthly sales at the same activation rate", "priority": "high" if w["n"] >= 50 else "medium"})
 
     # 2. distributors with no real ASM, 3. new ones with no sales yet
     for d in sorted(dists.values(), key=lambda d: -(last3(d.id) + current(d.id))):
@@ -157,7 +174,7 @@ def sales_asks(f, card, path):
 
     # 4. stalled: sold in the last 3 months, nothing this month
     stalled = [d for d in sales if last3(d) >= 20_000 and not sales[d].get(m)]
-    for did in sorted(stalled, key=lambda d: -last3(d))[:MAX_PER_KIND]:
+    for did in _per_region(sorted(stalled, key=lambda d: -last3(d)), lambda d: dists[d].region_id):
         d = dists[did]
         add("stalled", d, f"{d.name}: zero sales in {card['label']}",
             f"It averaged {_inr(last3(did))}/month in the last 3 months{f' in {d.region.name}' if d.region else ''}. "
@@ -172,7 +189,7 @@ def sales_asks(f, card, path):
         g = (last3(did) / prev3(did) - 1) * 100
         if g < 0 or (td_growth is not None and g < td_growth / 2):
             slow.append((did, g))
-    for did, g in sorted(slow, key=lambda x: x[1])[:MAX_PER_KIND]:
+    for did, g in _per_region(sorted(slow, key=lambda x: x[1]), lambda x: dists[x[0]].region_id):
         d = dists[did]
         lost = max(prev3(did) * (1 + (td_growth or 0) / 100) - last3(did), 0)
         add("slow", d, f"{d.name}{f' ({d.city})' if d.city else ''}: growing {g:+.0f}% vs TD's {td_growth or 0:+.0f}%",
@@ -221,7 +238,9 @@ def sales_asks(f, card, path):
             a = asp.setdefault(d, [0.0, 0])
             a[0] += float(v or 0)
             a[1] += u or 0
-        for did, u in sorted(zero.items(), key=lambda kv: -kv[1] * (asp.get(kv[0], [0, 1])[0] / max(asp.get(kv[0], [0, 1])[1], 1)))[:MAX_PER_KIND]:
+        ranked = sorted((kv for kv in zero.items() if kv[0] in dists),
+                        key=lambda kv: -kv[1] * (asp.get(kv[0], [0, 1])[0] / max(asp.get(kv[0], [0, 1])[1], 1)))
+        for did, u in _per_region(ranked, lambda kv: dists[kv[0]].region_id):
             d = dists.get(did)
             if not d:
                 continue

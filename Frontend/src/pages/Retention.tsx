@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAnalytics } from '@/api/hooks';
 import type { Growth, Retention as RetentionData } from '@/api/types';
@@ -9,9 +9,16 @@ import { useChartTokens } from '@/charts/EChart';
 import { ChartCard } from '@/components/ChartCard';
 import { MiniStat } from '@/components/KpiTile';
 import { PageHeader } from '@/components/PageHeader';
-import { Card, ErrorState, Tabs } from '@/components/ui';
+import { Card, ErrorState, Segmented, Tabs } from '@/components/ui';
 import { endsMidMonth } from '@/components/KpiTile';
 import { asPct, inr, monthLabel, monthTick, num, pct } from '@/lib/format';
+
+type PeriodKind = 'quarter' | 'half' | 'year';
+const PERIOD: Record<PeriodKind, { title: string; unit: string; note: string }> = {
+  quarter: { title: 'Quarterly', unit: 'quarter', note: 'FY quarters: Apr–Jun, Jul–Sep, Oct–Dec, Jan–Mar.' },
+  half: { title: 'Half-yearly', unit: 'half-year', note: 'FY halves: H1 = Apr–Sep, H2 = Oct–Mar.' },
+  year: { title: 'Yearly', unit: 'year', note: 'Financial years, April to March. TD launched in Dec 2024, so FY24-25 is its first (short) year.' },
+};
 
 export default function Retention() {
   const q = useAnalytics<RetentionData>('/retention/');
@@ -56,11 +63,13 @@ export default function Retention() {
     return cartesian(t, { x: m.map((r) => monthTick(r.month, pto)), format: 'pct', legend: false, series: [{ name: 'MoM retention', type: 'line', data: m.map((r) => asPct(r.mom_retention)), area: true, endLabel: true }] });
   }, [d, t, pto]);
 
+  // quarterly / half-yearly / yearly: of last period's active retailers, the share active again this period
+  const [per, setPer] = useState<PeriodKind>('quarter');
+  const pr = d?.period_retention?.[per] ?? (per === 'quarter' ? (d?.quarterly_retention ?? []).map((r) => ({ label: r.quarter, rate: r.rate, retained: null, base: null, partial: false })) : []);
   const qOpt = useMemo(() => {
-    const qr = d?.quarterly_retention ?? [];
-    if (!qr.length) return null;
-    return cartesian(t, { x: qr.map((r) => r.quarter), format: 'pct', legend: false, showBarLabels: true, series: [{ name: 'Quarterly retention', data: qr.map((r) => Math.round((asPct(r.rate) ?? 0) * 10) / 10) }] });
-  }, [d, t, pto]);
+    if (!pr.length) return null;
+    return cartesian(t, { x: pr.map((r) => (r.partial ? `${r.label}*` : r.label)), format: 'pct', legend: false, showBarLabels: true, series: [{ name: `${PERIOD[per].title} retention`, data: pr.map((r) => Math.round((asPct(r.rate) ?? 0) * 10) / 10) }] });
+  }, [pr, per, t]);
 
   const cohortOpt = useMemo(() => {
     const c = d?.cohorts ?? [];
@@ -212,8 +221,16 @@ export default function Retention() {
         <div className="grid grid-cols-1 gap-4">
           <ChartCard title="Month-on-month retention" subtitle="Share of last month's actives who ordered again" option={momOpt} loading={q.isLoading} height={120}
             table={d ? { columns: ['Month', 'Retention'], rows: d.movement.map((r) => [monthLabel(r.month), pct(asPct(r.mom_retention))]) } : undefined} />
-          <ChartCard title="Quarterly retention" option={qOpt} loading={q.isLoading} height={120}
-            table={d ? { columns: ['Quarter', 'Retention'], rows: d.quarterly_retention.map((r) => [r.quarter, pct(asPct(r.rate))]) } : undefined} />
+          <ChartCard
+            title={`${PERIOD[per].title} retention`}
+            subtitle={`Share of last ${PERIOD[per].unit}'s active retailers who ordered again this ${PERIOD[per].unit}`}
+            actions={<Segmented value={per} onChange={setPer} size="xs" options={(Object.keys(PERIOD) as PeriodKind[]).map((k) => ({ value: k, label: PERIOD[k].title }))} />}
+            option={qOpt}
+            loading={q.isLoading}
+            height={120}
+            footer={pr.some((r) => r.partial) ? <p className="text-2xs text-muted">* {PERIOD[per].unit} still running: it rises as more of last {PERIOD[per].unit}'s retailers order again. {PERIOD[per].note}</p> : <p className="text-2xs text-muted">{PERIOD[per].note}</p>}
+            table={{ columns: [PERIOD[per].title.replace('ly', ''), 'Retention', 'Ordered again', `Active last ${PERIOD[per].unit}`], rows: pr.map((r) => [r.partial ? `${r.label} (running)` : r.label, pct(asPct(r.rate)), r.retained === null ? '–' : num(r.retained), r.base === null ? '–' : num(r.base)]) }}
+          />
         </div>
       </div>
 

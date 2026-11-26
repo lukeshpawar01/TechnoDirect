@@ -1,3 +1,4 @@
+import datetime as dt
 from collections import defaultdict
 
 from django.db.models import Count, Max, Min, Q, Sum
@@ -5,7 +6,7 @@ from django.db.models import Count, Max, Min, Q, Sum
 from accounts.scope import RETAILER_MONTH_DIMS
 from warehouse.models import RetailerMonth
 
-from ..filters import add_months, fy_quarter_label, month_start, quarter_start
+from ..filters import add_months, fy_label, fy_quarter_label, fy_start, month_end, month_start, quarter_start
 from ..metrics import launch_month, mkey, num, pct, ratio, share, spark_months
 from .base import AnalyticsView
 
@@ -62,6 +63,7 @@ class RetentionView(AnalyticsView):
             prev = by_q.get(add_months(q, -3))
             if prev:
                 quarterly.append({"quarter": fy_quarter_label(q), "rate": share(len(by_q[q] & prev), len(prev))})
+        periods = period_retention(active_pairs, p.end)
 
         cohorts_map = defaultdict(set)
         for rid, ms in by_r.items():
@@ -100,7 +102,7 @@ class RetentionView(AnalyticsView):
                                                   counts[m]["new"] + counts[m]["retained"] + counts[m]["reactivated"])}
                 for m in m12]
         return {
-            "movement": movement, "quarterly_retention": quarterly, "cohorts": cohorts,
+            "movement": movement, "quarterly_retention": quarterly, "period_retention": periods, "cohorts": cohorts,
             "contribution": contribution, "order_bands": bands, "pareto": pareto,
             "avg_days_between_orders": round(sum(gaps) / len(gaps), 1) if gaps else None,
             "orders_per_active_retailer": opar,
@@ -108,3 +110,39 @@ class RetentionView(AnalyticsView):
 
 
 __all__ = ["Q"]
+
+
+def half_start(d):
+    """FY halves: H1 = Apr-Sep, H2 = Oct-Mar."""
+    return dt.date(d.year, 4, 1) if 4 <= d.month <= 9 else dt.date(d.year if d.month >= 10 else d.year - 1, 10, 1)
+
+
+def half_label(d):
+    return f"{fy_label(d)} {'H1' if half_start(d).month == 4 else 'H2'}"
+
+
+PERIODS = {  # kind: (start of the period a month falls in, months per period, label)
+    "quarter": (quarter_start, 3, fy_quarter_label),
+    "half": (half_start, 6, half_label),
+    "year": (fy_start, 12, fy_label),
+}
+
+
+def period_retention(active_pairs, end):
+    """{quarter|half|year: [...]}: of the retailers active in the previous period, the share active again in this one
+    (the quarterly figure's definition, for FY halves and FY years). A period that is not over yet is `partial`."""
+    out = {}
+    for kind, (start_of, n, label) in PERIODS.items():
+        by = defaultdict(set)
+        for rid, mo in active_pairs:
+            by[start_of(mo)].add(rid)
+        rows = []
+        for ps in sorted(by):
+            prev = by.get(add_months(ps, -n))
+            if not prev:
+                continue
+            back = len(by[ps] & prev)
+            rows.append({"label": label(ps), "rate": share(back, len(prev)), "retained": back, "base": len(prev),
+                         "partial": end < month_end(add_months(ps, n - 1))})
+        out[kind] = rows
+    return out

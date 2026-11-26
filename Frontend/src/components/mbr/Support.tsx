@@ -1,4 +1,4 @@
-import { Fragment, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { inr, num } from '@/lib/format';
 import { Badge, Card, Drawer, cx } from '@/components/ui';
@@ -98,6 +98,14 @@ function TeamDrawer({ team, label, s, notes, asks, onClose, onAdd, onEdit }: {
   onClose: () => void; onAdd: (p: Partial<MbrItem>) => void; onEdit: (i: MbrItem) => void;
 }) {
   const sales = team === 'sales' ? s.sales_asks : null;
+  // region filter for the Sales suggestions ('' = all regions: then only the top few of each kind, the rest per region)
+  const [region, setRegion] = useState('');
+  const regions = useMemo(() => {
+    const c = new Map<string, number>();
+    for (const a of sales?.asks ?? []) if (a.region) c.set(a.region, (c.get(a.region) ?? 0) + 1);
+    return [...c.entries()].sort((a, b) => b[1] - a[1]);
+  }, [sales]);
+  const ALL_CAP = 4;
   const auto = team === 'tech' ? techAuto(notes) : team === 'marketing' ? marketingAuto(s) : team === 'finance' ? financeAuto(s) : [];
   const inPlan = new Set(notes.items.map((i) => i.title.trim().toLowerCase()));
   const toPlan = (a: SalesAsk): Partial<MbrItem> => ({
@@ -114,9 +122,25 @@ function TeamDrawer({ team, label, s, notes, asks, onClose, onAdd, onEdit }: {
             the last 3 months; the goal needs <b className="text-ink">{num(sales.activation_per_month)} new transacting retailers a month</b>.
             {notes.can_edit ? ' Use “Add to plan” to make one a growth action with an owner and a due date.' : ''}
           </p>
+          <div className="sticky top-0 z-10 -mx-1 mb-3 flex flex-wrap items-center gap-1.5 bg-surface px-1 py-1.5">
+            <span className="mr-1 text-xs text-muted">Region</span>
+            {[['', sales.asks.length] as [string, number], ...regions].map(([r, n]) => (
+              <button
+                key={r || 'all'}
+                className={cx('chip text-xs', region === r ? 'border-brand bg-brand/10 text-ink' : 'text-ink2')}
+                onClick={() => setRegion(r)}
+                aria-pressed={region === r}
+              >
+                {r || 'All regions'} <span className="tabular-nums text-muted">{n}</span>
+              </button>
+            ))}
+          </div>
           {KIND_ORDER.map((k) => {
-            const rows = sales.asks.filter((a) => a.kind === k);
-            if (!rows.length) return null;
+            const all = sales.asks.filter((a) => a.kind === k && (!region || a.region === region));
+            if (!all.length) return null;
+            // all regions: the strongest few of each kind; pick a region for its full list
+            const rows = region ? all : [...all].sort((a, b) => (a.priority === b.priority ? (b.value ?? 0) - (a.value ?? 0) : a.priority === 'high' ? -1 : 1)).slice(0, ALL_CAP);
+            const more = all.length - rows.length;
             return (
               <section key={k} className="mb-4">
                 <h3 className="text-sm font-semibold text-ink">{KIND[k].label}</h3>
@@ -149,6 +173,7 @@ function TeamDrawer({ team, label, s, notes, asks, onClose, onAdd, onEdit }: {
                     );
                   })}
                 </ul>
+                {more > 0 && <p className="mt-1 text-2xs text-muted">+{more} more in the regions: pick a region above to see them.</p>}
               </section>
             );
           })}

@@ -151,9 +151,23 @@ export interface FinanceAsk {
   value: number | null; value_label: string;
 }
 
+export interface TierRow {
+  tier: string; sales: number; prev_sales: number; change: number; mom_pct: number | null; share_pct: number | null;
+  growth_share_pct: number | null; retailers: number; prev_retailers: number; new: number; new_sales: number;
+  spend: number | null; bo_retailers: number | null; bo_on_td: number | null; reach_pct: number | null;
+}
+export interface GrowthDrivers {
+  window: { current: string; previous: string };
+  total: number; change: number; tiers: TierRow[];
+  kyc: Partial<Record<'kyc_new' | 'kyc_to_order_pct' | 'kyc_base' | 'ants', { value: number | null; prev: number | null }>>;
+  new: { retailers: number; prev_retailers: number; sales: number; share_pct: number | null; spend: number | null; repeat_spend: number | null; from_bo: number };
+  reads: { tone: 'good' | 'bad' | 'warn' | 'neutral'; text: string }[];
+}
+
 export interface Scorecard {
   summary: ExecSummary;
   sales_asks: SalesAsks;
+  growth_drivers?: GrowthDrivers;
   finance_asks?: { asks: FinanceAsk[] };
   marketing_asks?: { asks: MarketingAsk[]; spend_per_retailer: number; rates: Record<string, number> };
   products: ProductMatrix;

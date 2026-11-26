@@ -3,7 +3,7 @@ import datetime as dt
 from decimal import Decimal
 
 from django.core.cache import cache
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -62,9 +62,19 @@ class OrdersDrillTests(TestCase):
         self.assertEqual(self.get("orders/", "order_status=shipped&age_bucket=7d%2B")["count"], 1)
 
     def test_payment_mode_and_platform_are_paid_orders_only(self):
-        self.assertEqual(self.get("orders/", "paid=1&mode=UPI")["count"], 2)  # the cancelled UPI order is excluded
-        self.assertEqual(self.get("orders/", "paid=1&mode=Unknown")["count"], 1)  # blank mode
-        self.assertEqual(self.get("orders/", "paid=1&platform=android")["count"], 2)
+        with override_settings(SALES_BASIS="net"):
+            from warehouse.models import Order
+            for o in Order.objects.all():
+                o.save()  # recompute is_qualifying on the net rule
+            self.assertEqual(self.get("orders/", "paid=1&mode=UPI")["count"], 2)  # net: the cancelled UPI order is out
+            self.assertEqual(self.get("orders/", "paid=1&mode=Unknown")["count"], 1)  # blank mode
+            self.assertEqual(self.get("orders/", "paid=1&platform=android")["count"], 2)
+        for o in Order.objects.all():
+            o.save()
+        # tracker basis: the cancelled (paid) UPI / android order counts, as in the finance sheet
+        self.assertEqual(self.get("orders/", "paid=1&mode=UPI")["count"], 3)
+        self.assertEqual(self.get("orders/", "paid=1&mode=Unknown")["count"], 1)
+        self.assertEqual(self.get("orders/", "paid=1&platform=android")["count"], 3)
 
     def test_retailer_rollup_matches_orders(self):
         data = self.get("orders/retailers/", "order_status=confirmed&age_bucket=1-2d")

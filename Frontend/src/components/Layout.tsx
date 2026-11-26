@@ -11,6 +11,7 @@ import { Logo } from './Logo';
 import { TechnoAI } from './TechnoAI';
 import { Field, InlineError, Modal, cx } from './ui';
 import { IconKey, IconLogout, IconMenu, IconMonitor, IconMoon, IconSidebar, IconSun } from './Icons';
+import { BackButton } from './BackButton';
 
 /** Desktop sidebar visibility, remembered per browser ('hidden' | 'open'; old 'collapsed' counts as hidden). */
 function readHidden() {
@@ -284,6 +285,7 @@ export function Layout() {
                 <IconSidebar size={18} />
               </button>
             )}
+            <BackButton />
             <div className="min-w-0 flex-1">{!hideFilters && <FilterBar visible={navItemFor(loc.pathname)?.filters ?? ALL_TOP_FILTERS} />}</div>
             <ThemeToggle />
             <UserMenu />

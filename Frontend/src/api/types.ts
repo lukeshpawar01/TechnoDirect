@@ -750,6 +750,8 @@ export interface InventoryItem {
 export interface Retention {
   movement: { month: string; active: number; retained: number; reactivated: number; new: number; lost: number; net: number; mom_retention: number | null }[];
   quarterly_retention: { quarter: string; rate: number }[];
+  /** the same retention for FY quarters, halves and years; partial = the period is still running */
+  period_retention?: Record<'quarter' | 'half' | 'year', { label: string; rate: number; retained: number | null; base: number | null; partial: boolean }[]>;
   cohorts: { cohort: string; size: number; values: (number | null)[] }[];
   contribution: { month: string; new_sales: number; repeat_sales: number; reactivated_sales: number }[];
   order_bands: { band: string; retailers: number; sales: number }[];
