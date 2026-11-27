@@ -48,7 +48,7 @@ class MonthData:
         self.lo, self.hi = lo, hi
         self.orders = list(f.orders(start=lo, end=hi).values_list(
             "retailer_id", "split_group", "placed_date", "gross_value", "units", "distributor_id", "region_id",
-            "retailer__first_order_date", "state_id", "asm_id", "asm__rsm_id"))
+            "retailer__first_order_date", "state_id", "asm_id", "asm__rsm_id", "merged_into"))
         self.all_orders = list(f.orders(start=lo, end=hi, qualifying=False).values_list(
             "placed_date", "gross_value", "status", "placed_at", "delivered_at"))
         from .views.funnel import retailer_base
@@ -73,7 +73,10 @@ class MonthData:
         """Every scorecard metric for the window [s, e]. prev_active = retailers active in the month before."""
         rows = self.rows(s, e)
         sales = sum(float(r[3] or 0) for r in rows)
-        orders = len({r[1] for r in rows})
+        from warehouse.models import sales_match_tracker
+
+        # rows = TD orders; on the tracker basis each counts once, except one finance merged into another sheet row
+        orders = sum(1 for r in rows if not r[-1]) if sales_match_tracker() else len({r[1] for r in rows})
         units = sum(int(r[4] or 0) for r in rows)
         active = {r[0] for r in rows if r[0]}
         new = {r[0] for r in rows if r[0] and r[7] and s <= r[7] <= e}

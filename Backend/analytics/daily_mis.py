@@ -15,6 +15,7 @@ from html import escape
 
 from django.conf import settings
 from django.db.models import Count, Q, Sum
+from .metrics import order_count
 
 WATERMARK = "daily_mis"
 
@@ -38,7 +39,7 @@ def build(today=None):
     ms = month_start(t)
 
     def sales(qs):
-        a = qs.aggregate(s=Sum("gross_value"), n=Count("split_group", distinct=True))
+        a = qs.aggregate(s=Sum("gross_value"), n=order_count())
         return float(a["s"] or 0), a["n"] or 0
 
     y_sales, y_orders = sales(f.orders(start=y, end=y))
@@ -52,7 +53,7 @@ def build(today=None):
     new = Retailer.objects.filter(first_order_date__gte=ms, first_order_date__lte=t).count()
     react = RetailerMonth.objects.filter(month=ms, status="reactivated").count()
     by_d = {r["distributor__name"]: (float(r["s"] or 0), r["n"]) for r in mtd.values("distributor__name")
-            .annotate(s=Sum("gross_value"), n=Count("split_group", distinct=True))}
+            .annotate(s=Sum("gross_value"), n=order_count())}
     dt_targets = {}
     from warehouse.models import Distributor
 

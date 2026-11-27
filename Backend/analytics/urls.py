@@ -19,6 +19,7 @@ from .views.runrate import RunRateView
 from .views.mbr import MbrScorecardView
 
 from .views.inventory_matrix import InventoryMatrixView, InventoryRunRateView
+from .views.fullset import FullSetImpactView
 
 urlpatterns = [
     path("meta/filters/", FilterOptionsView.as_view()),
@@ -58,6 +59,7 @@ urlpatterns = [
     path("inventory/oos-styles/", InventoryOosStylesView.as_view()),
     path("inventory/matrix/", InventoryMatrixView.as_view()),
     path("inventory/run-rate/", InventoryRunRateView.as_view()),
+    path("inventory/fullset-impact/", FullSetImpactView.as_view()),
     path("retention/", RetentionView.as_view()),
     path("growth/", GrowthView.as_view()),
     path("loyalty/", LoyaltyView.as_view()),

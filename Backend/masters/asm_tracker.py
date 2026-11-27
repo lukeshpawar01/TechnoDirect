@@ -20,6 +20,7 @@ from analytics.derivations import attribute_orders_to_distributor_asm
 from analytics.filters import month_end, month_start, today_ist
 from analytics.metrics import pct, target_values
 from warehouse.models import Asm, Distributor, Order, Region, Rsm, State, Target
+from analytics.metrics import order_count
 
 COLUMNS = ["Distributor", "Region", "ASM", "Total Target", "Order Value", "No of Orders", "Share %",
            "Target Remained", "Acheived %"]
@@ -63,7 +64,7 @@ def tracker(month, user):
     in_charge = asm_in_charge(dists, end)
     month_orders = Order.objects.filter(is_qualifying=True, placed_date__gte=month, placed_date__lte=end)
     agg = {r["distributor_id"]: r for r in month_orders.filter(distributor_id__in=ids).values(
-        "distributor_id").annotate(v=Sum("gross_value"), n=Count("split_group", distinct=True))}
+        "distributor_id").annotate(v=Sum("gross_value"), n=order_count())}
     total_sales = float(sum(float(r["v"] or 0) for r in agg.values()))
     dist_t = target_values("distributor", ids, [month])
     asm_t = {aid: v for (aid, _), v in target_values("asm", None, [month]).items()}
@@ -94,7 +95,7 @@ def tracker(month, user):
 
     # ASM summary: sales credited to the ASM in the month (handover-aware); target = the ASM's target
     asm_sales = {r["asm_id"]: r for r in month_orders.filter(asm__isnull=False).values("asm_id").annotate(
-        v=Sum("gross_value"), n=Count("split_group", distinct=True))}
+        v=Sum("gross_value"), n=order_count())}
     asm_ids = sorted({r["asm_id"] for r in rows if r["asm_id"]} | set(asm_t))
     asms = {a.id: a for a in Asm.objects.filter(id__in=asm_ids).select_related("region")}
     summary = []

@@ -56,7 +56,9 @@ def recon_dashboard_value(metric, month):
     if metric == "sales":
         return float(qs.aggregate(s=Sum("gross_value"))["s"] or 0)
     if metric == "orders":
-        return qs.values("split_group").distinct().count()
+        from ..metrics import order_count
+
+        return qs.aggregate(n=order_count())["n"]
     if metric == "active_retailers":
         return qs.values("retailer_id").distinct().count()
     if metric == "new_retailers":

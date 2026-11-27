@@ -16,6 +16,7 @@ from warehouse.models import OrderLine, Retailer
 from ..filters import add_months, fy_label, fy_quarter_label, fy_start, month_start, quarter_start
 from ..metrics import as_date, delta_pct, launch_month, median, mkey, num, pct, ratio, share
 from .base import AnalyticsView
+from ..metrics import order_count
 
 CUM_MILESTONES_CR = [1, 5, 10, 20, 30, 50, 75, 100, 150, 200, 300, 500]
 MONTH_MILESTONES_CR = [0.5, 1, 2, 2.5, 3, 4, 5, 7.5, 10]
@@ -82,7 +83,7 @@ class GrowthView(AnalyticsView):
         # ---------------------------------------------------------------- monthly series
         agg = {as_date(r["m"]): r for r in base.filter(placed_date__gte=first_m).annotate(
             m=TruncMonth("placed_date")).values("m").annotate(
-            sales=Sum("gross_value"), orders=Count("split_group", distinct=True), units=Sum("units"),
+            sales=Sum("gross_value"), orders=order_count(), units=Sum("units"),
             retailers=Count("retailer_id", distinct=True), distributors=Count("distributor_id", distinct=True))}
         new_by_m = {as_date(r["m"]): r["n"] for r in base.filter(retailer__first_order_date__isnull=False).annotate(
             m=TruncMonth("retailer__first_order_date")).values("m").annotate(n=Count("retailer_id", distinct=True))}
@@ -184,7 +185,7 @@ class GrowthView(AnalyticsView):
         # ---------------------------------------------------------------- growth decomposition (vs same period LY)
         def period_agg(s, e):
             r = base.filter(placed_date__gte=s, placed_date__lte=e).aggregate(
-                sales=Sum("gross_value"), orders=Count("split_group", distinct=True), units=Sum("units"),
+                sales=Sum("gross_value"), orders=order_count(), units=Sum("units"),
                 retailers=Count("retailer_id", distinct=True))
             return {k: float(v or 0) for k, v in r.items()}
 
@@ -260,7 +261,7 @@ class GrowthView(AnalyticsView):
         names = dict(Retailer.objects.filter(id__in=[r["retailer_id"] for r in top]).values_list("id", "name"))
 
         def aov_of(qs):
-            a = qs.aggregate(s=Sum("gross_value"), n=Count("split_group", distinct=True))
+            a = qs.aggregate(s=Sum("gross_value"), n=order_count())
             return ratio(float(a["s"] or 0), a["n"]), a["n"]
 
         cur_q = base.filter(placed_date__gte=p.start)

@@ -228,6 +228,23 @@ def issues(result):
     return out
 
 
+def apply_sheet_merges(result):
+    """Orders finance merged into another order's row of the sheet (tracker["merged_in_sheet"]) count as part of that
+    row, so the dashboard's order count equals the sheet's rows (user, 2026-11-27). Their value is unchanged."""
+    from warehouse.models import Order
+
+    pairs = {m["merged_order"].lstrip("#"): m["sheet_row"].lstrip("#")
+             for m in (result.get("tracker") or {}).get("merged_in_sheet") or []}
+    changed = Order.objects.exclude(merged_into="").exclude(display_id__in=list(pairs)).update(merged_into="")
+    for oid, row in pairs.items():
+        changed += Order.objects.filter(display_id=oid).exclude(merged_into=row).update(merged_into=row)
+    if changed:
+        from .cache import bump_cache_version
+
+        bump_cache_version()
+    return changed
+
+
 def apply_sheet_cancellations():
     """TD does not update the status of older orders (memory: td-order-status-stale); the finance sheet records the
     cancellation. An order the sheet marks cancelled is cancelled on the dashboard too, unless TD says delivered.

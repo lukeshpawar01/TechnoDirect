@@ -306,14 +306,27 @@ class InventoryView(AnalyticsView):
 
 
 OOS_STYLES_MAX = 40
+KEY_SIZE_SHARE = 0.05  # a size is a "selling" size of a style at >= 5% of its units sold
+DEFAULT_KEY_SIZES = ("M", "L", "XL", "2XL")
+
+
+def _size(s):
+    u = (s or "").strip().upper()
+    return "2XL" if u == "XXL" else (u or "-")
 
 
 class InventoryOosStylesView(AnalyticsView):
     """Top-selling styles that are out of stock somewhere, and at which distributors.
 
-    Ranking: units sold (base style) over the last `sold_days` days in the selected territory. A style is listed when at
-    least one distributor carries it (has a stock row) with every unit of a size at zero. Per distributor: the sizes at
-    zero, units of the style it sold in the window (demand at that counter), its state / region / ASM / RSM.
+    Ranking: units sold (base style) over the last `sold_days` days in the selected territory.
+    Out of stock (user, 2026-11-27: OR99 had 928 units at a distributor and was still listed because its S was 0):
+      * only the style's SELLING sizes count - a size with at least KEY_SIZE_SHARE of the style's units sold in the
+        window (S, 3XL+ usually don't); with no size data, M / L / XL / 2XL;
+      * a distributor CARRIES a style when it has stock of it now or sold it in the window (TD lists a zero row for
+        every distributor, also those that never stocked it - those are not "out");
+      * a carrying distributor is OUT when one of the selling sizes is at zero (stock summed over the style's colours).
+    Per distributor: the selling sizes at zero, units of the style it sold in the window (demand at that counter), its
+    state / region / ASM / RSM.
     Territory filters come from the card (region / rsm / state / asm), on top of the page filters.
     """
 
@@ -330,23 +343,37 @@ class InventoryOosStylesView(AnalyticsView):
         days = sold_days(request)
         start = f.today - dt.timedelta(days=days - 1)
         lines = OrderLine.objects.filter(order__in=f.orders(start=start, end=f.today)).filter(f.lines_q())
-        sold_style, sold_dist = defaultdict(int), defaultdict(int)
-        for did, style, u in lines.values_list("order__distributor_id", "style").annotate(u=Sum("quantity")).values_list(
-                "order__distributor_id", "style", "u"):
+        sold_style, sold_dist, sold_size = defaultdict(int), defaultdict(int), defaultdict(lambda: defaultdict(int))
+        for did, style, size, u in lines.values_list("order__distributor_id", "style", "size").annotate(
+                u=Sum("quantity")).values_list("order__distributor_id", "style", "size", "u"):
             code = base_style(style) or style
             sold_style[code] += u or 0
             sold_dist[(did, code)] += u or 0
+            sold_size[code][_size(size)] += u or 0
+
+        def selling_sizes(code):
+            per = sold_size.get(code) or {}
+            tot = sum(per.values())
+            keys = {z for z, u in per.items() if tot and u / tot >= KEY_SIZE_SHARE}
+            return keys or set(DEFAULT_KEY_SIZES)
 
         inv = latest_inventory(f)
-        carried, oos = defaultdict(set), defaultdict(lambda: defaultdict(list))
+        stock = defaultdict(lambda: defaultdict(int))  # (code, did) -> size -> units (colours summed)
         meta = {}
         for did, style, size, qty, name, l3 in inv.values_list("distributor_id", "style", "size", "quantity",
                                                               "product__name", "product__category_l3"):
             code = base_style(style) or style
-            carried[code].add(did)
+            stock[(code, did)][_size(size)] += max(qty or 0, 0)
             meta.setdefault(code, (name, l3))
-            if qty <= 0:
-                oos[code][did].append(size or "-")
+        carried, oos = defaultdict(set), defaultdict(lambda: defaultdict(list))
+        for (code, did), sizes in stock.items():
+            if not (sum(sizes.values()) > 0 or sold_dist.get((did, code))):
+                continue  # never stocked here and not sold here: not carried, so not "out"
+            carried[code].add(did)
+            key = selling_sizes(code)
+            gaps = [z for z in key if sizes.get(z, 0) <= 0 and z in sizes]
+            if gaps:
+                oos[code][did] = gaps
 
         ranked = sorted((c for c in oos if sold_style.get(c)), key=lambda c: -sold_style[c])[:OOS_STYLES_MAX]
         dids = {d for c in ranked for d in oos[c]}

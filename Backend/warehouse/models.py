@@ -311,6 +311,9 @@ class Order(TimeStamped):
     awb = models.CharField(max_length=64, blank=True)
     courier = models.CharField(max_length=64, blank=True)
     ts_order_status = models.CharField(max_length=32, blank=True, help_text="Raw Medusa order.ts_order_status")
+    merged_into = models.CharField(max_length=32, blank=True, default="",
+                                   help_text="Finance merged this order into another order's row in the Order Tracking "
+                                             "sheet (display id of that row): it is not counted as an order of its own")
     distributor_remark = models.CharField(max_length=255, blank=True, help_text="Medusa order.ts_remark")
     is_qualifying = models.BooleanField(
         default=False, db_index=True, help_text="Payment captured and not cancelled -> counts as Sales"

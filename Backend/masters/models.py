@@ -38,8 +38,9 @@ DEFAULT_METRICS = [
      "Gross order value of paid orders (PayU-verified), before returns. Cancelled orders excluded.",
      "SUM(order.gross_value) WHERE status != cancelled AND payment captured (PayU success, else Medusa "
      "payment_status captured)", "Medusa orders + PayU transactions"),
-    ("orders", "Orders", "Count of paid carts. A cart split across distributors counts once (per distributor "
-     "in distributor views).", "COUNT(DISTINCT order.split_group)", "Medusa"),
+    ("orders", "Orders", "Count of paid TD orders, as the finance Order Tracking sheet lists them: a cart split "
+     "across distributors is one order per distributor; cancelled paid orders count, like in sales.",
+     "COUNT(order.id) WHERE paid", "TD (Supabase)"),
     ("aov", "Average order value", "Sales / Orders", "sales / orders", "Derived"),
     ("units_per_order", "Units per order", "Units (pieces) / Orders", "SUM(units) / orders", "Derived"),
     ("realisation_per_unit", "Realisation per unit", "Sales / Units", "sales / SUM(units)", "Derived"),

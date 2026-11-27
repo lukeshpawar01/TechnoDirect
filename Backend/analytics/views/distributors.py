@@ -28,6 +28,7 @@ from ..metrics import (
 )
 from .. import stocksync
 from .base import AnalyticsView
+from ..metrics import order_count
 
 
 def target_values(scope_type, ids, months, metric="sales", as_of=None, f=None):
@@ -356,7 +357,7 @@ class TerritoryView(AnalyticsView):
         base = prep(f.orders())
         cur_qs = base.filter(placed_date__gte=p.start, placed_date__lte=p.end)
         cur = {r[gfield]: r for r in cur_qs.values(gfield).annotate(
-            sales=Sum("gross_value"), orders=Count("split_group", distinct=True),
+            sales=Sum("gross_value"), orders=order_count(),
             retailers=Count("retailer_id", distinct=True),
             new=Count("retailer_id", distinct=True, filter=Q(retailer__first_order_date__gte=p.start,
                                                               retailer__first_order_date__lte=p.end)))}
@@ -465,7 +466,7 @@ class TerritoryView(AnalyticsView):
     def rsm_breakdown(f, base, cur_qs, p):
         """RSM -> ASM rows for the team hierarchy table (ASM-less sales shown as 'Distributor-managed')."""
         cur = {(r["rsm_key"], r["asm_id"]): r for r in cur_qs.values("rsm_key", "asm_id").annotate(
-            sales=Sum("gross_value"), orders=Count("split_group", distinct=True),
+            sales=Sum("gross_value"), orders=order_count(),
             retailers=Count("retailer_id", distinct=True))}
         cmp = {}
         if p.cmp_start:
@@ -661,7 +662,7 @@ class DistributorNetworkView(AnalyticsView):
         dists = list(scoped_distributors(f).select_related("state", "region"))
         ids = [d.id for d in dists]
         cur = {r["distributor_id"]: r for r in f.orders(start=p.start, end=p.end).filter(distributor_id__in=ids)
-               .values("distributor_id").annotate(s=Sum("gross_value"), n=Count("split_group", distinct=True))}
+               .values("distributor_id").annotate(s=Sum("gross_value"), n=order_count())}
         ever = set(f.orders(end=p.end).filter(distributor_id__in=ids).values_list("distributor_id", flat=True)
                    .distinct())
         states = {}

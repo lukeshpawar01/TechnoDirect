@@ -72,7 +72,7 @@ export function OosTopStyles({ soldDays }: { soldDays: string }) {
     <Card
       className="mt-4"
       title="Out-of-stock top styles"
-      subtitle={`Best sellers of the last ${soldDays} days with sizes at zero stock, and the distributors that are out. Click a style for its distributors.`}
+      subtitle={`Best sellers of the last ${soldDays} days where a size that sells (5%+ of the style's sales) is at zero stock, and the distributors that are out. Click a style for its distributors.`}
       actions={
         <div className="flex flex-wrap items-center gap-1.5">
           {sel('region', 'Region', o?.regions ?? [])}
@@ -111,7 +111,7 @@ export function OosTopStyles({ soldDays }: { soldDays: string }) {
                   <th className="px-4 py-2 font-medium">Style</th>
                   <th className="px-3 py-2 font-medium">Category</th>
                   <th className="px-3 py-2 text-right font-medium">Units sold ({soldDays} d)</th>
-                  <th className="w-64 px-3 py-2 font-medium" title="Distributors carrying the style with at least one size at zero">Out of stock at</th>
+                  <th className="w-64 px-3 py-2 font-medium" title="Distributors carrying the style (stock now or sold it) with a selling size at zero">Out of stock at</th>
                   <th className="px-4 py-2 text-right font-medium" title="Out-of-stock distributors that sold this style in the window">Of them selling it</th>
                 </tr>
               </thead>
@@ -191,7 +191,7 @@ export function OosTopStyles({ soldDays }: { soldDays: string }) {
             </table>
           </div>
           <p className="border-t border-line px-4 py-2 text-2xs text-muted">
-            Top {d?.styles.length ?? 0} styles by units sold in the selection. "Out of stock at" counts distributors that stock the style with at least one size at zero; "of them selling it" are the ones that sold it in the last {soldDays} days, so each stock-out costs orders there.
+            Top {d?.styles.length ?? 0} styles by units sold in the selection. "Out of stock at" counts the distributors that carry the style (have stock of it or sold it) with one of its selling sizes at zero; sizes that hardly sell, like S or 3XL+ on most styles, are ignored; "of them selling it" are the ones that sold it in the last {soldDays} days, so each stock-out costs orders there.
           </p>
         </>
       )}

@@ -26,6 +26,7 @@ from ..metrics import (
     target_block,
 )
 from .base import AnalyticsView
+from ..metrics import order_count
 
 FUNNEL_STATUSES = ["received", "confirmed", "shipped", "delivered", "cancelled"]
 
@@ -127,7 +128,7 @@ class OverviewView(AnalyticsView):
 
         # daily trend
         daily = {r["placed_date"]: r for r in cur_qs.values("placed_date").annotate(
-            sales=Sum("gross_value"), orders=Count("split_group", distinct=True))}
+            sales=Sum("gross_value"), orders=order_count())}
         rates = daily_target_rate(tmap) if tmap else {}
         cum_s, cum_t, trend = 0.0, 0.0, []
         for d in days_between(p.start, p.end):

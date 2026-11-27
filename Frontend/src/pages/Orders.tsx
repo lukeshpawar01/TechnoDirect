@@ -458,7 +458,7 @@ export default function Orders() {
           ]}
         />
         <p className="mt-2 text-2xs text-muted">
-          Split carts count once in totals and once per distributor in distributor views. <Link to="/admin/metrics" className="underline">Definitions</Link>
+          Each TD order counts once, as in the finance Order Tracking sheet: a cart split across two distributors is two orders (the “Split carts” tile counts the carts). <Link to="/admin/metrics" className="underline">Definitions</Link>
         </p>
       </Card>
       <OrdersDrill spec={drill} onClose={() => setDrill(null)} onOpenOrder={setOpenId} />

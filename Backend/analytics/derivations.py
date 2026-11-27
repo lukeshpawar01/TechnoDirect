@@ -25,6 +25,7 @@ from warehouse.models import (
 )
 
 from .filters import add_months, month_start, today_ist
+from .metrics import order_count
 
 log = logging.getLogger(__name__)
 PINCODE_RE = re.compile(r"^[1-9][0-9]{5}$")
@@ -91,7 +92,7 @@ def rebuild_retailer_months(through=None):
         Order.objects.filter(is_qualifying=True, retailer_id__isnull=False)
         .annotate(m=TruncMonth("placed_date"))
         .values("retailer_id", "m")
-        .annotate(sales=Sum("gross_value"), orders=Count("split_group", distinct=True), units=Sum("units"))
+        .annotate(sales=Sum("gross_value"), orders=order_count(), units=Sum("units"))
     )
     per = defaultdict(dict)
     for r in rows:
@@ -229,6 +230,7 @@ def run_data_quality_checks():
         from . import source_recon
 
         result = source_recon.run()
+        source_recon.apply_sheet_merges(result)  # order counts follow the sheet's rows
         source_recon.store(result)
         for code, otype, oid, details in source_recon.issues(result):
             issues.append(_issue(code, otype, oid, details))

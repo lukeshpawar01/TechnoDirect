@@ -72,17 +72,33 @@ def launch_month():
 
 
 # ----------------------------------------------------------------------------- order aggregates
-ORDER_AGG = {
-    "sales": Sum("gross_value"),
-    "orders": Count("split_group", distinct=True),   # cart-level: split orders counted once
-    "units": Sum("units"),
-    "retailers": Count("retailer_id", distinct=True),
-    "distributors": Count("distributor_id", distinct=True),
-}
+def order_count():
+    """How "Orders" are counted. On the tracker sales basis (the default): every TD order once, exactly as the finance
+    Order Tracking sheet lists them, so a cart split across two distributors is two orders (user, 2026-11-27: order
+    numbers must equal the sheet, like sales). On the net basis: carts (a split cart once).
+    Retailer behaviour (repeat buyers, retention, RFM) keeps counting carts: a split cart is one purchase."""
+    from warehouse.models import sales_match_tracker
+
+    if sales_match_tracker():  # an order finance merged into another row of the sheet is not counted on its own
+        return Count("id", distinct=True, filter=Q(merged_into=""))
+    return Count("split_group", distinct=True)
+
+
+def order_agg():
+    return {
+        "sales": Sum("gross_value"),
+        "orders": order_count(),
+        "units": Sum("units"),
+        "retailers": Count("retailer_id", distinct=True),
+        "distributors": Count("distributor_id", distinct=True),
+    }
+
+
+ORDER_AGG_KEYS = ("sales", "orders", "units", "retailers", "distributors")
 
 
 def agg_orders(qs):
-    r = qs.aggregate(**ORDER_AGG)
+    r = qs.aggregate(**order_agg())
     return {k: (float(v) if v is not None else 0.0) for k, v in r.items()}
 
 
@@ -95,15 +111,15 @@ def new_retailers_in(qs, start, end):
 def monthly_orders(qs, start, end):
     """{month_start: {sales, orders, units, retailers, distributors, new}}"""
     rows = qs.filter(placed_date__gte=start, placed_date__lte=end).annotate(m=TruncMonth("placed_date")).values(
-        "m").annotate(**ORDER_AGG)
+        "m").annotate(**order_agg())
     out = {}
     for r in rows:
-        out[as_date(r["m"])] = {k: float(r[k] or 0) for k in ORDER_AGG}
+        out[as_date(r["m"])] = {k: float(r[k] or 0) for k in ORDER_AGG_KEYS}
     new_rows = (qs.filter(placed_date__gte=start, placed_date__lte=end)
                 .annotate(m=TruncMonth("placed_date"), fm=TruncMonth("retailer__first_order_date"))
                 .filter(m=F("fm")).values("m").annotate(n=Count("retailer_id", distinct=True)))
     for r in new_rows:
-        out.setdefault(as_date(r["m"]), {k: 0.0 for k in ORDER_AGG})["new"] = float(r["n"])
+        out.setdefault(as_date(r["m"]), {k: 0.0 for k in ORDER_AGG_KEYS})["new"] = float(r["n"])
     for v in out.values():
         v.setdefault("new", 0.0)
     return out

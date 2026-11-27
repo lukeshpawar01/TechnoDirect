@@ -11,6 +11,7 @@ from warehouse.models import OrderLine
 from ..filters import add_months, month_start
 from ..metrics import delta_pct, mkey, num, ratio
 from .base import AnalyticsView
+from ..metrics import order_count
 
 RANGES = (6, 12, 24)
 
@@ -55,7 +56,7 @@ class MomTrendView(AnalyticsView):
             out = defaultdict(lambda: {"sales": 0.0, "orders": 0, "pieces": 0, "boxes": 0})
             o = orders.filter(placed_date__gte=start, placed_date__lte=stop)
             for r in o.annotate(m=TruncMonth("placed_date")).values("m").annotate(
-                    s=Sum("gross_value"), n=Count("split_group", distinct=True), u=Sum("units")):
+                    s=Sum("gross_value"), n=order_count(), u=Sum("units")):
                 out[r["m"]].update(orders=r["n"], sales=float(r["s"] or 0), pieces=r["u"] or 0)
             lines = OrderLine.objects.filter(order__in=o)
             if line_filter:
