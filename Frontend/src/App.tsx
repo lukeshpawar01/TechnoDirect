@@ -1,11 +1,9 @@
 import { lazy, Suspense, type ReactNode } from 'react';
-import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { Navigate, Route, Routes } from 'react-router-dom';
 import { useAuth } from '@/auth/AuthContext';
-import { tokens } from '@/lib/api';
 import { Layout } from '@/components/Layout';
 import { ErrorState, LoadingBlock } from '@/components/ui';
 import { ALL_NAV, MAIN_NAV, ADMIN_NAV, allowed } from '@/nav';
-import LoginPage from '@/pages/Login';
 
 const Overview = lazy(() => import('@/pages/Overview'));
 const Funnel = lazy(() => import('@/pages/Funnel'));
@@ -32,22 +30,16 @@ const Metrics = lazy(() => import('@/pages/admin/Metrics'));
 const AuditLog = lazy(() => import('@/pages/admin/AuditLog'));
 
 function RequireAuth({ children }: { children: ReactNode }) {
-  const { user, loading, error, retry, logout } = useAuth();
-  const loc = useLocation();
-  if (!tokens.access && !tokens.refresh) {
-    return <Navigate to={`/login?next=${encodeURIComponent(loc.pathname + loc.search)}`} replace />;
-  }
+  const { user, loading, error, retry } = useAuth();
+  // open access: no sign-in, the dashboard loads for everyone
   if (error && !user) {
     return (
       <div className="card mx-auto mt-16 max-w-md p-6">
         <ErrorState error={error} onRetry={retry} />
-        <div className="text-center">
-          <button className="btn btn-sm" onClick={logout}>Sign in again</button>
-        </div>
       </div>
     );
   }
-  if (loading || !user) return <LoadingBlock height={400} label="Signing you in…" />;
+  if (loading || !user) return <LoadingBlock height={400} label="Loading the dashboard…" />;
   return <>{children}</>;
 }
 
@@ -87,7 +79,7 @@ const g = (path: string, el: ReactNode) => <Guard path={path}>{el}</Guard>;
 export default function App() {
   return (
     <Routes>
-      <Route path="/login" element={<LoginPage />} />
+      <Route path="/login" element={<Navigate to="/" replace />} />
       <Route
         element={
           <RequireAuth>

@@ -13,8 +13,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from analytics.export import ExportListMixin
 
-from . import otp
-from .audit import AuditedModelMixin, _client_ip, log_action, snapshot
+from .audit import AuditedModelMixin, log_action, snapshot
 from .models import PERMISSIONS, AuditLog, Role, User
 from .permissions import HasPerm
 from .serializers import (
@@ -33,17 +32,8 @@ def _tokens_for(user):
     return {"access": str(refresh.access_token), "refresh": str(refresh)}
 
 
-def _otp_error(exc):
-    return Response({"detail": exc.message, "code": exc.code, **exc.extra}, status=exc.status)
-
-
 class TokenView(TokenObtainPairView):
-    """Step 1. POST {email, password}.
-
-    With LOGIN_OTP_ENABLED (default): a 6-digit code is emailed and the response is
-    {otp_required: true, challenge_id, email (masked), expires_in, resend_in, resends_left};
-    tokens come from POST /auth/otp/verify/. With it disabled: {access, refresh} directly.
-    """
+    """POST {email, password} -> {access, refresh}. Internal accounts only (made by an admin); no emailed code."""
 
     throttle_scope = "login"
 
@@ -55,44 +45,9 @@ class TokenView(TokenObtainPairView):
             serializer.is_valid(raise_exception=True)
         except TokenError as e:
             raise InvalidToken(e.args[0]) from e
-        if not settings.LOGIN_OTP_ENABLED:
-            return Response(serializer.validated_data)
-        try:
-            data = otp.start_challenge(serializer.user, ip=_client_ip(request))
-        except otp.OtpError as e:
-            return _otp_error(e)
-        return Response(data)
-
-
-class OtpVerifyView(APIView):
-    """Step 2. POST {challenge_id, code} -> {access, refresh}"""
-
-    permission_classes = [AllowAny]
-    authentication_classes = []
-    throttle_scope = "otp"
-
-    def post(self, request):
-        try:
-            user = otp.verify(request.data.get("challenge_id"), request.data.get("code"))
-        except otp.OtpError as e:
-            return _otp_error(e)
-        request.user = user
-        log_action(request, "login", user)
-        return Response(_tokens_for(user))
-
-
-class OtpResendView(APIView):
-    """POST {challenge_id} -> emails a new code (same response shape as step 1)."""
-
-    permission_classes = [AllowAny]
-    authentication_classes = []
-    throttle_scope = "otp"
-
-    def post(self, request):
-        try:
-            return Response(otp.resend(request.data.get("challenge_id")))
-        except otp.OtpError as e:
-            return _otp_error(e)
+        request.user = serializer.user
+        log_action(request, "login", serializer.user)
+        return Response(serializer.validated_data)
 
 
 class RefreshView(TokenRefreshView):

@@ -1,7 +1,6 @@
-import re
 from django.core.cache import cache
 from accounts.testing import jwt_login
-from django.test import TestCase, override_settings
+from django.test import TestCase
 from rest_framework.test import APIClient
 
 from analytics.tests import make_world
@@ -77,90 +76,38 @@ class AdminFlowTests(TestCase):
         self.assertEqual(self.c.delete(f"/api/admin/users/{self.admin.id}/").status_code, 403)
 
 
-@override_settings(LOGIN_OTP_ENABLED=True)  # independent of the local .env switch
-class LoginOtpTests(TestCase):
+class PasswordLoginTests(TestCase):
+    """Internal use: email + password gives the tokens directly (no sign-up, no emailed code)."""
+
     def setUp(self):
-        from django.core import mail
+        from rest_framework.test import APIClient
 
-        self.mail = mail
-        self.user = User.objects.create_user(email="otp@test.local", password="Strong-pass-1", full_name="Otp User")
         self.c = APIClient()
+        User.objects.create_user(email="staff@test.local", password="Strong-pass-1", full_name="Staff")
 
-    def _start(self):
-        r = self.c.post("/api/auth/token/", {"email": "OTP@test.local ", "password": "Strong-pass-1"}, format="json")
-        self.assertEqual(r.status_code, 200, r.content)
-        body = r.json()
-        self.assertTrue(body["otp_required"])
-        self.assertNotIn("access", body)
-        self.assertEqual(body["email"], "ot*@test.local")
-        code = re.search(r"\b(\d{6})\b", self.mail.outbox[-1].body).group(1)
-        return body["challenge_id"], code
-
-    def test_password_then_code_issues_tokens_once(self):
-        cid, code = self._start()
-        self.assertEqual(self.mail.outbox[-1].to, ["otp@test.local"])
-        r = self.c.post("/api/auth/otp/verify/", {"challenge_id": cid, "code": code}, format="json")
+    def test_password_gives_tokens(self):
+        r = self.c.post("/api/auth/token/", {"email": "Staff@Test.local ", "password": "Strong-pass-1"}, format="json")
         self.assertEqual(r.status_code, 200, r.content)
         self.assertIn("access", r.json())
-        again = self.c.post("/api/auth/otp/verify/", {"challenge_id": cid, "code": code}, format="json")
-        self.assertEqual((again.status_code, again.json()["code"]), (400, "restart"))
+        self.assertEqual(self.c.post("/api/auth/otp/verify/", {}, format="json").status_code, 404)
 
-    def test_wrong_password_sends_no_email(self):
-        r = self.c.post("/api/auth/token/", {"email": "otp@test.local", "password": "nope"}, format="json")
+    def test_wrong_password_is_refused(self):
+        r = self.c.post("/api/auth/token/", {"email": "staff@test.local", "password": "nope"}, format="json")
         self.assertEqual(r.status_code, 401)
-        self.assertEqual(len(self.mail.outbox), 0)
 
-    def test_wrong_codes_lock_the_challenge(self):
-        cid, code = self._start()
-        wrong = "000000" if code != "000000" else "111111"
-        for left in (4, 3, 2, 1):
-            r = self.c.post("/api/auth/otp/verify/", {"challenge_id": cid, "code": wrong}, format="json")
-            self.assertEqual(r.json()["attempts_left"], left)
-        r = self.c.post("/api/auth/otp/verify/", {"challenge_id": cid, "code": wrong}, format="json")
-        self.assertEqual(r.json()["code"], "restart")
-        r = self.c.post("/api/auth/otp/verify/", {"challenge_id": cid, "code": code}, format="json")
-        self.assertEqual(r.status_code, 400)
 
-    def test_expired_code(self):
-        from accounts.models import LoginOtp
-        from django.utils import timezone
+class OpenAccessTests(TestCase):
+    """Open access: every request is the built-in "Everyone" account with full access and no usable password."""
 
-        cid, code = self._start()
-        LoginOtp.objects.filter(challenge_id=cid).update(expires_at=timezone.now())
-        r = self.c.post("/api/auth/otp/verify/", {"challenge_id": cid, "code": code}, format="json")
-        self.assertEqual(r.json()["code"], "expired")
+    def test_everyone_has_full_access_and_cannot_sign_in(self):
+        from rest_framework.test import APIRequestFactory
 
-    def test_resend_cooldown_and_new_code(self):
-        import datetime as dt
+        from accounts.open_access import PUBLIC_EMAIL, OpenAccessAuthentication
 
-        from accounts.models import LoginOtp
-        from django.utils import timezone
-
-        cid, old = self._start()
-        r = self.c.post("/api/auth/otp/resend/", {"challenge_id": cid}, format="json")
-        self.assertEqual(r.status_code, 429)
-        LoginOtp.objects.filter(challenge_id=cid).update(last_sent_at=timezone.now() - dt.timedelta(minutes=1))
-        r = self.c.post("/api/auth/otp/resend/", {"challenge_id": cid}, format="json")
-        self.assertEqual(r.status_code, 200, r.content)
-        new = re.search(r"\b(\d{6})\b", self.mail.outbox[-1].body).group(1)
-        if new != old:
-            bad = self.c.post("/api/auth/otp/verify/", {"challenge_id": cid, "code": old}, format="json")
-            self.assertEqual(bad.status_code, 400)
-        ok = self.c.post("/api/auth/otp/verify/", {"challenge_id": cid, "code": new}, format="json")
-        self.assertEqual(ok.status_code, 200)
-
-    def test_code_is_not_stored_in_plain_text(self):
-        from accounts.models import LoginOtp
-
-        cid, code = self._start()
-        self.assertNotIn(code, LoginOtp.objects.get(challenge_id=cid).code_hash)
-
-    def test_otp_can_be_switched_off(self):
-        from django.test import override_settings
-
-        with override_settings(LOGIN_OTP_ENABLED=False):
-            r = self.c.post("/api/auth/token/", {"email": "otp@test.local", "password": "Strong-pass-1"}, format="json")
-        self.assertEqual(r.status_code, 200)
-        self.assertIn("access", r.json())
-        self.assertNotIn("otp_required", r.json())
-        self.assertEqual(len(self.mail.outbox), 0)
+        user, _ = OpenAccessAuthentication().authenticate(APIRequestFactory().get("/api/overview/"))
+        self.assertEqual(user.email, PUBLIC_EMAIL)
+        self.assertTrue(user.is_master_admin and user.has_full_scope and user.has_code("manage_users"))
+        self.assertFalse(user.has_usable_password())
+        again, _ = OpenAccessAuthentication().authenticate(APIRequestFactory().get("/api/overview/"))
+        self.assertEqual(again.pk, user.pk)
+        self.assertEqual(User.objects.filter(email=PUBLIC_EMAIL).count(), 1)

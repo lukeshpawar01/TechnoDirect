@@ -207,8 +207,11 @@ else:
 ANALYTICS_CACHE_BUFFER_SECONDS = env_int("ANALYTICS_CACHE_BUFFER_SECONDS", 15 * 60)
 
 # --- DRF / JWT ---------------------------------------------------------------
+# Open access (user, 2026-11-28): no login anywhere, every visitor has full access (accounts/open_access.py).
+# OPEN_ACCESS=False brings back email + password sign-in. Tests always run with sign-in (they check permissions).
+OPEN_ACCESS = env_bool("OPEN_ACCESS", True) and not TESTING
 REST_FRAMEWORK = {
-    "DEFAULT_AUTHENTICATION_CLASSES": [
+    "DEFAULT_AUTHENTICATION_CLASSES": ["accounts.open_access.OpenAccessAuthentication"] if OPEN_ACCESS else [
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
@@ -222,10 +225,10 @@ REST_FRAMEWORK = {
         "rest_framework.parsers.FormParser",
     ],
     "COERCE_DECIMAL_TO_STRING": False,
-    # Only views that set throttle_scope are rate-limited (login + OTP endpoints).
+    # Only views that set throttle_scope are rate-limited (login endpoint).
     "DEFAULT_THROTTLE_CLASSES": ["rest_framework.throttling.ScopedRateThrottle"],
-    "DEFAULT_THROTTLE_RATES": {"login": "10000/min", "otp": "10000/min"} if TESTING else {
-        "login": env_str("LOGIN_RATE_LIMIT", "20/min"), "otp": env_str("OTP_RATE_LIMIT", "30/min")},
+    "DEFAULT_THROTTLE_RATES": {"login": "10000/min"} if TESTING else {
+        "login": env_str("LOGIN_RATE_LIMIT", "20/min")},
 }
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=env_int("JWT_ACCESS_MINUTES", 60)),
@@ -328,18 +331,11 @@ CK_API_KEY = env_str("CK_API_KEY")
 MASTER_ADMIN_EMAIL = env_str("MASTER_ADMIN_EMAIL")
 MASTER_ADMIN_PASSWORD = env_str("MASTER_ADMIN_PASSWORD")
 
-# --- Login OTP (6-digit code emailed after the password step) -----------------
-LOGIN_OTP_ENABLED = env_bool("LOGIN_OTP_ENABLED", True)
-LOGIN_OTP_TTL_MINUTES = env_int("LOGIN_OTP_TTL_MINUTES", 5)
-LOGIN_OTP_MAX_ATTEMPTS = env_int("LOGIN_OTP_MAX_ATTEMPTS", 5)
-LOGIN_OTP_MAX_SENDS = env_int("LOGIN_OTP_MAX_SENDS", 5)
-LOGIN_OTP_RESEND_SECONDS = env_int("LOGIN_OTP_RESEND_SECONDS", 30)
-
 # --- Daily MIS email (analytics/daily_mis.py): sent after the morning refresh, only when recipients are set ---
 MIS_RECIPIENTS = env_str("MIS_RECIPIENTS")  # comma-separated; empty = the daily MIS is not sent
 PUBLIC_DASHBOARD_URL = env_str("PUBLIC_DASHBOARD_URL")  # link shown in the email (optional)
 
-# --- Email (Gmail SMTP: smtp.gmail.com:587 + TLS, EMAIL_HOST_PASSWORD = Google App Password) ---
+# --- Email, only for the daily MIS (Gmail SMTP: smtp.gmail.com:587 + TLS, EMAIL_HOST_PASSWORD = Google App Password) ---
 EMAIL_HOST = env_str("EMAIL_HOST", "smtp.gmail.com")
 EMAIL_PORT = env_int("EMAIL_PORT", 587)
 EMAIL_USE_TLS = env_bool("EMAIL_USE_TLS", True)
@@ -352,7 +348,7 @@ DEFAULT_FROM_EMAIL = env_str("DEFAULT_FROM_EMAIL") or (
 if EMAIL_HOST_USER and EMAIL_HOST_PASSWORD:
     EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 elif DEBUG:
-    # Local development without SMTP credentials: the email (with the code) is printed in the runserver console.
+    # Local development without SMTP credentials: emails are printed in the runserver console.
     EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 else:
     EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"  # fails loudly until EMAIL_* are set

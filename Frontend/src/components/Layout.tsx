@@ -132,6 +132,7 @@ function ChangePassword({ open, onClose }: { open: boolean; onClose: () => void 
   );
 }
 
+/** Not shown with open access (everyone is the same "Everyone" account: nothing to sign out of). */
 function UserMenu() {
   const { user, logout } = useAuth();
   const [open, setOpen] = useState(false);
@@ -143,7 +144,7 @@ function UserMenu() {
     document.addEventListener('mousedown', h);
     return () => document.removeEventListener('mousedown', h);
   }, [open]);
-  if (!user) return null;
+  if (!user || user.email === 'everyone@open.local') return null;
   const initials = (user.full_name || user.email)
     .split(/[\s@.]+/)
     .slice(0, 2)

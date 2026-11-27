@@ -24,15 +24,6 @@ export const ALL_PERMISSIONS = [
 ] as const;
 export type PermissionCode = (typeof ALL_PERMISSIONS)[number];
 
-/** Returned by step 1 (password) when an emailed one-time code is required. */
-export interface OtpChallenge {
-  otp_required: true;
-  challenge_id: string;
-  email: string;
-  expires_in: number;
-  resend_in: number;
-  resends_left: number;
-}
 type TokenPair = { access: string; refresh: string };
 
 interface AuthCtx {
@@ -40,11 +31,8 @@ interface AuthCtx {
   loading: boolean;
   error: unknown;
   retry: () => void;
-  /** Step 1. Resolves with a challenge when an OTP is required, or null when signed in directly. */
-  login: (email: string, password: string) => Promise<OtpChallenge | null>;
-  /** Step 2. Signs in when the emailed code is correct. */
-  verifyOtp: (challengeId: string, code: string) => Promise<void>;
-  resendOtp: (challengeId: string) => Promise<OtpChallenge>;
+  /** Email + password sign-in (internal accounts made by an admin; no emailed code). */
+  login: (email: string, password: string) => Promise<void>;
   logout: () => void;
   can: (perm: PermissionCode | string) => boolean;
 }
@@ -54,7 +42,12 @@ const Ctx = createContext<AuthCtx | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const qc = useQueryClient();
   // React state (not a direct localStorage read) so that signing in re-renders the app.
-  const [hasToken, setHasToken] = useState(() => !!tokens.access || !!tokens.refresh);
+  // Open access (no login anywhere): the server treats every visitor as the built-in "Everyone" account, so the
+  // profile is always fetched. Old sign-in tokens are dropped so they are never sent.
+  const [hasToken, setHasToken] = useState(() => {
+    tokens.clear();
+    return true;
+  });
 
   const me = useQuery({
     queryKey: ['auth', 'me'],
@@ -69,10 +62,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     tokens.clear();
     setHasToken(false);
     qc.clear();
-    if (!window.location.pathname.startsWith('/login')) {
-      const next = encodeURIComponent(window.location.pathname + window.location.search);
-      window.location.assign(`/login?next=${next}`);
-    }
+    setHasToken(true);
+    void qc.invalidateQueries({ queryKey: ['auth', 'me'] });
   }, [qc]);
 
   useEffect(() => setOnAuthLost(logout), [logout]);
@@ -89,22 +80,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(
     async (email: string, password: string) => {
-      const res = await post<TokenPair | OtpChallenge>('/auth/token/', { email, password });
-      if ('otp_required' in res && res.otp_required) return res;
-      await finish(res as TokenPair);
-      return null;
+      await finish(await post<TokenPair>('/auth/token/', { email, password }));
     },
     [finish],
   );
-
-  const verifyOtp = useCallback(
-    async (challengeId: string, code: string) => {
-      await finish(await post<TokenPair>('/auth/otp/verify/', { challenge_id: challengeId, code }));
-    },
-    [finish],
-  );
-
-  const resendOtp = useCallback((challengeId: string) => post<OtpChallenge>('/auth/otp/resend/', { challenge_id: challengeId }), []);
 
   const user = hasToken ? (me.data ?? null) : null;
 
@@ -114,8 +93,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo<AuthCtx>(
-    () => ({ user, loading: hasToken && me.isLoading, error: me.error, retry: () => void me.refetch(), login, verifyOtp, resendOtp, logout, can }),
-    [user, hasToken, me, login, verifyOtp, resendOtp, logout, can],
+    () => ({ user, loading: hasToken && me.isLoading, error: me.error, retry: () => void me.refetch(), login, logout, can }),
+    [user, hasToken, me, login, logout, can],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
