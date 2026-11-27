@@ -10,12 +10,12 @@ import { date, inr, num } from '@/lib/format';
 /**
  * Inventory → the Power BI "Inventory" tab (TD_Analytics.pbix), on live stock:
  *  - "Current Stock with Each Distributor": Style → Size rows × distributor columns (stock units)
- *  - "Full Sets with Each Distributor": full S–2XL sets per style × distributor
+ *  - "Full Sets with Each Distributor": full sets per style × distributor, over each style's own sizes
  *  - "Stockwise Run Rate" + "Quantity sold in last 30, 60, 90 days" per style
  * Backend: analytics/views/inventory_matrix.py. Follows the page filters (territory, Category I/II/III).
  */
 type Cells = Record<string, number>;
-interface MatrixStyle { style: string; name: string | null; category: string | null; stock: number; by_dist: Cells; full_sets: Cells | null; full_total: number | null; sizes: { size: string; stock: number; by_dist: Cells }[] }
+interface MatrixStyle { style: string; name: string | null; category: string | null; stock: number; by_dist: Cells; full_sets: Cells | null; full_total: number | null; set_sizes?: string | null; sizes: { size: string; stock: number; by_dist: Cells }[] }
 interface MatrixData {
   distributors: { id: number; name: string; stock: number }[];
   grand_total: number; count: number; page: number; page_size: number; styles: MatrixStyle[];
@@ -83,7 +83,7 @@ export function StockMatrix() {
       className="mt-4"
       title={full ? 'Full sets with each distributor' : 'Current stock with each distributor'}
       subtitle={full
-        ? `A full set = one piece each of ${d?.core_sizes.join(', ') ?? 'S, M, L, XL, 2XL'}; full sets = the smallest stock across those sizes. “–” = the style doesn't come in all five.`
+        ? 'A full set = one piece in every size the style comes in (the sizes listed for it in the stock data, even at 0: M–2XL, S–2XL, kids or plus sizes); full sets = the smallest stock across them. “–” = a single-size style.'
         : `Stock units by style and size at every distributor (latest sync${d?.snapshot_date ? `, ${date(d.snapshot_date)}` : ''}). Click a style for its sizes.`}
       actions={
         <div className="flex flex-wrap items-center gap-2">
@@ -123,6 +123,7 @@ export function StockMatrix() {
                             {!full && <span className={cx('inline-block w-3 text-muted transition-transform', isOpen && 'rotate-90')}>▸</span>}
                             <span className="font-semibold text-ink">{s.style}</span>
                             {s.category && <span className="text-2xs text-muted">{s.category}</span>}
+                            {full && s.set_sizes && <span className="whitespace-nowrap rounded bg-sunken px-1 text-2xs text-muted" title="Sizes in this style's set">{s.set_sizes}</span>}
                           </button>
                         </td>
                         <td className="border-b border-l border-line/60 px-3 py-1.5 text-right">

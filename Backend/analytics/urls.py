@@ -20,6 +20,7 @@ from .views.mbr import MbrScorecardView
 
 from .views.inventory_matrix import InventoryMatrixView, InventoryRunRateView
 from .views.fullset import FullSetImpactView
+from .views.best_sellers import BestSellersByAreaView
 
 urlpatterns = [
     path("meta/filters/", FilterOptionsView.as_view()),
@@ -54,6 +55,7 @@ urlpatterns = [
     path("orders/<int:pk>/", OrderDetailView.as_view()),
     path("products/", ProductsView.as_view()),
     path("products/tree/", ProductTreeView.as_view()),
+    path("products/best-sellers/", BestSellersByAreaView.as_view()),
     path("inventory/", InventoryView.as_view()),
     path("inventory/items/", InventoryItemsView.as_view()),
     path("inventory/oos-styles/", InventoryOosStylesView.as_view()),

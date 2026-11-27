@@ -6,7 +6,7 @@ import { date, inr, num, pct } from '@/lib/format';
 
 /**
  * Inventory → "Full sets vs sales" (backend: analytics/views/fullset.py). Stock on a past day, sales in the days
- * after it: how much a full set (S–2XL) sells compared with broken sets, which sizes break sets, and the sales the
+ * after it: how much a full set (every size the style comes in) sells compared with broken sets, which sizes break sets, and the sales the
  * missing sizes cost.
  */
 interface Group { key: 'full' | 'broken' | 'badly' | 'out'; label: string; combos: number; sold_pct: number | null; units_per_combo: number | null; value_per_combo: number | null; units: number; value: number }
@@ -29,14 +29,14 @@ export function FullSetImpact() {
   const max = Math.max(...(d?.groups ?? []).map((g) => g.units_per_combo ?? 0), 1);
   const full = d?.groups.find((g) => g.key === 'full');
   const broken = d?.groups.find((g) => g.key === 'broken');
-  const worstSize = d ? [...d.size_curve].filter((z) => z.size !== 'S').sort((a, b) => b.broken_sets_missing * b.sales_share_pct - a.broken_sets_missing * a.sales_share_pct)[0] : null;
+  const worstSize = d ? [...d.size_curve].sort((a, b) => b.broken_sets_missing * b.sales_share_pct - a.broken_sets_missing * a.sales_share_pct)[0] : null;
 
   return (
     <Card
       className="mt-4"
       title="Full sets vs sales"
       subtitle={d?.available
-        ? `Each distributor's stock on ${date(d.snapshot_date)}, and what it sold of each style from ${date(d.from)} to ${date(d.to)} (${d.days} days). Styles offered in all of S–2XL.`
+        ? `Each distributor's stock on ${date(d.snapshot_date)}, and what it sold of each style from ${date(d.from)} to ${date(d.to)} (${d.days} days). A full set = every size the style comes in (M–2XL, S–2XL, kids or plus sizes, as listed in the stock data).`
         : 'Stock on a past day against the sales in the days after it'}
       actions={<Segmented value={lookback} onChange={setLookback} size="xs" options={[{ value: '7', label: '7 d' }, { value: '10', label: '10 d' }, { value: '14', label: '14 d' }]} />}
     >
@@ -50,8 +50,8 @@ export function FullSetImpact() {
             <p className="text-sm text-ink2">
               A <b className="text-ink">full set sold {d.full_vs_broken ?? '–'}× a broken one</b>: {full.units_per_combo} vs {broken.units_per_combo} units per style
               in {d.days} days, and {pct(full.sold_pct, 0)} of full sets sold at all against {pct(broken.sold_pct, 0)} of broken ones.
-              With 3 or more core sizes missing a style practically stops selling.
-              {worstSize && <> The costly gaps are <b className="text-ink">{worstSize.size}</b> and the other big sizes; S breaks the most sets but is only {pct(d.size_curve.find((z) => z.size === 'S')?.sales_share_pct, 0)} of sales.</>}
+              With 3 or more of its sizes missing a style practically stops selling.
+              {worstSize && <> The costliest gap is <b className="text-ink">{worstSize.size}</b>: it is missing in {num(worstSize.broken_sets_missing)} broken sets and is {pct(worstSize.sales_share_pct, 0)} of units sold.</>}
             </p>
           )}
 

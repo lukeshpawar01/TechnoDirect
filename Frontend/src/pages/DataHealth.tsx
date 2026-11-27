@@ -34,7 +34,8 @@ export default function DataHealth() {
   const [msg, setMsg] = useState<string | null>(null);
 
   const sync = useMutation({
-    mutationFn: () => post<{ detail?: string; status?: string }>('/data-health/sync/', { source: 'all' }),
+    // a full refresh runs in the request and takes about 1.5 minutes (BlueOrigin alone ~1): wait up to 15, not the 60 s default
+    mutationFn: () => post<{ detail?: string; status?: string }>('/data-health/sync/', { source: 'all' }, { timeout: 900_000 }),
     onSuccess: (r) => {
       setMsg(r?.detail ?? 'Refresh started. New numbers appear once all sources finish (usually a few minutes).');
       setTimeout(() => void refresh(), 5_000);

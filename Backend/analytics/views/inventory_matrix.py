@@ -7,9 +7,11 @@
 Both are paginated by style (?page, ?page_size, ?q= style or name search, ?ordering=) and follow the page filters
 (territory, Category I/II/III, article, size). Stock = the latest sync per distributor (latest_inventory).
 
-Full set (user, 2026-11-27): one piece in each core size S, M, L, XL, 2XL (XXL counts as 2XL); a distributor's full
-sets of a style = the smallest stock across those five sizes. Styles that don't come in all five (kids, free size)
-have no full sets (null).
+Full set (user, 2026-11-27, revised the same day): one piece in each size the STYLE comes in, and a style comes in
+exactly the sizes the inventory data lists for it - a size row with 0 stock still belongs to the set. So a style made
+in M-2XL needs M, L, XL, 2XL; a kids style its age sizes; a plus-size style 3XL-5XL (XXL counts as 2XL). The size run
+is the union over all distributors (a distributor without a row for one of the sizes has 0 of it). A distributor's
+full sets of a style = the smallest stock across its sizes. Single-size styles (free size) have no sets (null).
 """
 import datetime as dt
 from collections import defaultdict
@@ -23,7 +25,7 @@ from ..metrics import num
 from .base import AnalyticsView
 from .products import latest_inventory
 
-CORE = ("S", "M", "L", "XL", "2XL")
+CORE = ("S", "M", "L", "XL", "2XL")  # the usual adult run, shown as a hint only: each style uses its own (size_run)
 SIZE_ORDER = ["XS", "S", "M", "L", "XL", "2XL", "XXL", "3XL", "4XL", "5XL",
               "2-3Y", "3-4Y", "5-6Y", "7-8Y", "9-10Y", "11-12Y", "12Y", "13-14Y", "FREE SIZE"]
 PAGE_MAX = 100
@@ -37,6 +39,22 @@ def size_key(s):
 def _core(size):
     u = (size or "").strip().upper()
     return "2XL" if u == "XXL" else u
+
+
+def size_run(sizes):
+    """The sizes a style comes in (normalised, in size order), or None for a single-size style (no sets)."""
+    run = sorted({_core(z) for z in sizes if (z or "").strip() and z != "-"}, key=size_key)
+    return run if len(run) >= 2 else None
+
+
+def set_label(run):
+    """['M', 'L', 'XL', '2XL'] -> 'M–2XL' (a run in the usual order), otherwise the sizes listed."""
+    if not run:
+        return None
+    idx = [SIZE_ORDER.index(z) for z in run if z in SIZE_ORDER]
+    if len(idx) == len(run) and idx == list(range(idx[0], idx[0] + len(idx))) and "XXL" not in run:
+        return f"{run[0]}–{run[-1]}"
+    return ", ".join(run)
 
 
 def _page(request):
@@ -91,17 +109,16 @@ class InventoryMatrixView(_Paged):
                 for did, q in per.items():
                     by_dist[did] += q
                     dist_total[did] += q
-            core = {_core(s) for s in sizes}
+            run = size_run(sizes)
             full = None
-            if all(c in core for c in CORE):
+            if run:
                 full = {}
                 dids = set().union(*(sizes[s].keys() for s in sizes))
                 for did in dids:
                     have = defaultdict(int)
                     for s, per in sizes.items():
-                        if _core(s) in CORE:
-                            have[_core(s)] += per.get(did, 0)
-                    n = min(have[c] for c in CORE)
+                        have[_core(s)] += per.get(did, 0)
+                    n = min(have[z] for z in run)
                     if n:
                         full[did] = n
             name, l3 = meta.get(style, (None, None))
@@ -109,6 +126,7 @@ class InventoryMatrixView(_Paged):
                 "style": style, "name": name, "category": (l3 or "").replace("-", " ").title() or None,
                 "stock": sum(by_dist.values()), "by_dist": {d: q for d, q in by_dist.items() if q},
                 "full_sets": full, "full_total": sum(full.values()) if full is not None else None,
+                "set_sizes": set_label(run),
                 "sizes": [{"size": s, "stock": sum(per.values()), "by_dist": {d: q for d, q in per.items() if q}}
                           for s, per in sorted(sizes.items(), key=lambda kv: size_key(kv[0]))],
             })

@@ -91,7 +91,7 @@ export function OrderDrawer({ id, onClose }: { id: string | number | null; onClo
                       </td>
                       <td className="px-3 py-1.5">{l.size ?? '–'}</td>
                       <td className="px-3 py-1.5 text-right">{num(l.qty ?? l.quantity ?? null)}</td>
-                      <td className="px-3 py-1.5 text-right">{inr(l.value ?? (l.price ?? 0) * (l.qty ?? l.quantity ?? 0), { compact: false })}</td>
+                      <td className="px-3 py-1.5 text-right">{inr(l.total ?? l.value ?? (l.unit_price ?? l.price ?? 0) * (l.qty ?? l.quantity ?? 0), { compact: false })}</td>
                     </tr>
                   ))}
                 </tbody>

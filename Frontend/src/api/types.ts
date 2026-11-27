@@ -666,7 +666,7 @@ export interface OrderPayment {
 }
 
 export interface OrderDetail extends OrderRow {
-  lines: { sku?: string; style?: string; name?: string; size?: string; qty?: number; quantity?: number; price?: number; value?: number }[];
+  lines: { sku?: string; style?: string; name?: string; size?: string; qty?: number; quantity?: number; price?: number; value?: number; unit_price?: number | null; total?: number | null }[];
   payments: OrderPayment[];
   timeline: { at: string; status?: string; event?: string; label?: string; note?: string; actor?: string }[];
 }
@@ -1155,4 +1155,35 @@ export interface SettlementStatement extends SettlementSummary {
     days_since_delivery: number | null;
     overdue: boolean;
   }[];
+}
+
+// ---------------------------------------------------------------- Best sellers by area (/products/best-sellers/)
+export interface BestSellerItem {
+  key: string;
+  name: string;
+  sales: number;
+  units: number;
+  retailers: number;
+  /** % of the area's sales */
+  share: number | null;
+  national_rank: number | null;
+  /** style rows: the style's main Category III */
+  category?: string | null;
+  /** category rows: the category's best style in the area */
+  top_style?: string | null;
+  top_style_name?: string | null;
+  styles?: number;
+}
+export interface BestSellerArea {
+  area: string;
+  region?: string | null;
+  sales: number;
+  items: number;
+  top: BestSellerItem[];
+}
+export interface BestSellers {
+  region: { style: BestSellerArea[]; category: BestSellerArea[] };
+  state: { style: BestSellerArea[]; category: BestSellerArea[] };
+  national: { style: number; category: number };
+  top_n: number;
 }

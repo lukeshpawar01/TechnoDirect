@@ -53,6 +53,9 @@ SEED = [
      "given_on": D(2026, 11, 17), "said": "Sri Sai Enterprise is Virat Sports Wear"},
     {"kind": "distributor_merge", "distributor": "Heera Exports Inc", "value": {"merged": "Heera Main"},
      "given_on": D(2026, 11, 14), "said": "heera main and heera distributors are not different"},
+    {"kind": "distributor_merge", "distributor": "Ishwar Sports & Fitness",
+     "value": {"merged": "Ishwar Sports & Fitness Pune", "source_ids": ["td:52"]}, "given_on": D(2026, 11, 27),
+     "said": "ishwar sports and fitness and ishwar sports and fitness pune are same, name them ishwar sports and fitness"},
 ]
 
 

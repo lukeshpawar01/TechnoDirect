@@ -10,6 +10,7 @@ import { DataTable, type Column } from '@/components/DataTable';
 import { MiniStat } from '@/components/KpiTile';
 import { PageHeader } from '@/components/PageHeader';
 import { StylePerformance } from '@/components/StylePerformance';
+import { BestSellersByArea } from '@/components/BestSellersByArea';
 import { Card, ErrorState, Segmented } from '@/components/ui';
 import { useFilters } from '@/lib/filters';
 import { asPct, date, inr, monthLabel, num, pct } from '@/lib/format';
@@ -108,6 +109,8 @@ export default function Products() {
       </div>
 
       <StylePerformance data={d} period={q.data?.meta?.period} loading={q.isFetching} />
+
+      <BestSellersByArea />
 
       <Card
         className="mt-4"

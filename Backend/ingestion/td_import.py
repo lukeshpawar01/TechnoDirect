@@ -24,6 +24,7 @@ from collections import Counter, defaultdict
 from decimal import ROUND_HALF_UP, Decimal
 from zoneinfo import ZoneInfo
 
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
@@ -248,9 +249,19 @@ class TdImporter:
 
         purged = purged_source_ids()  # internal / test accounts: their history goes too
         ordered = {(o.get("distributor_id") or "").strip() for o in getattr(self, "order_rows", None) or []}
+        from masters.models import ManualMapping
+
+        # TD accounts the user merged into another distributor (e.g. "Ishwar Sports & Fitness Pune" -> "Ishwar Sports &
+        # Fitness"): their orders, retailers and stock attach to the kept one and the account is never recreated
+        merged_into = {sid: m.distributor for m in ManualMapping.objects.filter(
+            kind="distributor_merge", status="active", distributor__isnull=False).select_related("distributor")
+            for sid in (m.value or {}).get("source_ids", [])}
         for r in sorted(self.dist_rows, key=lambda r: to_int(r.get("distributor_id"))):
             did, raw = r["distributor_id"].strip(), r.get("distributor_name", "").strip()
             sid = f"td:{did}"
+            if sid in merged_into:
+                self.dist_by_id[did] = merged_into[sid]
+                continue
             if sid in removed and by_src.get(sid) is not None:
                 # removed by the user: not reactivated or updated, but its orders still attach to it (they count
                 # in their months). One that is missing is created below so its orders attach to it; the removal
@@ -548,6 +559,12 @@ class TdImporter:
             for o in rows:
                 o.is_latest = False
         InventorySnapshot.objects.bulk_create(rows, batch_size=5000)
+        # Stock history is only read back 14 days (Full sets vs sales: 7/10/14-day lookback). Each day adds ~120k
+        # rows, so older snapshots are dropped to keep the database from growing ~1 GB a month.
+        keep = int(getattr(settings, "INVENTORY_HISTORY_DAYS", 21))
+        self.stats["inventory_history_pruned"] = InventorySnapshot.objects.filter(
+            source="td", is_latest=False,
+            snapshot_date__lt=(to_date(snap) if isinstance(snap, str) else snap) - dt.timedelta(days=keep)).delete()[0]
         self.stats["inventory_rows"] = len(rows)
         self.stats["inventory_in_stock"] = sum(1 for o in rows if o.quantity > 0)
         self.stats["inventory_snapshot_date"] = str(snap)

@@ -1,6 +1,7 @@
 import csv
 import datetime as dt
 import io
+import os
 from decimal import Decimal
 
 from django.test import SimpleTestCase, TestCase
@@ -547,6 +548,32 @@ class RemovedDistributorTests(SupabaseImportTests):
         self.assertTrue(back.removed and not back.is_active)
         self.assertEqual(set(Order.objects.filter(distributor=back).values_list("source_id", flat=True)), orders)
         self.assertFalse(InventorySnapshot.objects.filter(distributor=back).exists())
+
+    def test_merged_td_account_stays_merged(self):
+        """A TD account merged into another (manual 'distributor_merge' with its source id) is not recreated by a
+        refresh: its orders attach to the kept distributor."""
+        from django.core.management import call_command
+
+        from ingestion.connectors.supabase import SupabaseTdImporter
+        from masters.models import ManualMapping
+        from warehouse.models import Distributor, Order
+
+        tables = self.rows()
+
+        def fetch(sql):
+            table = sql.split(" FROM ")[1].split()[0].strip('"')
+            return tables[table]
+
+        SupabaseTdImporter(fetch).run()
+        keep, dup = Distributor.objects.get(source_id="td:6"), Distributor.objects.get(source_id="td:32")
+        total = Order.objects.filter(distributor__in=[keep, dup]).count()
+        call_command("merge_distributors", str(keep.id), str(dup.id), stdout=open(os.devnull, "w"))
+        ManualMapping.objects.create(kind="distributor_merge", distributor=keep, given_on=dt.date(2026, 11, 27),
+                                     value={"merged": "Ankit Jain", "source_ids": ["td:32"]})
+        SupabaseTdImporter(fetch).run()
+        self.assertFalse(Distributor.objects.filter(source_id="td:32").exists())
+        self.assertEqual(Distributor.objects.filter(name="Ankit Jain").count(), 1)
+        self.assertEqual(Order.objects.filter(distributor=keep).count(), total)
 
     def test_purged_internal_distributor_loses_its_history_too(self):
         """An internal / test account removed with purge=True: distributor, orders, sole retailers and stock all go,
