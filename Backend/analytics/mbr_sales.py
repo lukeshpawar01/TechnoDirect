@@ -114,7 +114,12 @@ def sales_asks(f, card, path):
     warm_noasm = defaultdict(lambda: {"n": 0, "dists": []})  # region -> warm retailers at distributors with no ASM
     for did, r in rbase.items():
         d = dists.get(did)
-        if not d or not r["warm"]:
+        if not r["warm"]:
+            continue
+        if not d:  # warm retailers with no distributor mapped: counted, under "no distributor"
+            w = warm_noasm["No distributor"]
+            w["n"] += r["warm"]
+            w["dists"].append((r["warm"], "no distributor mapped"))
             continue
         if d.asm and not _placeholder(d.asm, d.name):
             warm_asm[d.asm_id] += r["warm"]

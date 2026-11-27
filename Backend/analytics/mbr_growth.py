@@ -62,7 +62,7 @@ def growth_drivers(f, card):
     prev_total = sum(t["sales"] for t in prev.values())
     change = total - prev_total
     bo = {r["tier"]: r for r in BoRetailer.objects.filter(tier__in=TIERS).values("tier").annotate(
-        n=Count("id"), on_td=Count("id", filter=Q(td_retailer__isnull=False)))}
+        n=Count("id"), on_td=Count("id", filter=Q(td_retailer__kyc_status="approved")))}  # on TD = KYC-approved link
 
     tiers = []
     for t in TIERS:
