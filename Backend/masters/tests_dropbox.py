@@ -73,6 +73,17 @@ class DropboxMirrorTests(TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.dir, "FY27_qtr1.csv")))
         self.assertFalse([f for f in os.listdir(self.dir) if f.startswith(".part-")])
 
+    def test_compact_dashboard_file_replaces_the_quarter_files(self):
+        dropbox_bo.mirror(self.dir, session=self.dbx)  # before the notebook writes the compact file: quarter files
+        self.assertTrue(os.path.exists(os.path.join(self.dir, "FY27_qtr2.csv")))
+        self.dbx.files["TD_BO_dashboard.csv.gz"] = ("h6", b"gz")
+        self.dbx.downloads.clear()
+        m = dropbox_bo.mirror(self.dir, session=self.dbx)
+        self.assertEqual(m["downloaded"], ["TD_BO_dashboard.csv.gz"])  # only the one small file
+        self.assertEqual(sorted(m["removed"]), ["FY27_qtr1.csv", "FY27_qtr2.csv"])  # local quarter copies freed
+        self.assertEqual(sorted(f for f in os.listdir(self.dir) if not f.startswith(".")),
+                         ["Dist-state.xlsx", "TD_BO_dashboard.csv.gz"])
+
     def test_bad_credentials_explain_without_secrets(self):
         self.dbx.token_status = 400
         with self.assertRaises(dropbox_bo.DropboxError) as cm:

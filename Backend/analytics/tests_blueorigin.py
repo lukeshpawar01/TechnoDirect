@@ -134,3 +134,56 @@ class BlueOriginTests(TestCase):
         d = self.c.get(f"/api/retailers/{self.w['ret1'].id}/?preset=all_time").json()["data"]
         self.assertEqual(d["blueorigin"][0]["bo_id"], "HEE-1")
         self.assertEqual(len(d["blueorigin"][0]["quarters"]), 2)
+
+
+class CompactFileTests(TestCase):
+    """The BO_data notebook's TD_BO_dashboard.csv.gz (one file, only the dashboard's columns) imports to exactly the
+    same tables as the quarter files it is made from."""
+
+    def _import(self, write):
+        from warehouse.models import BoRetailerMonth, BoRetailerQuarter
+
+        d = tempfile.mkdtemp()
+        try:
+            write(d)
+            rep = import_folder(d)
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+        snap = (sorted(BoRetailer.objects.values_list("bo_id", "name", "phone", "pincode", "tier")),
+                sorted((q.bo_retailer.bo_id, str(q.quarter), q.label, q.purchase, q.tier, q.deliverables)
+                       for q in BoRetailerQuarter.objects.select_related("bo_retailer")),
+                sorted((m.bo_retailer.bo_id, str(m.month), m.value)
+                       for m in BoRetailerMonth.objects.select_related("bo_retailer")))
+        return rep, snap
+
+    def test_compact_file_matches_quarter_files(self):
+        import gzip
+
+        make_world()
+        q1 = [("Big Shop", "9876543210", "560001", "KARNATAKA", [400000, 400000, 300000], "Platinum", "Heera", "HEE-1"),
+              ("Small Shop", "", "560002", "", [10000, 0, 5000], "", "Heera", "HEE-2")]
+        q2 = [("Big Shop", "9876543210", "560001", "KARNATAKA", [300000, 200000, 100000], "Gold", "Heera", "HEE-1"),
+              ("Puri Store", "9000000001", "752001", "", [60000, 0, 0], "Yellow", "Noble Traders", "NOB-1")]
+
+        def quarters(d):
+            sheet(d, "FY27_qtr1.csv", ("Apr_26", "May_26", "Jun_26"), [row(*r) for r in q1])
+            sheet(d, "FY27_qtr2.csv", ("July_26", "Aug_26", "Sept_26"), [row(*r) for r in q2])
+
+        def compact(d):
+            months = ["2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09"]
+            head = ["Quarter_Start", "Quarter_Label", "Retailer_ID", "Retailer Name", "Distributor", "State", "District",
+                    "Pincode", "Phone", "Phone_Alt", "New Tier", "Old Tier", "Deliverables", "Last 3 Months", *months]
+            with gzip.open(os.path.join(d, "TD_BO_dashboard.csv.gz"), "wt", encoding="utf-8", newline="") as fh:
+                w = csv.writer(fh)
+                w.writerow(head)
+                for start, label, rows, at in (("2026-04-01", "Q1 FY27", q1, 0), ("2026-07-01", "Q2 FY27", q2, 3)):
+                    for name, ph, pin, st, vals, tier, dist, rid in rows:
+                        mv = [""] * 6
+                        mv[at:at + 3] = vals
+                        w.writerow([start, label, rid, name, dist, st, "", pin, ph, "", tier, "", "Yes", sum(vals), *mv])
+
+        rep_q, snap_q = self._import(quarters)
+        rep_c, snap_c = self._import(compact)
+        self.assertEqual(snap_c, snap_q)
+        self.assertEqual(rep_c["tiers"], rep_q["tiers"])
+        self.assertEqual((rep_c["retailers"], rep_c["month_rows"]), (rep_q["retailers"], rep_q["month_rows"]))

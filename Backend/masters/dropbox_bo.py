@@ -25,6 +25,7 @@ TOKEN_URL = "https://api.dropboxapi.com/oauth2/token"
 API = "https://api.dropboxapi.com/2"
 CONTENT = "https://content.dropboxapi.com/2"
 WANTED = ("FY??_qtr?.csv", "Dist-state.xlsx")  # only what the BlueOrigin import reads
+COMPACT = "TD_BO_dashboard.csv.gz"  # the BO_data notebook's dashboard file: when present, only it (+ Dist-state) is kept
 MANIFEST = ".dropbox_manifest.json"
 TIMEOUT = 60
 SCOPES = ("files.metadata.read", "files.content.read")  # read-only: list the folder, download the sheets
@@ -108,7 +109,7 @@ def list_files(token, session=requests):
             _fail("folder listing", r)
         page = r.json()
         for e in page.get("entries", []):
-            if e.get(".tag") == "file" and any(fnmatch.fnmatch(e["name"].lower(), w.lower()) for w in WANTED):
+            if e.get(".tag") == "file" and any(fnmatch.fnmatch(e["name"].lower(), w.lower()) for w in WANTED + (COMPACT,)):
                 out[e["name"]] = e
         if not page.get("has_more"):
             return out
@@ -143,7 +144,10 @@ def mirror(dest=None, session=requests):
     os.makedirs(dest, exist_ok=True)
     token = access_token(session)
     remote = list_files(token, session)
-    if not any(fnmatch.fnmatch(n.lower(), WANTED[0].lower()) for n in remote):
+    compact = next((n for n in remote if n.lower() == COMPACT.lower()), None)
+    if compact:  # one small file instead of every quarter sheet; local copies of the quarter files are removed below
+        remote = {n: e for n, e in remote.items() if n == compact or not fnmatch.fnmatch(n.lower(), WANTED[0].lower())}
+    elif not any(fnmatch.fnmatch(n.lower(), WANTED[0].lower()) for n in remote):
         raise DropboxError(f"No {WANTED[0]} files in Dropbox folder {remote_folder()} (check DROPBOX_BO_PATH)")
     man_path = os.path.join(dest, MANIFEST)
     try:

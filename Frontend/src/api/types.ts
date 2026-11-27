@@ -864,43 +864,6 @@ export interface MomTrend {
   first_data_month: string | null;
 }
 
-// ---------------------------------------------------------------- Techno AI (/assistant/*)
-export interface AiStatus {
-  enabled: boolean;
-  configured: boolean;
-  model: string | null;
-  provider: string;
-  modules: string[];
-  suggestions: string[];
-}
-export interface AiItem {
-  text: string;
-  refs: string[];
-}
-export interface AiAnswer {
-  headline: string;
-  what_to_do: AiItem[];
-  data_points: AiItem[];
-  explanation: string;
-  not_authorised: string[];
-  follow_ups: string[];
-}
-export interface AiSource {
-  ref: string;
-  tool: string;
-  label: string;
-  period: string | null;
-  params: Record<string, string>;
-  ok: boolean;
-}
-export interface AiReply {
-  answer: AiAnswer;
-  sources: AiSource[];
-  model: string;
-  took_ms: number;
-  asked_at: string;
-}
-
 // ---------------------------------------------------------------- ASM tracker (/masters/asm-tracker/)
 export interface AsmTrackerRow {
   distributor_id: number;

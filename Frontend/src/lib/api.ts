@@ -67,11 +67,11 @@ api.interceptors.response.use((res) => {
   if (body && typeof body === 'object' && body.meta && Array.isArray(body.meta.freshness)) {
     freshnessStore.set(body.meta);
   }
-  // A save went through (anything but sign-in / the assistant): tell the data-version watcher to look now, so every
+  // A save went through (anything but sign-in): tell the data-version watcher to look now, so every
   // section shows the new values straight away instead of within the next 15 s.
   const method = (res.config.method ?? 'get').toLowerCase();
   const url = res.config.url ?? '';
-  if (method !== 'get' && !url.startsWith('/auth/') && !url.startsWith('/assistant/')) {
+  if (method !== 'get' && !url.startsWith('/auth/')) {
     window.dispatchEvent(new Event(SAVED_EVENT));
   }
   return res;

@@ -17,7 +17,6 @@ PERMISSIONS = [
     ("view_blueorigin", "View BlueOrigin offline sales & tiers", "Dashboards"),
     ("view_settlements", "View distributor settlements (payouts, refunds, outstanding)", "Dashboards"),
     ("view_data_health", "View data health", "Dashboards"),
-    ("use_assistant", "Use Techno AI assistant", "Dashboards"),
     ("export_data", "Export data (CSV / Excel)", "Data"),
     ("view_pii", "View retailer phone numbers / PII", "Data"),
     ("manage_targets", "Manage targets", "Admin"),

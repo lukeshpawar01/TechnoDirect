@@ -29,6 +29,10 @@ from django.db import transaction
 log = logging.getLogger(__name__)
 
 FILE_GLOB = "FY??_qtr?.csv"
+# One compact file the BO_data notebook writes next to the quarter files, with only the columns this import reads
+# (one row per retailer x quarter, Quarter_Start / Quarter_Label, monthly purchases as YYYY-MM columns). When it is
+# there it is read instead of the quarter files (user, 2026-11-27: download and keep only what the dashboard needs).
+COMPACT_FILE = "TD_BO_dashboard.csv.gz"
 TIERS = ["Platinum", "Gold", "Silver", "Green", "Yellow", "Untiered"]
 TIER_RANK = {t: i for i, t in enumerate(TIERS)}  # lower = better
 BENEFITS = {"Catalog": "catalog", "GMB": "gmb", "Product video": "product_video", "Hyperlocal Ads": "hyperlocal_ads",
@@ -37,6 +41,7 @@ BENEFITS = {"Catalog": "catalog", "GMB": "gmb", "Product video": "product_video"
 _MONTHS = {"jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6, "jul": 7, "aug": 8, "sep": 9, "oct": 10,
            "nov": 11, "dec": 12}
 _MONTH_COL = re.compile(r"^(Jan|Feb|Mar|Apr|May|June?|July?|Aug|Sept?|Oct|Nov|Dec)_(\d{2})$", re.I)
+_YM_COL = re.compile(r"^(\d{4})-(\d{2})$")  # the compact file's month columns
 # spellings seen in the sheets / Dist-state.xlsx that the state-name table does not know
 STATE_ALIASES = {"up": "UP", "uk": "UK", "telengana": "TS", "maharastra": "MH", "maharstara": "MH", "andhara": "AP",
                  "delhi ncr": "DL", "bihar(patna)": "BR", "bihar (bhagalpur)": "BR", "tripura/mizoram": "TR",
@@ -74,6 +79,9 @@ def quarter_of_file(path):
 
 
 def month_of_column(col):
+    y = _YM_COL.match(col.strip())
+    if y:
+        return dt.date(int(y.group(1)), int(y.group(2)), 1)
     m = _MONTH_COL.match(col.strip())
     if not m:
         return None
@@ -86,6 +94,9 @@ def clean_tier(raw):
 
 
 def source_files(folder):
+    compact = os.path.join(folder, COMPACT_FILE)
+    if os.path.exists(compact):
+        return [compact]
     return sorted(glob.glob(os.path.join(folder, FILE_GLOB)), key=lambda p: quarter_of_file(p)[0] or dt.date.min)
 
 
@@ -173,8 +184,11 @@ class Distributors:
 # ----------------------------------------------------------------------------- import
 def read_files(folder):
     """[(quarter_start, label, path, rows)] - raises with the file name when a file cannot be read."""
+    files = source_files(folder)
+    if files and os.path.basename(files[0]) == COMPACT_FILE:
+        return read_compact(files[0])
     out = []
-    for p in source_files(folder):
+    for p in files:
         q, label = quarter_of_file(p)
         try:
             with open(p, encoding="utf-8-sig", newline="") as fh:
@@ -183,6 +197,32 @@ def read_files(folder):
             raise RuntimeError(f"Cannot read {os.path.basename(p)}: {exc}") from exc
         out.append((q, label, p, rows))
     return out
+
+
+def read_compact(path):
+    """The compact file -> the same [(quarter_start, label, path, rows)] as the quarter files, one entry per quarter;
+    each quarter keeps only its own month columns."""
+    import gzip
+
+    try:
+        with gzip.open(path, "rt", encoding="utf-8-sig", newline="") as fh:
+            rows = list(csv.DictReader(fh))
+    except OSError as exc:
+        raise RuntimeError(f"Cannot read {os.path.basename(path)}: {exc}") from exc
+    by_q = defaultdict(list)
+    for r in rows:
+        by_q[(r.get("Quarter_Start") or "", r.get("Quarter_Label") or "")].append(r)
+    out = []
+    for (start, label), qrows in by_q.items():
+        try:
+            q = dt.date.fromisoformat(start)
+        except ValueError:
+            continue
+        months = {c for c in (qrows[0].keys() if qrows else []) if _YM_COL.match(c)
+                  and any((r.get(c) or "").strip() for r in qrows)}
+        trimmed = [{k: v for k, v in r.items() if not _YM_COL.match(k) or k in months} for r in qrows]
+        out.append((q, label, f"{path} [{label}]", trimmed))
+    return sorted(out, key=lambda x: x[0])
 
 
 def import_folder(folder):

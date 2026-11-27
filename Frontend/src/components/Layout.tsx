@@ -8,7 +8,6 @@ import { useDataVersionWatcher, useRefreshScheduler } from '@/lib/refresh';
 import { ADMIN_NAV, ALL_TOP_FILTERS, MAIN_NAV, allowed, navItemFor, type NavItem } from '@/nav';
 import { FilterBar } from './FilterBar';
 import { Logo } from './Logo';
-import { TechnoAI } from './TechnoAI';
 import { Field, InlineError, Modal, cx } from './ui';
 import { IconKey, IconLogout, IconMenu, IconMonitor, IconMoon, IconSidebar, IconSun } from './Icons';
 import { BackButton } from './BackButton';
@@ -291,12 +290,11 @@ export function Layout() {
             <UserMenu />
           </div>
         </header>
-        {/* bottom padding: the last row / pager can always scroll clear of the floating Techno AI button */}
+        {/* bottom padding: the last row / pager can always scroll clear of the screen edge */}
         <main className="min-w-0 flex-1 overflow-y-auto px-3 pb-24 pt-4 md:px-6 md:pb-24 md:pt-5">
           <Outlet />
         </main>
       </div>
-      <TechnoAI />
     </div>
   );
 }
