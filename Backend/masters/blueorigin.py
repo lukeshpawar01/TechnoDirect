@@ -279,11 +279,17 @@ def import_folder(folder):
 
 # ----------------------------------------------------------------------------- TechnoDirect link
 def tag_td_retailers():
-    """Phone-match BO retailers to app retailers; set Retailer.tier / warm_match and BoRetailer.td_retailer."""
+    """Phone-match BO retailers to app retailers; set Retailer.tier / warm_match and BoRetailer.td_retailer.
+
+    One definition for every BlueOrigin count on the dashboard (user, 2026-11-27: "numbers should be same"):
+      * a BlueOrigin retailer = one that bought at least once (rows with no purchase are dropped);
+      * its tier = its tier in the LATEST quarter's sheet, Untiered when not listed there (BoRetailer.tier);
+      * warm (Retailer.warm_match) = the shop's own linked app account only, not every account sharing its phone."""
     from django.db.models import Max
 
-    from warehouse.models import BoRetailer, BoRetailerQuarter, Retailer
+    from warehouse.models import BoRetailer, BoRetailerMonth, BoRetailerQuarter, Retailer
 
+    BoRetailer.objects.exclude(id__in=BoRetailerMonth.objects.filter(value__gt=0).values("bo_retailer_id")).delete()
     latest = BoRetailerQuarter.objects.aggregate(q=Max("quarter"))["q"]
     td_by_phone = defaultdict(list)
     for rid, ph, orders in Retailer.objects.exclude(phone="").values_list("id", "phone", "orders_count"):
@@ -298,7 +304,7 @@ def tag_td_retailers():
             continue
         rid = -max(cands)[1]  # the app account with most orders (oldest on ties) represents the shop
         link[bid] = rid
-        warm.update(-c[1] for c in cands)
+        warm.add(rid)  # the shop's own account; duplicate accounts on the same phone are not "warm"
         t = latest_tier.get(bid)  # not in the latest quarter's sheet = no current tier
         if t and TIER_RANK[t] < TIER_RANK.get(best.get(rid, "Untiered"), 99):
             best[rid] = t
@@ -310,6 +316,14 @@ def tag_td_retailers():
             yield xs[i:i + n]
 
     with transaction.atomic():
+        # every BO retailer's tier = the latest quarter's (as the BlueOrigin page and the app retailers' tier)
+        for t in set(latest_tier.values()) | {"Untiered"}:
+            ids_t = [b for b, x in latest_tier.items() if x == t]
+            if t != "Untiered":
+                for part in chunks(ids_t):
+                    BoRetailer.objects.filter(id__in=part).exclude(tier=t).update(tier=t)
+        BoRetailer.objects.exclude(id__in=[b for b, x in latest_tier.items() if x != "Untiered"]).exclude(
+            tier="Untiered").update(tier="Untiered")
         BoRetailer.objects.exclude(td_retailer=None).update(td_retailer=None)
         by_rid = defaultdict(list)
         for bid, rid in link.items():
