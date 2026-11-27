@@ -4,6 +4,7 @@ import type { Inventory as InventoryData, InventoryItem } from '@/api/types';
 import { DataTable } from '@/components/DataTable';
 import { MiniStat } from '@/components/KpiTile';
 import { OosTopStyles } from '@/components/OosTopStyles';
+import { StockMatrix, StyleRunRate } from '@/components/InventoryMatrix';
 import { PageHeader } from '@/components/PageHeader';
 import { Card, ErrorState, Meter, Segmented, StatusBadge } from '@/components/ui';
 import { IconSearch } from '@/components/Icons';
@@ -119,6 +120,9 @@ export default function Inventory() {
           </div>
         </>
       )}
+
+      <StockMatrix />
+      <StyleRunRate />
 
       <OosTopStyles soldDays={soldDays} />
 

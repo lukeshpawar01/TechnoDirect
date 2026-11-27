@@ -134,6 +134,8 @@ class Distributor(TimeStamped):
     bo_only = models.BooleanField(default=False, help_text="Known only from BlueOrigin (offline) sheets, not on the app")
     is_internal = models.BooleanField(default=False, help_text="Company-internal account (not a real distributor): its "
                                       "orders never count as sales and it is hidden from lists")
+    removed = models.BooleanField(default=False, help_text="Removed from the dashboard by an admin (masters/exclusions.py): "
+                                  "hidden from lists, filters and stock; its past orders still count in their months")
     # from the "TechnoD Distributors" sheet (masters/distributor_sync.py): when stock was last updated on the app
     stock_updated_on = models.DateField(null=True, blank=True, help_text="Sheet 'Inventory Updated'")
     inventory_status = models.CharField(max_length=32, blank=True, help_text="Inventory Live / Inventory Pending / Not onboarded")

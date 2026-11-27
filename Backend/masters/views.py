@@ -856,6 +856,60 @@ class ManualMappingsView(APIView):
         return Response(mm.as_dict(e))
 
 
+class RemovedDistributorsView(APIView):
+    """Admin → Mappings → Removed distributors (masters/exclusions.py).
+
+    GET                                  -> {removed: [...], distributors: [...]} (the register and the picker list)
+    POST {action: "preview", ids: [..]}  -> what removing them takes out (orders, sales, retailers, stock)
+    POST {action: "remove", ids, reason} -> remove them and all their data from the whole dashboard
+    POST {action: "restore", id}         -> close the removal; everything comes back at the next refresh"""
+
+    def get_permissions(self):
+        return [IsAuthenticated(), HasPerm("manage_mappings")()]
+
+    def get(self, request):
+        from django.db.models import Count, Max
+
+        from .exclusions import removed_list
+
+        dists = (Distributor.objects.filter(removed=False).annotate(n=Count("orders"), last=Max("orders__placed_date"))
+                 .order_by("name").values("id", "name", "city", "is_active", "bo_only", "n", "last"))
+        return Response({"removed": removed_list(), "distributors": [
+            {"id": d["id"], "name": d["name"], "city": d["city"], "is_active": d["is_active"], "bo_only": d["bo_only"],
+             "orders": d["n"], "last_order": d["last"].isoformat() if d["last"] else None} for d in dists]})
+
+    def post(self, request):
+        from analytics.derivations import run_all_derivations
+
+        from . import exclusions, manual_mappings as mm
+        from .models import ManualMapping
+
+        act = request.data.get("action")
+        if act == "restore":
+            e = ManualMapping.objects.filter(id=request.data.get("id"), kind=exclusions.KIND, status="active").first()
+            if e is None:
+                raise NotFound("No active removal with that id")
+            mm.remove(e, undo=False, reason=f"restored by {request.user.email}")
+            log_action(request, "update", e, before={"status": "active"}, after={"status": e.status})
+            return Response({"ok": True, "removed": exclusions.removed_list()})
+        ids = request.data.get("ids") or []
+        if not isinstance(ids, list) or not ids or not all(isinstance(i, int) for i in ids):
+            raise ValidationError({"ids": "choose at least one distributor"})
+        if not Distributor.objects.filter(id__in=ids).exists():
+            raise NotFound("Distributor not found")
+        if act == "preview":
+            return Response({"impact": exclusions.impact(ids)})
+        if act != "remove":
+            raise ValidationError({"action": "preview, remove or restore"})
+        reason = (request.data.get("reason") or "").strip() or "removed from Admin → Mappings"
+        e, n = exclusions.remove_distributors(ids, said=f"{reason} ({request.user.email})", user=request.user,
+                                              purge=bool(request.data.get("purge")))
+        log_action(request, "delete", e, before={"distributors": e.value.get("names")}, after=None)
+        run_all_derivations()  # retailer totals, monthly aggregates, P&L month data without the removed orders
+        bump_cache_version()
+        return Response({"ok": True, "removed_distributors": n, "removed": exclusions.removed_list()})
+
+
 class IncentiveTrackerView(APIView):
     """GET ?month=YYYY-MM -> ASM & executive incentive tracker (masters/incentives.py)."""
 

@@ -244,11 +244,21 @@ class TdImporter:
         from masters.exclusions import excluded_source_ids
 
         removed = excluded_source_ids()  # removed from the dashboard by the user (masters/exclusions.py)
+        from masters.exclusions import purged_source_ids
+
+        purged = purged_source_ids()  # internal / test accounts: their history goes too
+        ordered = {(o.get("distributor_id") or "").strip() for o in getattr(self, "order_rows", None) or []}
         for r in sorted(self.dist_rows, key=lambda r: to_int(r.get("distributor_id"))):
             did, raw = r["distributor_id"].strip(), r.get("distributor_name", "").strip()
             sid = f"td:{did}"
-            if sid in removed:
+            if sid in removed and by_src.get(sid) is not None:
+                # removed by the user: not reactivated or updated, but its orders still attach to it (they count
+                # in their months). One that is missing is created below so its orders attach to it; the removal
+                # (masters/exclusions.apply, after the import) hides it again, or deletes it when it has no history.
+                self.dist_by_id[did] = by_src[sid]
                 continue
+            if sid in removed and (did not in ordered or sid in purged):
+                continue  # removed with nothing to keep (no order in TD), or purged (internal): stays out
             d = by_src.get(sid) or match(raw)
             if d is not None and d.id in claimed:
                 d = None  # two export rows with the same name (e.g. "Ankit Jain") stay separate
@@ -365,8 +375,13 @@ class TdImporter:
 
     # ------------------------------------------------------------------ retailers
     def load_retailers(self):
+        from masters.exclusions import purged_retailer_ids
+
+        skip = purged_retailer_ids()  # only bought from a purged (internal) distributor
         rows = []
         for r in self.customers:
+            if r.get("customer_id") in skip:
+                continue
             pin = r.get("ts_pincode", "")
             pm = self.pins.get(pin)
             st = self.state_for_name(r.get("province")) or (pm.state if pm else None)
@@ -406,9 +421,14 @@ class TdImporter:
         if removed:
             self.say(f"removed {removed} rows loaded from the earlier sample export")
 
+        from masters.exclusions import purged_source_ids
+
+        purged = purged_source_ids()  # internal / test distributors removed with their history
         orders, lines, unknown = [], {}, 0
         for o in self.order_rows:
             oid = o["order_id"]
+            if f"td:{(o.get('distributor_id') or '').strip()}" in purged:
+                continue
             day = to_date(o.get("order_date"))
             if not day:
                 self.warn(f"order {oid}: no order date, skipped")
@@ -494,16 +514,24 @@ class TdImporter:
         synced = getattr(self, "inventory_synced_at", None) or timezone.now()
         qty, snap_dates = defaultdict(int), set()
         meta = {}
+        from masters.exclusions import excluded_source_ids
+
+        gone = excluded_source_ids()
         for r in self.inventory_rows:
+            if f"td:{(r.get('distributor_id') or '').strip()}" in gone:
+                continue  # a removed distributor's stock (not matched to another by its location name)
             d = self.dist_by_id.get((r.get("distributor_id") or "").strip()) or self.dist(r.get("stock_location"))
             v = self.variants.get(r.get("variant_id"))
-            if not d or not v:
+            if not d or not v or d.removed:  # a removed distributor's stock is not shown
                 continue
             snap_dates.add(r.get("snapshot_date"))
             key = (d.id, v[1])
             qty[key] += to_int(r.get("available"))
             meta[key] = (v[0], v[2])
-        snap = self.snapshot_date or max(to_date(s) for s in snap_dates if to_date(s))
+        dates = [to_date(s) for s in snap_dates if to_date(s)]
+        snap = self.snapshot_date or (max(dates) if dates else None)
+        if snap is None:
+            return  # no stock row left to load (e.g. all of it belongs to removed distributors)
         vprod = dict(ProductVariant.objects.values_list("id", "product_id"))
         pstyle = dict(Product.objects.values_list("id", "style"))
         rows = []

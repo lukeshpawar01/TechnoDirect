@@ -198,7 +198,7 @@ class FilterOptionsView(APIView):
         regions = Region.objects.all()
         states = State.objects.all()
         asms = Asm.objects.all()
-        dists = Distributor.objects.filter(is_active=True, is_internal=False)
+        dists = Distributor.objects.filter(is_active=True, is_internal=False, removed=False)
         if not sc.all:
             dists = dists.filter(sc.q(DISTRIBUTOR_DIMS))
             states = states.filter(sc.q(STATE_DIMS) | _ids(dists, "state_id"))

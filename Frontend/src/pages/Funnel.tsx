@@ -8,6 +8,7 @@ import { DataTable } from '@/components/DataTable';
 import { MiniStat } from '@/components/KpiTile';
 import { PageHeader } from '@/components/PageHeader';
 import { RetailersDrill, type RetailersDrillSpec } from '@/components/RetailersDrill';
+import { TechnoVenn } from '@/components/TechnoVenn';
 import { Card, ErrorState, Meter } from '@/components/ui';
 import { useFilters } from '@/lib/filters';
 import { ACTION_HINT, SEGMENT_TABS } from '@/lib/lifecycle';
@@ -169,6 +170,8 @@ export default function Funnel() {
           </ul>
         </Card>
       </div>
+
+      {tb && <TechnoVenn tb={tb} onOpen={open} className="mt-4" />}
 
       {tb && (
         <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-5">

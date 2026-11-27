@@ -10,7 +10,7 @@ from rest_framework.test import APIClient
 from accounts.models import Role, User
 from accounts.testing import jwt_login
 from analytics.filters import system_filters
-from analytics.mbr import default_goal_by, path_to_goal, scorecard
+from analytics.mbr import path_to_goal, scorecard
 from masters.mbr import adherence, carry_forward, tech_summary
 from masters.models import MbrItem, MbrReview
 from warehouse.models import Distributor, Order, Region, Retailer, Target
@@ -85,14 +85,16 @@ class MbrScorecardTests(TestCase):
 
     def test_path_to_goal(self):
         c = scorecard(self.f, D(2026, 11, 1))
-        p = path_to_goal(self.f, c, 110000, D(2027, 3, 1))
+        p = path_to_goal(self.f, c, 110000)
         # base = October (latest complete): 5,500 from 2 retailers; spend over Sep-Oct = 6,500 / 3 retailer-months
         self.assertEqual((p["base_month"], p["base_sales"], p["active_retailers"]), ("2026-10", 5500.0, 2))
         self.assertEqual(p["retailers_needed"], 51)          # ceil(110,000 / 2,166.67)
-        self.assertEqual(p["months_left"], 5)
-        self.assertAlmostEqual(p["monthly_growth_needed_pct"], round(((110000 / 5500) ** (1 / 5) - 1) * 100, 1))
+        # the goal applies to every month: October needs 20x its sales, with no deadline
+        self.assertAlmostEqual(p["growth_needed_pct"], round((110000 / 5500 - 1) * 100, 1))
+        octo = next(x for x in p["months"] if x["month"] == "2026-10")
+        self.assertEqual((octo["goal_pct"], octo["short"]), (5.0, 104500.0))
+        self.assertEqual(p["months_at_goal"], 0)
         self.assertEqual(p["scenarios"][0]["extra_retailers"], 49)
-        self.assertEqual(default_goal_by(D(2026, 11, 25)), D(2027, 3, 1))
 
 
 class MbrTechTests(TestCase):
@@ -224,7 +226,7 @@ class ExecutiveSummaryTests(TestCase):
         S.setUp()
         from .mbr import path_to_goal
         card = scorecard(S.f, D(2026, 11, 1))
-        card["path"] = path_to_goal(S.f, card, 100000, D(2027, 3, 1))
+        card["path"] = path_to_goal(S.f, card, 100000)
         out = executive_summary(card)
         self.assertEqual(out["insights"][0]["area"], "sales")
         self.assertAlmostEqual(sum(s["value"] for s in out["bridge"]["steps"]), out["bridge"]["change"], places=2)
@@ -250,7 +252,7 @@ class SalesAsksTests(TestCase):
         S = MbrScorecardTests("test_month_in_progress_is_like_for_like")
         S.setUp()
         card = scorecard(S.f, D(2026, 11, 1))
-        path = path_to_goal(S.f, card, 100000, D(2027, 3, 1))
+        path = path_to_goal(S.f, card, 100000)
         out = sales_asks(S.f, card, path)
         kinds = {a["kind"] for a in out["asks"]}
         self.assertIn("stretch", kinds)      # the region's biggest distributor gets a next-month target
@@ -277,7 +279,7 @@ class MarketingAsksTests(TestCase):
         S = MbrScorecardTests("test_month_in_progress_is_like_for_like")
         S.setUp()
         card = scorecard(S.f, D(2026, 11, 1))
-        card["path"] = path_to_goal(S.f, card, 100000, D(2027, 3, 1))
+        card["path"] = path_to_goal(S.f, card, 100000)
         out = marketing_asks(S.f, card)["asks"]
         kinds = {a["kind"] for a in out}
         self.assertIn("kyc_never", kinds)   # retailer c: KYC done, never ordered, not warm

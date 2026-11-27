@@ -49,8 +49,13 @@ L3M_MIN_BASE = 50_000  # growth on a smaller base is noise
 
 
 def scoped_distributors(f):
-    # offline-only (BlueOrigin) distributors are not on the app: they appear on the BlueOrigin page only
-    return Distributor.objects.filter(f.dims_q(DISTRIBUTOR_DIMS, retailer_field=None), bo_only=False, is_internal=False)
+    # offline-only (BlueOrigin) distributors are not on the app: they appear on the BlueOrigin page only.
+    # A distributor removed by an admin (masters/exclusions.py) is listed only for a period it sold in, so the list
+    # still adds up to the period's sales; otherwise it is hidden.
+    p = f.period
+    sold = f.orders(start=p.start, end=p.end).values("distributor_id")
+    return Distributor.objects.filter(f.dims_q(DISTRIBUTOR_DIMS, retailer_field=None), bo_only=False,
+                                      is_internal=False).filter(Q(removed=False) | Q(id__in=sold))
 
 
 def dispatch_stats(qs, group_field):
@@ -118,7 +123,8 @@ class DistributorsView(AnalyticsView):
             t = targets.get(d.id)
             dp = disp.get(d.id, (None, None))
             rows.append({
-                "id": d.id, "code": d.code, "name": d.name, "state": d.state.name if d.state_id else None,
+                "id": d.id, "code": d.code, "name": d.name, "removed": d.removed,
+                "state": d.state.name if d.state_id else None,
                 "region": d.region.name if d.region_id else None, "asm": d.asm.name if d.asm_id else None,
                 "sales": num(sales), "share": share(sales, total), "orders": orders, "aov": ratio(sales, orders),
                 "retailers": mapped.get(d.id, 0), "active_retailers": act, "new_retailers": new,
@@ -481,7 +487,8 @@ class TerritoryView(AnalyticsView):
         tsales = targeted_sales(target_window(base, f), "asm_id", tv)
         # ASM-less distributors' own targets belong to the "Distributor-managed" row of their region's RSM
         reg_rsm = region_rsm_map()
-        no_asm = {d: reg_rsm.get(r) for d, r in Distributor.objects.filter(asm__isnull=True, is_internal=False).values_list(
+        no_asm = {d: reg_rsm.get(r) for d, r in Distributor.objects.filter(asm__isnull=True, is_internal=False,
+                                                                           removed=False).values_list(
             "id", "region_id")}
         dm_tgt, dm_months = defaultdict(float), defaultdict(set)
         for (did, m), v in target_values("distributor", list(no_asm), months_between(p.start, p.end), "sales",

@@ -350,7 +350,7 @@ def retailer_row(r, can_pii, today, rsm_ctx=None, rfm_rows=None):
 
 
 FUNNEL_STAGES = ("signed_up", "kyc_approved", "first_order", "repeat_order", "active_this_period", "kyc_pending",
-                 "kyc_rejected", "never_flagged", "never_ordered", "inactive_30", "inactive_60", "inactive_90", "kyc_ever_ordered", "kyc_active", "first_order_30d")
+                 "kyc_rejected", "never_flagged", "never_ordered", "inactive_30", "inactive_60", "inactive_90", "kyc_ever_ordered", "kyc_active", "first_order_30d", "kyc_never")
 
 
 def _month_arg(q, key):
@@ -371,6 +371,8 @@ def funnel_drill(f, qs, q):
           never_flagged                             (never ordered, no distributor or state)
           kyc_ever_ordered | kyc_active             (KYC base ever ordered / ordering in the period)
           first_order_30d                           (first order within 30 days of sign-up)
+          kyc_never                                 (KYC approved by the end, never ordered: the ANTs of the base diagram)
+    in_bo=1|0                  also bought TechnoSport offline (BlueOrigin, by the end) / did not
     signup_month=YYYY-MM       signed up that month (IST) - conversion chart
     first_order_month=YYYY-MM  first order that month - acquisition chart
     state_none=1               no state mapped (the "Unmapped" row of Adoption by state)"""
@@ -404,6 +406,8 @@ def funnel_drill(f, qs, q):
         qs = qs.filter(id__in=f.orders(start=p.start, end=p.end).values("retailer_id"))
         if stage == "kyc_active":
             qs = qs.filter(kyc_status="approved")
+    elif stage == "kyc_never":
+        qs = qs.filter(kyc_by(p.end)).filter(Q(first_order_date__isnull=True) | Q(first_order_date__gt=p.end))
     elif stage == "never_flagged":
         qs = qs.filter(never_in(p.start, p.end) & (Q(distributor__isnull=True) | Q(state__isnull=True)))
     elif stage == "first_order_30d":
@@ -418,6 +422,12 @@ def funnel_drill(f, qs, q):
     m = _month_arg(q, "first_order_month")
     if m:
         qs = qs.filter(first_order_date__gte=m, first_order_date__lt=add_months(m, 1))
+    if q.get("in_bo") in ("1", "true", "0", "false"):
+        from warehouse.models import BoRetailerMonth
+
+        bo = BoRetailerMonth.objects.filter(value__gt=0, month__lte=p.end, bo_retailer__td_retailer__isnull=False
+                                            ).values("bo_retailer__td_retailer_id")
+        qs = qs.filter(id__in=bo) if q["in_bo"] in ("1", "true") else qs.exclude(id__in=bo)
     if q.get("state_none") in ("1", "true"):
         qs = qs.filter(state__isnull=True)
     return qs

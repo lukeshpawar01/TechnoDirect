@@ -27,23 +27,26 @@ export const AREA: Record<InsightArea, { label: string; page?: string }> = {
   tech: { label: 'Tech', page: 'tech' },
   risk: { label: 'Risk', page: 'developments' },
 };
+const GOAL_AREAS = new Set(['goal', 'adoption']);
 const DOT = { good: 'bg-good', bad: 'bg-bad', warn: 'bg-warn', neutral: 'bg-muted' };
 const signed = (v: number) => `${v >= 0 ? '+' : '−'}${inr(Math.abs(v))}`;
 
 /** Decisions that come from the team's own MBR lines (pages 3-5), next to the ones computed from data. */
-function noteDecisions(s: Scorecard, notes?: MbrNotes): ExecDecision[] {
+function noteDecisions(_s: Scorecard, notes?: MbrNotes): ExecDecision[] {
   if (!notes) return [];
   const out: ExecDecision[] = [];
   const growth = notes.items.filter((i) => i.section === 'growth' && i.kind === 'action' && i.status !== 'dropped');
   const planned = growth.reduce((a, i) => a + (i.expected_impact ?? 0), 0);
-  const gap = s.path.gap_sales;
-  if (gap > 0 && planned < gap) {
+  if (!growth.length) {
     out.push({
-      area: 'growth', owner: 'Business Head', title: growth.length ? 'Fill the growth plan' : 'Write the growth plan',
-      value: gap - planned, value_label: 'monthly gap with no action against it',
-      reason: growth.length
-        ? `${growth.length} growth action${growth.length === 1 ? '' : 's'} cover ${inr(planned)} of the ${inr(gap)}/month gap to the goal (${pct((planned / gap) * 100, 0)}).`
-        : `No growth actions are listed for the ${inr(gap)}/month gap to the goal. Add 3–5 actions with an expected ₹ impact.`,
+      area: 'growth', owner: 'Business Head', title: 'Write the growth plan', value: null, value_label: '',
+      reason: 'No growth actions are listed for next month. Add 3–5 actions with an owner and an expected ₹ impact.',
+      link: 'growth',
+    });
+  } else if (!planned) {
+    out.push({
+      area: 'growth', owner: 'Business Head', title: 'Put a ₹ impact on the growth plan', value: null, value_label: '',
+      reason: `${growth.length} growth action${growth.length === 1 ? '' : 's'} listed, none with an expected ₹ impact yet.`,
       link: 'growth',
     });
   }
@@ -83,12 +86,14 @@ export function Summary({ s, notes }: { s: Scorecard; notes?: MbrNotes }) {
   const x = s.summary;
   const h = s.headline;
   const rows = useMemo(() => Object.fromEntries(s.rows.map((r) => [r.key, r])), [s.rows]);
-  const insights = [...x.insights, ...noteInsights(notes)];
-  const decisions = [...x.decisions, ...noteDecisions(s, notes)];
+  // the ₹10 Cr monthly goal lives on the Growth page only; the summary reads the month against its own target
+  const insights = [...x.insights.filter((i) => !GOAL_AREAS.has(i.area)), ...noteInsights(notes)];
+  const decisions = [...x.decisions.filter((d) => !GOAL_AREAS.has(d.area)), ...noteDecisions(s, notes)];
   const best = s.partial ? h.projected_pct : h.achievement_pct;
   const tone: Tone = best === null ? 'neutral' : best >= 100 ? 'good' : best >= 90 ? 'warn' : 'bad';
-  const m = x.momentum;
-  const pace: Tone = m.avg_growth_3m_pct === null || m.needed_pct === null ? 'neutral' : m.avg_growth_3m_pct >= m.needed_pct ? 'good' : 'bad';
+  const pace: Tone = !h.target ? 'neutral' : s.partial
+    ? (h.required_per_day === null || h.run_rate_per_day >= h.required_per_day ? 'good' : 'bad')
+    : (h.achievement_pct ?? 0) >= 100 ? 'good' : 'bad';
 
   return (
     <>
@@ -97,12 +102,6 @@ export function Summary({ s, notes }: { s: Scorecard; notes?: MbrNotes }) {
         label={h.target ? `${s.partial ? 'Projected' : 'Closed at'} ${pct(best, 0)} of target` : 'No sales target set'}
       >
         {insights[0]?.text}{' '}
-        {m.needed_pct !== null && m.avg_growth_3m_pct !== null && (
-          <>
-            For {inr(s.path.goal)} a month by {s.path.goal_by_label}, TD has to grow <b className="font-semibold">{m.needed_pct.toFixed(1)}% a month</b>; it has
-            been growing <b className={cx('font-semibold', pace === 'bad' && 'text-bad')}>{m.avg_growth_3m_pct.toFixed(1)}%</b>.
-          </>
-        )}{' '}
         {decisions.length > 0 && <>{decisions.length} decisions below.</>}
       </Verdict>
 
@@ -115,8 +114,13 @@ export function Summary({ s, notes }: { s: Scorecard; notes?: MbrNotes }) {
           sub={`${num(rows.new_retailers?.value)} new · retention ${pct(rows.retention_pct?.value, 0)}`} />
         <Tile label="Spend per retailer" value={inr(rows.spend_per_retailer?.value)}
           sub={`was ${inr(rows.spend_per_retailer?.prev)}`} tone={(rows.spend_per_retailer?.value ?? 0) >= (rows.spend_per_retailer?.prev ?? 0) ? 'good' : 'warn'} />
-        <Tile label="Pace to the goal" value={m.avg_growth_3m_pct === null ? '–' : `${m.avg_growth_3m_pct.toFixed(1)}%`}
-          sub={`a month, vs ${m.needed_pct === null ? '–' : `${m.needed_pct.toFixed(1)}%`} needed`} tone={pace} />
+        {s.partial ? (
+          <Tile label="Needed per day for target" value={h.required_per_day === null ? '–' : inr(h.required_per_day)}
+            sub={`running at ${inr(h.run_rate_per_day)} a day`} tone={pace} />
+        ) : (
+          <Tile label="Vs target" value={h.target ? signed(h.sales - h.target) : '–'}
+            sub={h.target ? `${pct(h.achievement_pct, 0)} of ${inr(h.target)}` : 'no target set'} tone={pace} />
+        )}
       </div>
 
       <div className="mt-4 grid gap-4 xl:grid-cols-5">

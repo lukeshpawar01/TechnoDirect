@@ -395,6 +395,8 @@ export interface BoRetailerRow {
 export interface DistributorRow {
   id: number;
   name: string;
+  /** removed by an admin: listed only for a period it sold in (its sales still count) */
+  removed?: boolean;
   state: string;
   region?: string | null;
   asm?: string | null;

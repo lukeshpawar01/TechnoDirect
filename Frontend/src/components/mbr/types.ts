@@ -38,17 +38,24 @@ export interface PathToGoal {
   /** the goal used on this page: the TD goal, or a territory's share of it when a territory filter is on */
   goal: number;
   national_goal: number;
+  /** false for reviews before the goal started (GOAL_FROM, Nov 2026): the Growth page then shows no goal */
+  goal_active: boolean;
+  goal_from: string;
   /** % of TD sales the filtered territory made in the base months (null = all TD) */
   territory_share_pct: number | null;
-  goal_by: string;
-  goal_by_label: string;
+  /** every month's sales against the goal (it applies to every month, there is no deadline) */
+  months: { month: string; sales: number; goal_pct: number | null; short: number; partial: boolean }[];
+  months_at_goal: number;
+  avg_goal_pct_3m: number | null;
   base_month: string;
   base_label: string;
   base_sales: number;
   gap_sales: number;
   goal_pct: number | null;
-  months_left: number;
-  monthly_growth_needed_pct: number | null;
+  /** how much higher a month's sales must be than the base month to make the goal */
+  growth_needed_pct: number | null;
+  /** retailers who bought in the 3 months before the base month but not in it (the win-back pool) */
+  lapsed: number;
   spend_per_retailer: number;
   active_retailers: number;
   retailers_needed: number | null;
@@ -132,7 +139,7 @@ export interface ExecSummary {
   bridge: { prev: number; current: number; change: number; steps: { key: 'new' | 'base' | 'spend'; label: string; value: number; note: string }[] };
   insights: ExecInsight[];
   decisions: ExecDecision[];
-  momentum: { avg_growth_3m_pct: number | null; needed_pct: number | null };
+  momentum: { goal: number; goal_pct: number | null; short: number; prev_goal_pct: number | null; avg_goal_pct_3m: number | null };
 }
 
 export type SalesAskKind = 'stretch' | 'stalled' | 'no_asm' | 'warm' | 'stock' | 'slow' | 'new' | 'reassign';

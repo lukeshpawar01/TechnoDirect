@@ -50,6 +50,9 @@ def _placeholder(asm, dist_name):
     return bool(asm and not asm.emp_id and asm.name and asm.name.split()[0].lower() in dist_name.lower())
 
 
+HIDDEN_KINDS = {"warm", "no_asm", "reassign"}
+
+
 def sales_asks(f, card, path):
     m = dt.date.fromisoformat(card["month"] + "-01")
     cur_e = dt.date.fromisoformat(card["as_of"])
@@ -98,12 +101,15 @@ def sales_asks(f, card, path):
     asks = []
 
     def add(kind, d, title, detail, value, value_label, priority="medium", who=None):
+        if d is not None and d.removed:
+            return  # removed from the dashboard by an admin: no asks about it
         asks.append({"kind": kind, "title": title, "detail": detail, "owner": who or (owner(d) if d else ""),
                      "distributor": d.name if d else None, "region": d.region.name if d and d.region else None,
                      "value": num(value) if value is not None else None, "value_label": value_label, "priority": priority})
 
     # 1. warm retailers by ASM, with the monthly activation target split by ASM
-    per_month = math.ceil((path.get("retailers_gap") or 0) / max(path.get("months_left") or 1, 1))
+    # the goal is every month's: the gap is how many more retailers have to buy in a month than do today
+    per_month = (path.get("retailers_gap") or 0) if path.get("goal_active", True) else 0
     warm_asm = defaultdict(int)
     warm_noasm = defaultdict(lambda: {"n": 0, "dists": []})  # region -> warm retailers at distributors with no ASM
     for did, r in rbase.items():
@@ -211,7 +217,7 @@ def sales_asks(f, card, path):
         full_best = max((sales[did].get(mm, 0) for mm in full), default=0)
         best_month = max(full_best, size)
         # grow at TD's needed pace, kept between +10% and +25% so it is a stretch but believable
-        grow = min(max(path.get("monthly_growth_needed_pct") or 10, 10), 25) / 100
+        grow = min(max(path.get("growth_needed_pct") or 10, 10), 25) / 100
         target = math.ceil(size * (1 + grow) / STRETCH_ROUND) * STRETCH_ROUND
         nxt = add_months(m, 1).strftime("%b %Y")
         r = rbase.get(did, {})
@@ -266,7 +272,10 @@ def sales_asks(f, card, path):
             f"{_inr(last3(x.id))}/month. {rsm_of(d)} to decide whether to hand the retailers over.",
             r.get("never", 0) * spend * 0.05, "if 5% of its never-ordered retailers start ordering", who=f"{rsm_of(d)} (RSM)")
 
-    order = {"stretch": 0, "stalled": 1, "no_asm": 2, "warm": 3, "stock": 4, "slow": 5, "new": 6, "reassign": 7}
+    # the Sales card lists only what raises sales and what we need from the team for it (user, 2026-11-27): no
+    # organisation calls (distributors without an ASM, territory hand-overs) and no warm-retailer split by ASM
+    asks = [a for a in asks if a["kind"] not in HIDDEN_KINDS]
+    order = {"stretch": 0, "stalled": 1, "stock": 2, "slow": 3, "new": 4}
     asks.sort(key=lambda a: (order[a["kind"]], 0 if a["priority"] == "high" else 1, -(a["value"] or 0)))
     return {"asks": asks, "td_growth_3m_pct": round(td_growth, 1) if td_growth is not None else None,
             "warm_total": total_warm, "activation_per_month": per_month}

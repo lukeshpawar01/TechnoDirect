@@ -16,6 +16,7 @@ urlpatterns = [
     path("asm-tracker/upload/", views.AsmTrackerUploadView.as_view()),
     path("asm-tracker/executives/", views.ExecutivePerformanceView.as_view()),
     path("manual-mappings/", views.ManualMappingsView.as_view()),
+    path("removed-distributors/", views.RemovedDistributorsView.as_view()),
     path("incentives/", views.IncentiveTrackerView.as_view()),
     path("incentives/sheet/", views.IncentiveSheetView.as_view()),
     path("incentives/sheet/edit/", views.IncentiveSheetEditView.as_view()),

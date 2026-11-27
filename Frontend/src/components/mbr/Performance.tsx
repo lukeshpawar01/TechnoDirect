@@ -121,7 +121,7 @@ function SalesTrend({ s }: { s: Scorecard }) {
     <ChartCard
       className="mt-4"
       title="Sales vs target, last 12 months"
-      subtitle={`Bars are sales, the dashed line the month's target.${s.partial ? ' The last bar is month to date.' : ''} The path to the ${inr(s.path.goal)}/month goal is on page 2.`}
+      subtitle={`Bars are sales, the dashed line the month's target.${s.partial ? ' The last bar is month to date.' : ''}`}
       option={option}
       height={260}
       table={{

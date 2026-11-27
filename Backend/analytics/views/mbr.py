@@ -13,7 +13,7 @@ from ..mbr_growth import growth_drivers
 from ..mbr_marketing import marketing_asks
 from ..mbr_sales import sales_asks
 from ..mbr_summary import executive_summary
-from ..mbr import GOAL_DEFAULT, default_goal_by, path_to_goal, scorecard
+from ..mbr import GOAL_DEFAULT, GOAL_FROM, path_to_goal, scorecard
 from .base import AnalyticsView
 
 
@@ -33,9 +33,7 @@ def goal_for(month, today):
     from masters.models import MbrReview
 
     r = MbrReview.objects.filter(month=month).first()
-    goal = float(r.goal_monthly_sales) if r and r.goal_monthly_sales else GOAL_DEFAULT
-    by = r.goal_by if r and r.goal_by else default_goal_by(today)
-    return goal, by
+    return float(r.goal_monthly_sales) if r and r.goal_monthly_sales else GOAL_DEFAULT
 
 
 def territory_share(f, card):
@@ -72,20 +70,20 @@ class MbrScorecardView(AnalyticsView):
         from analytics.filters import today_ist
 
         m = parse_month(request.query_params.get("month"), today_ist())
-        goal, by = goal_for(m, today_ist())
-        return f"{super().cache_extra(request, **kwargs)}|{m}|{goal}|{by}"
+        return f"{super().cache_extra(request, **kwargs)}|{m}|{goal_for(m, today_ist())}"
 
     def compute(self, f, request, **kw):
         m = parse_month(request.query_params.get("month"), f.today)
         card = scorecard(f, m)
-        goal, by = goal_for(m, f.today)
+        goal = goal_for(m, f.today)
         national_goal, share_pct = goal, None
         if f.regions or f.states or f.asms or f.rsms:
             # a territory carries its share of the TD goal: its share of national sales in the same base months
             share_pct = territory_share(f, card)
             goal = national_goal * share_pct / 100 if share_pct else national_goal
-        card["path"] = path_to_goal(f, card, goal, by)
-        card["path"].update(national_goal=num(national_goal), territory_share_pct=share_pct)
+        card["path"] = path_to_goal(f, card, goal)
+        card["path"].update(national_goal=num(national_goal), territory_share_pct=share_pct,
+                            goal_active=m >= GOAL_FROM, goal_from=GOAL_FROM.isoformat()[:7])
         card["scope_label"] = scope_label(f)
         card["summary"] = executive_summary(card)
         card["sales_asks"] = sales_asks(f, card, card["path"])

@@ -152,7 +152,7 @@ export default function Distributors() {
             pageSize={50}
             dense
             columns={[
-              { key: 'name', header: 'Distributor', render: (r) => <span className="font-medium">{r.name}</span> },
+              { key: 'name', header: 'Distributor', render: (r) => <span className="font-medium">{r.name}{r.removed && <span className="ml-1.5 rounded bg-sunken px-1 py-px text-2xs font-normal text-muted" title="Removed from the dashboard by an admin; its sales in this period still count">removed</span>}</span> },
               { key: 'state', header: 'State' },
               { key: 'asm', header: 'ASM', render: (r) => r.asm ?? <span className="text-muted">–</span>, value: (r) => r.asm ?? '' },
               { key: 'sales', header: 'Sales', align: 'right', render: (r) => inr(r.sales) },

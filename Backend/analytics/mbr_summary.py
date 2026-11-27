@@ -7,6 +7,8 @@ scorecard (page 1) and the path to the goal (page 2). Pure functions of the card
                most important first, each with a tone.
   decisions  - the calls for leadership, each with the ₹ at stake and the team that owns it.
 """
+import datetime as dt
+
 from .metrics import num, pct
 
 
@@ -148,29 +150,36 @@ def executive_summary(card):
                 dec.append({"area": "product", "owner": owner, "title": d["title"], "value": d["value"],
                             "value_label": d["value_label"], "reason": d["reason"], "link": d.get("link")})
 
-    # 6. pace to the goal
-    trend = [t for t in card["trend"] if not (card["partial"] and t["month"] == card["month"])]
-    last = trend[-4:]
-    growths = [(b["sales"] / a["sales"] - 1) * 100 for a, b in zip(last, last[1:]) if a["sales"]]
-    avg = sum(growths) / len(growths) if growths else None
-    need = p.get("monthly_growth_needed_pct")
-    if need is not None:
-        on = avg is not None and avg >= need
-        ins.append({"area": "goal", "tone": "good" if on else "bad", "title": "Pace to the goal",
-                    "text": f"{_inr(p['goal'])}/month by {p['goal_by_label']} needs {need:.1f}% growth every month; "
-                            f"the last {len(growths)} months averaged {avg:.1f}%." if avg is not None else
-                            f"{_inr(p['goal'])}/month by {p['goal_by_label']} needs {need:.1f}% growth every month."})
+    # 6. the monthly goal: it applies to every month (not a date to reach it by)
+    h = card["headline"]
+    month_sales = (h.get("projected") if card["partial"] else None) or h.get("sales") or 0
+    goal = p.get("goal") or 0
+    goal_pct = round(month_sales / goal * 100, 1) if goal else None
+    short = max(goal - month_sales, 0)
+    prev = next((x for x in reversed(p.get("months") or []) if x["month"] < card["month"] and not x["partial"]), None)
+    if goal_pct is not None and p.get("goal_active", True):
+        verb = "is projected at" if card["partial"] else "made"
+        text = (f"The goal is {_inr(goal)} every month. {card['label']} {verb} {_inr(month_sales)}, "
+                f"{goal_pct:.0f}% of it" + (f" ({_inr(short)} short)" if short else "") + ".")
+        if prev and prev["goal_pct"] is not None:
+            text += f" {dt.date.fromisoformat(prev['month'] + '-01'):%b %Y} was {prev['goal_pct']:.0f}%"
+            text += (f"; the last 3 months averaged {p['avg_goal_pct_3m']:.0f}%."
+                     if p.get("avg_goal_pct_3m") is not None else ".")
+        if short and month_sales:
+            text += f" A month's sales have to be {(goal / month_sales - 1) * 100:.0f}% higher to make it."
+        ins.append({"area": "goal", "tone": "good" if goal_pct >= 100 else "warn" if goal_pct >= 80 else "bad",
+                    "title": "Monthly goal", "text": text})
     # 7. adoption: where the retailers will come from
-    if p.get("retailers_gap"):
+    if p.get("retailers_gap") and p.get("goal_active", True):
         ins.append({"area": "adoption", "tone": "warn", "title": "Adoption",
                     "text": f"The goal needs {p['retailers_needed']:,} transacting retailers ({p['retailers_gap']:,} more). "
                             f"{p['ants']:,} KYC-done retailers have never ordered; converting "
                             f"{pct(p['retailers_gap'], p['ants']) or 0:.0f}% of them closes it."})
-        per_month = -(-p["retailers_gap"] // max(p["months_left"], 1))
-        dec.append({"area": "adoption", "owner": "Sales + Growth", "title": f"Activate {per_month:,} more retailers a month",
+        dec.append({"area": "adoption", "owner": "Sales + Growth",
+                    "title": f"Get {p['retailers_gap']:,} more retailers buying every month",
                     "value": num(p["retailers_gap"] * p["spend_per_retailer"]), "value_label": "monthly sales when the gap is closed",
-                    "reason": f"{p['retailers_gap']:,} more transacting retailers are needed by {p['goal_by_label']} at "
-                              f"{_inr(p['spend_per_retailer'])} each; {p['ants']:,} have done KYC but never ordered and KYC → "
+                    "reason": f"{_inr(p['goal'])} every month takes {p['retailers_needed']:,} transacting retailers a "
+                              f"month at {_inr(p['spend_per_retailer'])} each, {p['retailers_gap']:,} more than today; {p['ants']:,} have done KYC but never ordered and KYC → "
                               f"first order is {rows['kyc_to_order_pct']['value'] or 0:.0f}%. Split the target by ASM."})
 
     # 8. operations, only when they got worse
@@ -184,4 +193,5 @@ def executive_summary(card):
         ins.append({"area": "operations", "tone": "warn", "title": "Operations", "text": "Watch: " + "; ".join(ops) + "."})
 
     return {"bridge": br, "insights": ins, "decisions": dec,
-            "momentum": {"avg_growth_3m_pct": round(avg, 1) if avg is not None else None, "needed_pct": need}}
+            "momentum": {"goal": num(goal), "goal_pct": goal_pct, "short": num(short),
+                         "prev_goal_pct": prev["goal_pct"] if prev else None, "avg_goal_pct_3m": p.get("avg_goal_pct_3m")}}

@@ -26,6 +26,9 @@ from .mbr_products import product_matrix
 from .metrics import delta_pct, median, num, pct, ratio, target_by_month, target_values
 
 GOAL_DEFAULT = 100_000_000  # ₹10 Cr per month
+# The goal is shown in the MBR only, from the Nov 2026 review on (aimed at every month from Dec 2026); earlier
+# reviews show no goal (user, 2026-11-27).
+GOAL_FROM = dt.date(2026, 11, 1)
 
 
 def month_label(m):
@@ -298,14 +301,18 @@ def movers(data, cur_w, prev_w, n=5):
 
 
 # ----------------------------------------------------------------------------- page 2: the path to the goal
-def default_goal_by(today):
-    """Last month of the next FY quarter."""
-    nq = add_months(quarter_start(today), 3)
-    return add_months(nq, 2)
+def _lapsed(f, m):
+    """Retailers who bought in the 3 months before month `m` but not in `m` (the win-back pool)."""
+    def ids(s, e):
+        return set(f.orders(start=s, end=e).exclude(retailer_id=None).values_list("retailer_id", flat=True).distinct())
+
+    return len(ids(add_months(m, -3), m - dt.timedelta(days=1)) - ids(m, month_end(m)))
 
 
-def path_to_goal(f, card, goal, goal_by):
-    """How far the latest complete month is from the goal and what adoption it takes, at today's spend."""
+def path_to_goal(f, card, goal):
+    """The goal is a monthly target that applies to EVERY month (user, 2026-11-26: "the 10 cr target is for every
+    month", not a date to reach it by). How far the latest complete month is from it and what adoption it takes, at
+    today's spend."""
     trend = card["_trend"]
     full = [t for t in trend if not (card["partial"] and t["month"] == card["month"])]
     base = full[-1] if full else trend[-1]
@@ -315,8 +322,12 @@ def path_to_goal(f, card, goal, goal_by):
     needed = math.ceil(goal / spend) if spend else None
     active = base["active_retailers"]
     base_m = dt.date.fromisoformat(base["month"] + "-01")
-    months_left = max((goal_by.year - base_m.year) * 12 + goal_by.month - base_m.month, 1)
-    growth = (goal / base["sales"]) ** (1 / months_left) - 1 if base["sales"] else None
+    growth = goal / base["sales"] - 1 if base["sales"] else None  # how much higher a month's sales must be
+    months = [{"month": t["month"], "sales": t["sales"], "goal_pct": pct(t["sales"], goal),
+               "short": num(max(goal - t["sales"], 0)), "partial": bool(card["partial"] and t["month"] == card["month"])}
+              for t in trend]
+    done = [x for x in months if not x["partial"]]
+    l3 = [x["goal_pct"] for x in done[-3:] if x["goal_pct"] is not None]
     kyc_base, ants = card["_cur"]["kyc_base"], card["_cur"]["ants"]
 
     from .views.funnel import retailer_base, techno_base
@@ -335,10 +346,11 @@ def path_to_goal(f, card, goal, goal_by):
         s["adoption_needed_pct"] = pct(s["retailers_needed"], kyc_base) if s["retailers_needed"] else None
         s["extra_retailers"] = max((s["retailers_needed"] or 0) - active, 0)
     return {
-        "goal": num(goal), "goal_by": goal_by.isoformat()[:7], "goal_by_label": month_label(goal_by),
+        "goal": num(goal), "months": months, "months_at_goal": sum(1 for x in done if x["sales"] >= goal),
+        "avg_goal_pct_3m": round(sum(l3) / len(l3), 1) if l3 else None,
         "base_month": base["month"], "base_label": month_label(base_m), "base_sales": base["sales"],
         "gap_sales": num(max(goal - base["sales"], 0)), "goal_pct": pct(base["sales"], goal),
-        "months_left": months_left, "monthly_growth_needed_pct": round(growth * 100, 1) if growth is not None else None,
+        "growth_needed_pct": round(growth * 100, 1) if growth is not None else None,
         "spend_per_retailer": num(spend), "active_retailers": active, "retailers_needed": needed,
         "retailers_gap": gap, "kyc_base": kyc_base, "adoption_pct": base["adoption_pct"],  # same basis as page 1
         "adoption_needed_pct": pct(needed, kyc_base) if needed else None, "ants": ants,
@@ -347,6 +359,8 @@ def path_to_goal(f, card, goal, goal_by):
         "techno_not_transacting": tb["universe"] - tb["bo_transacting"],
         "techno_adoption_pct": tb["bo_transacting_pct"],
         "scenarios": scenarios,
+        # the route to the goal (Growth page): retailers who bought in the 3 months before the base month but not in it
+        "lapsed": _lapsed(f, base_m),
         "adoption_trend": [{"month": t["month"], "adoption_pct": t["adoption_pct"], "active_retailers": t["active_retailers"],
                             "kyc_base": t["kyc_base"], "sales": t["sales"]} for t in trend],
     }

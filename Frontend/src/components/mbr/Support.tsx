@@ -9,7 +9,7 @@ import type { MbrItem, MbrNotes, SalesAsk, SalesAskKind, Scorecard } from './typ
 /**
  * MBR page 3, "Support required": one card per team. Click a card for what we need from that team.
  * The Sales card also carries asks built from data for RSMs / ASMs / executives (stretch targets, distributors
- * without an ASM, stalled or slow distributors, warm retailers, stock problems, new warehouses, territory moves).
+ * stalled or slow distributors, stock problems, new warehouses).
  */
 const TEAMS = ['sales', 'tech', 'finance', 'data', 'marketing'] as const;
 type Team = (typeof TEAMS)[number] | 'operations' | 'other';
@@ -24,7 +24,7 @@ const KIND: Record<SalesAskKind, { label: string; hint: string; lever: string }>
   new: { label: 'New warehouses to launch', hint: 'On TD but no orders yet; retailers in the same district are served from elsewhere', lever: 'distributors' },
   reassign: { label: 'Territory changes to consider', hint: 'A near-dead distributor next to a working one in the same state', lever: 'distributors' },
 };
-const KIND_ORDER: SalesAskKind[] = ['stretch', 'stalled', 'no_asm', 'warm', 'stock', 'slow', 'new', 'reassign'];
+const KIND_ORDER: SalesAskKind[] = ['stretch', 'stalled', 'stock', 'slow', 'new'];
 
 export function SupportMatrix({ s, notes, className, onAdd, onEdit }: {
   s: Scorecard; notes: MbrNotes; className?: string;
@@ -119,7 +119,7 @@ function TeamDrawer({ team, label, s, notes, asks, onClose, onAdd, onEdit }: {
         <>
           <p className="mb-3 text-sm text-ink2">
             Suggestions from the data for RSMs, ASMs and sales executives for {s.label}'s plan. TD grew {sales.td_growth_3m_pct ?? '–'}% over
-            the last 3 months; the goal needs <b className="text-ink">{num(sales.activation_per_month)} new transacting retailers a month</b>.
+            the last 3 months{s.path.goal_active ? <>; the {inr(s.path.goal)} monthly goal needs <b className="text-ink">{num(sales.activation_per_month)} more retailers buying every month</b> than today</> : null}.
             {notes.can_edit ? ' Use “Add to plan” to make one a growth action with an owner and a due date.' : ''}
           </p>
           <div className="sticky top-0 z-10 -mx-1 mb-3 flex flex-wrap items-center gap-1.5 bg-surface px-1 py-1.5">

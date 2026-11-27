@@ -7,20 +7,9 @@ import { Badge, Card, Field, InlineError, Meter, cx } from '@/components/ui';
 import { IconEdit, IconPlus } from '@/components/Icons';
 import { ITEM_TONE, ItemEditor, SectionTitle, Verdict, dmy, useSaveReview } from './shared';
 import type { MbrItem, MbrNotes, Scorecard } from './types';
-import { Takeaways } from './Summary';
 import { SupportMatrix } from './Support';
 import { GrowthDrivers } from './Drivers';
 
-const addMonths = (ym: string, n: number) => {
-  const [y, m] = ym.split('-').map(Number);
-  const d = new Date(y, m - 1 + n, 1);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-};
-const monthsBetween = (a: string, b: string) => {
-  const [ya, ma] = a.split('-').map(Number);
-  const [yb, mb] = b.split('-').map(Number);
-  return (yb - ya) * 12 + (mb - ma);
-};
 
 export function Growth({ s, notes }: { s: Scorecard; notes: MbrNotes }) {
   const p = s.path;
@@ -28,53 +17,51 @@ export function Growth({ s, notes }: { s: Scorecard; notes: MbrNotes }) {
   const growth = notes.items.filter((i) => i.section === 'growth');
   const actions = growth.filter((i) => i.kind === 'action');
   const blockers = growth.filter((i) => i.kind === 'bottleneck');
-  const planned = actions.filter((i) => i.status !== 'dropped').reduce((a, i) => a + (i.expected_impact ?? 0), 0);
+  // the goal is shown from the Nov 2026 review on (it applies from Dec 2026); earlier reviews show no goal
+  const on = p.goal_active;
   const tone = (p.goal_pct ?? 0) >= 90 ? 'good' : (p.goal_pct ?? 0) >= 60 ? 'warn' : 'bad';
 
   return (
     <>
+      {on ? (
       <Verdict
         tone={tone}
-        label={`${pct(p.goal_pct, 0)} of the ${inr(p.goal)}/month goal`}
+        label={`Goal ${inr(p.goal)} every month · ${p.base_label} made ${pct(p.goal_pct, 0)} of it`}
         aside={notes.can_edit ? <GoalEditor s={s} notes={notes} /> : undefined}
       >
         {p.territory_share_pct !== null && (
           <>This territory made {pct(p.territory_share_pct, 1)} of TD's sales over the last 3 months, so its share of the {inr(p.national_goal)} goal is {inr(p.goal)}.{' '}</>
         )}
-        To reach <b className="font-semibold">{inr(p.goal)} a month by {p.goal_by_label}</b>, {p.territory_share_pct !== null ? 'it' : 'TD'} has to grow{' '}
-        <b className="font-semibold">{p.monthly_growth_needed_pct ?? '–'}% every month</b> for {p.months_left} months from {p.base_label}'s {inr(p.base_sales)}.
-        At today's {inr(p.spend_per_retailer)} per transacting retailer that takes <b className="font-semibold">{num(p.retailers_needed)} transacting retailers</b>,{' '}
-        {num(p.retailers_gap)} more than now. Adoption of the KYC base has to go from {pct(p.adoption_pct, 1)} to {pct(p.adoption_needed_pct, 1)}.
+        Our aim is <b className="font-semibold">{inr(p.goal)} of sales every month</b>. {p.base_label}, the last full month, made {inr(p.base_sales)}:{' '}
+        <b className="font-semibold">{inr(p.gap_sales)} short</b>
+        {p.avg_goal_pct_3m !== null && <>, and the last 3 months averaged {pct(p.avg_goal_pct_3m, 0)} of the goal</>}.
+        Below is the route that closes the gap, lever by lever, and the plan that delivers it.
       </Verdict>
+      ) : (
+        <MonthTarget s={s} />
+      )}
 
-      <Takeaways s={s} areas={['goal', 'adoption']} />
+      {!on && <TargetHistory s={s} />}
+
+      {on && <RouteToGoal s={s} />}
 
       <GrowthDrivers s={s} />
 
-      <div className="grid gap-4 xl:grid-cols-5">
-        <PathChart s={s} className="xl:col-span-3" />
-        <AdoptionMath s={s} className="xl:col-span-2" />
-      </div>
+      {on && (
+        <div className="grid gap-4 xl:grid-cols-5">
+          <PathChart s={s} className="xl:col-span-3" />
+          <AdoptionMath s={s} className="xl:col-span-2" />
+        </div>
+      )}
 
-      <div className="mt-4 grid gap-4 xl:grid-cols-2">
+      <div className={cx('mt-4 grid gap-4', on && 'xl:grid-cols-2')}>
         <AdoptionTrend s={s} />
-        <Scenarios s={s} />
+        {on && <Scenarios s={s} />}
       </div>
 
-      <SectionTitle n="3.1" title="Plan for next month" sub="Growth actions, the support each needs, and how much of the gap they cover" />
+      <SectionTitle n="3.1" title="Plan for next month" sub="Growth actions and the support each needs" />
       <div className="grid gap-4 xl:grid-cols-3">
-        <Card title="How much of the gap the plan covers" subtitle={`Expected extra sales from the actions listed vs the ${inr(p.gap_sales)}/month gap`}>
-          <div className="text-2xl font-semibold tabular-nums text-ink">{inr(planned)}</div>
-          <div className="mb-2 text-xs text-muted">{pct(p.gap_sales ? (planned / p.gap_sales) * 100 : null, 0)} of the gap covered</div>
-          <Meter value={p.gap_sales ? (planned / p.gap_sales) * 100 : 0} tone={planned >= p.gap_sales ? 'good' : planned >= p.gap_sales * 0.6 ? 'warn' : 'bad'} />
-          <p className="mt-3 text-xs text-ink2">
-            {planned >= p.gap_sales
-              ? 'The plan, if delivered, closes the gap.'
-              : `${inr(p.gap_sales - planned)} a month has no action against it yet.`}{' '}
-            Add an expected impact to each action to keep this honest.
-          </p>
-        </Card>
-        <SupportMatrix s={s} notes={notes} className="xl:col-span-2" onAdd={(preset) => setEdit({ kind: 'action', preset })} onEdit={(item) => setEdit({ item })} />
+        <SupportMatrix s={s} notes={notes} className="xl:col-span-3" onAdd={(preset) => setEdit({ kind: 'action', preset })} onEdit={(item) => setEdit({ item })} />
       </div>
 
       <ItemList
@@ -101,16 +88,154 @@ export function Growth({ s, notes }: { s: Scorecard; notes: MbrNotes }) {
   );
 }
 
-function GoalEditor({ s, notes }: { s: Scorecard; notes: MbrNotes }) {
+/** Reviews before the ₹10 Cr goal started: the month is judged against its own sales target. */
+function MonthTarget({ s }: { s: Scorecard }) {
+  const h = s.headline;
+  if (!h.target) {
+    return (
+      <Verdict tone="neutral" label={`${s.label}: no sales target set`}>
+        {s.label} made <b className="font-semibold">{inr(h.sales)}</b>. What drove it, and the actions, bottlenecks and support recorded for the month, are below.
+      </Verdict>
+    );
+  }
+  const a = h.achievement_pct ?? 0;
+  const diff = h.sales - h.target;
+  return (
+    <Verdict tone={a >= 100 ? 'good' : a >= 90 ? 'warn' : 'bad'} label={`${s.label}: ${pct(a, 0)} of target achieved`}>
+      Target <b className="font-semibold">{inr(h.target)}</b>, achieved <b className="font-semibold">{inr(h.sales)}</b>:{' '}
+      <b className={cx('font-semibold', diff >= 0 ? 'text-good' : 'text-bad')}>{diff >= 0 ? `+${inr(diff)} above` : `${inr(-diff)} short`}</b>.
+      What drove it, and the actions, bottlenecks and support recorded for the month, are below.
+    </Verdict>
+  );
+}
+
+/** Target vs achieved for the months up to the reviewed one (past reviews only). */
+function TargetHistory({ s }: { s: Scorecard }) {
+  const rows = s.trend.filter((t) => t.month <= s.month && t.target_sales).slice(-6).reverse();
+  if (!rows.length) return null;
+  return (
+    <Card className="mb-4" title="Target vs achieved" subtitle={`The last ${rows.length} months with a sales target, up to ${s.label}`} bodyClass="p-0">
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[560px] text-sm">
+          <thead>
+            <tr className="border-b border-line text-left text-xs text-muted">
+              <th className="px-4 py-2 font-medium">Month</th>
+              <th className="px-3 py-2 text-right font-medium">Target</th>
+              <th className="px-3 py-2 text-right font-medium">Achieved</th>
+              <th className="px-3 py-2 text-right font-medium">Difference</th>
+              <th className="w-48 px-4 py-2 font-medium">% of target</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((t) => {
+              const tg = t.target_sales ?? 0;
+              const a = tg ? (t.sales / tg) * 100 : 0;
+              const d = t.sales - tg;
+              const tone = a >= 100 ? 'good' : a >= 90 ? 'warn' : 'bad';
+              return (
+                <tr key={t.month} className={cx('border-b border-line/60 last:border-0', t.month === s.month && 'bg-brand/5')}>
+                  <td className="px-4 py-2 font-medium text-ink">{monthLabel(t.month)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums text-ink2">{inr(tg)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums text-ink">{inr(t.sales)}</td>
+                  <td className={cx('px-3 py-2 text-right tabular-nums font-semibold', d >= 0 ? 'text-good' : 'text-bad')}>{d >= 0 ? '+' : '−'}{inr(Math.abs(d))}</td>
+                  <td className="px-4 py-2">
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1"><Meter value={a} tone={tone} /></div>
+                      <span className="w-10 text-right text-xs tabular-nums text-ink2">{pct(a, 0)}</span>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  );
+}
+
+/**
+ * The approach to the monthly goal: start from the last full month and add each lever's ₹ a month, in the order they
+ * are easiest to pull: win back lapsed retailers, raise spend per retailer, then activate new ones for what is left.
+ * The two assumptions are adjustable in the meeting; the last lever always closes the gap.
+ */
+function RouteToGoal({ s }: { s: Scorecard }) {
+  const p = s.path;
+  const [winBack, setWinBack] = useState(50);
+  const [uplift, setUplift] = useState(15);
+  const S = p.spend_per_retailer;
+  const A = p.active_retailers;
+  const back = Math.round((p.lapsed * winBack) / 100);
+  const backV = back * S;
+  const upV = (A + back) * S * (uplift / 100);
+  const left = Math.max(p.goal - p.base_sales - backV - upV, 0);
+  const newS = S * (1 + uplift / 100);
+  const newN = newS ? Math.ceil(left / newS) : 0;
+  const warm = s.sales_asks?.warm_total ?? 0;
+  const over = p.base_sales + backV + upV >= p.goal;
+  const steps = [
+    { label: `Where we are: ${p.base_label}`, value: p.base_sales, how: `${num(A)} retailers bought, ${inr(S)} each on average`, who: '', tone: 'bg-ink2/40' },
+    { label: `Win back ${num(back)} lapsed retailers`, value: backV, how: `${num(p.lapsed)} bought in the 3 months before ${p.base_label} but not in it; bring back ${winBack}% with ASM calls and schemes`, who: 'ASMs + sales executives', tone: 'bg-brand/60' },
+    { label: `Raise spend per retailer by ${uplift}%`, value: upV, how: `${inr(S)} → ${inr(newS)} a month: wider range per store, new launches, stock at the distributor`, who: 'Product + distributors', tone: 'bg-brand/80' },
+    { label: over ? 'No new retailers needed' : `Activate ${num(newN)} new retailers every month`, value: left, how: over ? 'The first two levers already reach the goal.' : `${pct(p.ants ? (newN / p.ants) * 100 : null, 0)} of the ${num(p.ants)} KYC-done retailers who never ordered${warm ? `; start with the ${num(warm)} warm ones who already buy TechnoSport offline` : ''}`, who: 'Sales + Growth', tone: 'bg-brand' },
+  ];
+  let run = 0;
+  return (
+    <Card
+      className="mb-4"
+      title={`The route to ${inr(p.goal)} a month`}
+      subtitle="How the gap closes, lever by lever. Change the two assumptions to test the plan; the last lever covers whatever is left."
+      actions={
+        <div className="flex flex-wrap items-center gap-3 text-xs text-ink2">
+          <label className="flex items-center gap-1.5">Win back
+            <input type="range" min={0} max={100} step={5} value={winBack} onChange={(e) => setWinBack(Number(e.target.value))} className="w-20 accent-brand" />
+            <span className="w-8 tabular-nums">{winBack}%</span>
+          </label>
+          <label className="flex items-center gap-1.5">Spend uplift
+            <input type="range" min={0} max={50} step={5} value={uplift} onChange={(e) => setUplift(Number(e.target.value))} className="w-20 accent-brand" />
+            <span className="w-8 tabular-nums">{uplift}%</span>
+          </label>
+        </div>
+      }
+    >
+      <ol className="space-y-3">
+        {steps.map((x, i) => {
+          const start = run;
+          run += x.value;
+          return (
+            <li key={i} className="grid gap-x-4 gap-y-1 md:grid-cols-[minmax(0,15rem)_minmax(0,1fr)_7rem]">
+              <div>
+                <div className="text-sm font-medium text-ink">{x.label}</div>
+                {x.who && <div className="text-2xs text-muted">{x.who}</div>}
+              </div>
+              <div>
+                <div className="relative h-4 rounded bg-line/50">
+                  <div className={cx('absolute inset-y-0 rounded', x.tone)} style={{ left: `${(start / p.goal) * 100}%`, width: `${Math.min((x.value / p.goal) * 100, 100 - (start / p.goal) * 100)}%` }} />
+                </div>
+                <div className="mt-0.5 text-2xs text-ink2">{x.how}</div>
+              </div>
+              <div className="text-right text-sm font-semibold tabular-nums text-ink">{i === 0 ? inr(x.value) : `+${inr(x.value)}`}</div>
+            </li>
+          );
+        })}
+        <li className="grid gap-x-4 border-t border-line pt-2 md:grid-cols-[minmax(0,15rem)_minmax(0,1fr)_7rem]">
+          <div className="text-sm font-semibold text-ink">Every month</div>
+          <div className="text-2xs text-ink2">{num(A + back + newN)} retailers buying at {inr(newS)} each. The new and won-back retailers have to keep buying every month, not once.</div>
+          <div className="text-right text-sm font-semibold tabular-nums text-ink">{inr(Math.max(run, p.goal))}</div>
+        </li>
+      </ol>
+    </Card>
+  );
+}
+
+function GoalEditor({ s }: { s: Scorecard; notes?: MbrNotes }) {
   const [open, setOpen] = useState(false);
   const [goal, setGoal] = useState(String(s.path.national_goal / 1e7));
-  const [by, setBy] = useState(s.path.goal_by);
   const save = useSaveReview(s.month);
   if (!open) return <button className="btn btn-sm" onClick={() => setOpen(true)}><IconEdit size={13} /> Goal</button>;
   return (
-    <form className="flex flex-wrap items-end gap-2" onSubmit={(e) => { e.preventDefault(); save.mutate({ goal_monthly_sales: Number(goal) * 1e7, goal_by: by }, { onSuccess: () => setOpen(false) }); }}>
-      <Field label="All-TD goal, ₹ Cr per month"><input className="input w-24 tabular-nums" inputMode="decimal" value={goal} onChange={(e) => setGoal(e.target.value)} /></Field>
-      <Field label="By"><input type="month" className="input w-36" value={by} min={notes.month} onChange={(e) => setBy(e.target.value)} /></Field>
+    <form className="flex flex-wrap items-end gap-2" onSubmit={(e) => { e.preventDefault(); save.mutate({ goal_monthly_sales: Number(goal) * 1e7 }, { onSuccess: () => setOpen(false) }); }}>
+      <Field label="All-TD goal, ₹ Cr every month"><input className="input w-24 tabular-nums" inputMode="decimal" value={goal} onChange={(e) => setGoal(e.target.value)} /></Field>
       <button className="btn btn-sm btn-primary" disabled={save.isPending}>Save</button>
       <button type="button" className="btn btn-sm" onClick={() => setOpen(false)}>Cancel</button>
       {save.error ? <InlineError error={save.error} /> : null}
@@ -122,32 +247,25 @@ function PathChart({ s, className }: { s: Scorecard; className?: string }) {
   const t = useChartTokens();
   const p = s.path;
   const option = useMemo(() => {
-    const first = s.trend[0].month;
-    const n = monthsBetween(first, p.goal_by);
-    const months = Array.from({ length: n + 1 }, (_, i) => addMonths(first, i));
-    const actual = new Map(s.trend.map((x) => [x.month, x.sales]));
-    const g = (p.monthly_growth_needed_pct ?? 0) / 100;
-    const path = months.map((m) => {
-      const k = monthsBetween(p.base_month, m);
-      return k < 0 ? null : Math.round(p.base_sales * (1 + g) ** k);
-    });
+    const months = p.months;
     return cartesian(t, {
-      x: months.map((m) => monthLabel(m) + (s.partial && m === s.month ? ' (MTD)' : '')),
+      x: months.map((m) => monthLabel(m.month) + (m.partial ? ' (MTD)' : '')),
       format: 'inr',
       legend: true,
       markLine: { value: p.goal, label: `Goal ${inr(p.goal)}` },
       yMax: Math.ceil((p.goal * 1.1) / 1e7) * 1e7,
       series: [
-        { name: 'Actual sales', data: months.map((m) => actual.get(m) ?? null), type: 'bar', color: t.series[0] },
-        { name: 'Path needed', data: path, type: 'line', dashed: true, color: t.series[1] },
+        { name: 'Sales', data: months.map((m) => m.sales), type: 'bar', stack: 'goal', color: t.series[0] },
+        { name: 'Short of the goal', data: months.map((m) => (m.partial ? null : m.short)), type: 'bar', stack: 'goal', color: t.deemph },
       ],
     });
-  }, [t, s, p]);
+  }, [t, p]);
+  const hit = p.months_at_goal;
   return (
     <ChartCard
       className={className}
-      title={`The path to ${inr(p.goal)} a month`}
-      subtitle={`Actual sales, and the ${p.monthly_growth_needed_pct ?? '–'}% a month compound path from ${p.base_label} that reaches the goal in ${p.goal_by_label}`}
+      title={`Every month against the ${inr(p.goal)} goal`}
+      subtitle={`Each bar is a month's sales; the grey part is how far it fell short of ${inr(p.goal)}. ${hit ? `${hit} month${hit === 1 ? '' : 's'} reached it.` : 'No month has reached it yet.'}`}
       option={option}
       height={280}
     />
@@ -205,8 +323,8 @@ function AdoptionTrend({ s }: { s: Scorecard }) {
         x: p.adoption_trend.map((x) => monthLabel(x.month)),
         format: 'pct',
         legend: false,
-        markLine: p.adoption_needed_pct ? { value: p.adoption_needed_pct, label: `Needed ${pct(p.adoption_needed_pct, 1)}` } : undefined,
-        yMax: p.adoption_needed_pct ? Math.ceil((p.adoption_needed_pct * 1.2) / 2) * 2 : undefined,
+        markLine: p.goal_active && p.adoption_needed_pct ? { value: p.adoption_needed_pct, label: `Needed ${pct(p.adoption_needed_pct, 1)}` } : undefined,
+        yMax: p.goal_active && p.adoption_needed_pct ? Math.ceil((p.adoption_needed_pct * 1.2) / 2) * 2 : undefined,
         series: [{ name: 'Adoption: KYC base transacting', data: p.adoption_trend.map((x) => x.adoption_pct), type: 'line', area: true, color: t.series[0] }],
       }),
     [t, p],

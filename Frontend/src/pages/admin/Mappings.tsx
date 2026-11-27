@@ -4,12 +4,14 @@ import { useCollection, useFilterOptions } from '@/api/hooks';
 import type { FilterOptions } from '@/api/types';
 import { DataTable, type Column } from '@/components/DataTable';
 import { PageHeader } from '@/components/PageHeader';
+import { RemovedDistributors } from '@/components/RemovedDistributors';
 import { Badge, Card, Field, InlineError, Modal, Tabs } from '@/components/ui';
 import { IconPlus } from '@/components/Icons';
 import { del, patch, post } from '@/lib/api';
 import { num } from '@/lib/format';
 
 type Row = Record<string, unknown> & { id: number };
+const REMOVED = 'removed_distributors';
 
 interface FieldDef {
   key: string;
@@ -234,15 +236,16 @@ function MasterTable({ def }: { def: MasterDef }) {
 export default function Mappings() {
   const [tab, setTab] = useState(MASTERS[0].key);
   const def = MASTERS.find((m) => m.key === tab) ?? MASTERS[0];
+  const tabs = [...MASTERS.map((m) => ({ value: m.key, label: m.label })), { value: REMOVED, label: 'Removed distributors' }];
   return (
     <div>
       <PageHeader title="Mappings" subtitle="Master data that drives attribution and reconciliation" showBasis={false} />
       <Card bodyClass="p-0">
         <div className="px-4 pt-2">
-          <Tabs value={tab} onChange={setTab} tabs={MASTERS.map((m) => ({ value: m.key, label: m.label }))} />
+          <Tabs value={tab} onChange={setTab} tabs={tabs} />
         </div>
         <div className="p-4">
-          <MasterTable key={def.key} def={def} />
+          {tab === REMOVED ? <RemovedDistributors /> : <MasterTable key={def.key} def={def} />}
         </div>
       </Card>
     </div>

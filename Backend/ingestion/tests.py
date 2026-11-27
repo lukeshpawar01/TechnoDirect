@@ -500,3 +500,77 @@ class RemovedDistributorTests(SupabaseImportTests):
         remove(entry)  # closing the entry lets them come back at the next refresh
         SupabaseTdImporter(fetch).run()
         self.assertEqual(Distributor.objects.filter(name="Ankit Jain").count(), 2)
+
+    def test_removed_distributor_is_hidden_but_its_history_counts(self):
+        """Removing a distributor hides it and its stock; its past orders and retailers keep counting in their
+        months, and a refresh neither brings it back nor drops its history."""
+        from ingestion.connectors.supabase import SupabaseTdImporter
+        from masters.exclusions import remove_distributors
+        from warehouse.models import Distributor, InventorySnapshot, Order, Retailer
+
+        tables = self.rows()
+
+        def fetch(sql):
+            table = sql.split(" FROM ")[1].split()[0].strip('"')
+            return tables[table]
+
+        SupabaseTdImporter(fetch).run()
+        heera = Distributor.objects.get(source_id="td:9")
+        orders = set(Order.objects.filter(distributor=heera).values_list("source_id", flat=True))
+        sales = sum(Order.objects.filter(is_qualifying=True).values_list("gross_value", flat=True))
+        retailers = Retailer.objects.count()
+        self.assertTrue(orders and InventorySnapshot.objects.filter(distributor=heera).exists())
+
+        remove_distributors([heera.id], said="remove heera")
+        heera.refresh_from_db()
+        self.assertTrue(heera.removed)
+        self.assertFalse(heera.is_active)
+        self.assertFalse(InventorySnapshot.objects.filter(distributor=heera).exists())
+        self.assertEqual(set(Order.objects.filter(distributor=heera).values_list("source_id", flat=True)), orders)
+        self.assertEqual(sum(Order.objects.filter(is_qualifying=True).values_list("gross_value", flat=True)), sales)
+        self.assertEqual(Retailer.objects.count(), retailers)
+
+        SupabaseTdImporter(fetch).run()  # the TD export still lists it: stays hidden, history stays
+        heera.refresh_from_db()
+        self.assertTrue(heera.removed and not heera.is_active)
+        self.assertFalse(InventorySnapshot.objects.filter(distributor=heera).exists())
+        self.assertEqual(set(Order.objects.filter(distributor=heera).values_list("source_id", flat=True)), orders)
+        self.assertEqual(sum(Order.objects.filter(is_qualifying=True).values_list("gross_value", flat=True)), sales)
+
+        # a removed distributor whose row went missing comes back with its orders, and is hidden again
+        Order.objects.filter(distributor=heera).delete()
+        heera.delete()
+        SupabaseTdImporter(fetch).run()
+        from masters.exclusions import apply
+        apply()
+        back = Distributor.objects.get(source_id="td:9")
+        self.assertTrue(back.removed and not back.is_active)
+        self.assertEqual(set(Order.objects.filter(distributor=back).values_list("source_id", flat=True)), orders)
+        self.assertFalse(InventorySnapshot.objects.filter(distributor=back).exists())
+
+    def test_purged_internal_distributor_loses_its_history_too(self):
+        """An internal / test account removed with purge=True: distributor, orders, sole retailers and stock all go,
+        and a refresh does not bring any of it back."""
+        from ingestion.connectors.supabase import SupabaseTdImporter
+        from masters.exclusions import remove_distributors
+        from warehouse.models import Distributor, InventorySnapshot, Order, Retailer
+
+        tables = self.rows()
+
+        def fetch(sql):
+            table = sql.split(" FROM ")[1].split()[0].strip('"')
+            return tables[table]
+
+        SupabaseTdImporter(fetch).run()
+        heera = Distributor.objects.get(source_id="td:9")
+        orders = set(Order.objects.filter(distributor=heera).values_list("source_id", flat=True))
+        others = Order.objects.exclude(distributor=heera).count()
+        remove_distributors([heera.id], said="internal account", purge=True)
+        for _ in range(2):
+            self.assertFalse(Distributor.objects.filter(source_id="td:9").exists())
+            self.assertFalse(Order.objects.filter(source_id__in=orders).exists())
+            self.assertEqual(Order.objects.count(), others)
+            self.assertFalse(InventorySnapshot.objects.filter(distributor__source_id="td:9").exists())
+            SupabaseTdImporter(fetch).run()  # the export still lists it all
+            from masters.exclusions import apply
+            apply()
